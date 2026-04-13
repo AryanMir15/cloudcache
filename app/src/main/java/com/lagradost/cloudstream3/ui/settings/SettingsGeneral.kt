@@ -390,6 +390,18 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
             return@setOnPreferenceClickListener true
         }
 
+        // Scan for Downloads
+        findPreference<androidx.preference.Preference>("scan_downloads_key")?.setOnPreferenceClickListener {
+            context?.let { ctx ->
+                com.lagradost.cloudstream3.utils.downloader.DownloadScanner.scanDownloads(ctx) { count ->
+                    activity?.runOnUiThread {
+                        showToast("Scan complete: $count entries found")
+                    }
+                }
+            }
+            return@setOnPreferenceClickListener true
+        }
+
         // Cache Management
         findPreference<androidx.preference.Preference>("cache_management_key")?.setOnPreferenceClickListener {
             activity?.navigate(R.id.action_navigation_settings_general_to_cacheManagementFragment)

@@ -66,9 +66,12 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
 
             // Convert grouped episodes to cache entries (one per anime)
             episodesByParentId.forEach { (parentId, episodes) ->
-                // Use the first episode's name as the anime name (or try to get from header cache)
-                val animeName = episodes.firstOrNull()?.name?.let { name ->
-                    // Try to extract anime name from episode name (remove "Episode X" prefix if present)
+                // Get anime name from header cache
+                val animeName = com.lagradost.cloudstream3.CloudStreamApp.getKey<DownloadObjects.DownloadHeaderCached>(
+                    com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
+                    parentId.toString()
+                )?.name ?: episodes.firstOrNull()?.name?.let { name ->
+                    // Fallback: try to extract anime name from episode name
                     name.replace(Regex("Episode \\d+.*"), "").trim().ifEmpty { name }
                 } ?: "Unknown"
 
