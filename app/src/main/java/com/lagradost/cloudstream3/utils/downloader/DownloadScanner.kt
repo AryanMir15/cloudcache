@@ -10,6 +10,7 @@ import com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE
 import com.lagradost.cloudstream3.utils.DataStore.getKeys
 import com.lagradost.cloudstream3.utils.DataStore.setKey
 import com.lagradost.cloudstream3.ui.player.extractEpisodeNumber
+import com.lagradost.cloudstream3.ui.player.generateUniqueLocalId
 import com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager
 import com.lagradost.safefile.SafeFile
 import kotlinx.coroutines.CoroutineScope
@@ -29,17 +30,37 @@ object DownloadScanner {
 
     fun clearLibraryCache(context: Context, headerId: Int) {
         try {
+            // Get all episode keys for this header first
             val episodeKeys = context.getKeys(DOWNLOAD_EPISODE_CACHE)
-            val keysToDelete = episodeKeys.filter { it.startsWith("${headerId}_") || it.startsWith("CONTENT_URI_${headerId}_") }
+            val episodesToDelete = episodeKeys.mapNotNull { key ->
+                context.getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, key)
+            }.filter { it.parentId == headerId }
             
-            keysToDelete.forEach { key ->
-                context.setKey(DOWNLOAD_EPISODE_CACHE, key, null as Any?)
+            val episodeIds = episodesToDelete.map { it.id }
+            
+            // Clear episode cache
+            episodesToDelete.forEach { ep ->
+                context.removeKey(DOWNLOAD_EPISODE_CACHE, ep.id.toString())
             }
             
-            // Also delete the header
-            context.setKey(DOWNLOAD_HEADER_CACHE, headerId.toString(), null as Any?)
+            // Clear file info for each episode
+            episodeIds.forEach { id ->
+                context.removeKey(VideoDownloadManager.KEY_DOWNLOAD_INFO, id.toString())
+                VideoDownloadManager.downloadStatus.remove(id)
+                // Clear content URI keys
+                context.removeKey("CONTENT_URI_$id")
+            }
             
-            Log.d(TAG, "Cleared cache for header ID $headerId, deleted ${keysToDelete.size} episode keys")
+            // Clear header
+            context.removeKey(DOWNLOAD_HEADER_CACHE, headerId.toString())
+            
+            // Clear backup entries too
+            episodeIds.forEach { id ->
+                context.removeKey(DOWNLOAD_EPISODE_CACHE_BACKUP, id.toString())
+            }
+            context.removeKey(DOWNLOAD_HEADER_CACHE_BACKUP, headerId.toString())
+            
+            Log.d(TAG, "Cleared cache for header ID $headerId, deleted ${episodesToDelete.size} episodes")
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing cache for header ID $headerId: ${e.message}", e)
         }
@@ -51,7 +72,9 @@ object DownloadScanner {
         basePath: String?,
         folderName: String,
         episodesByParentId: Map<Int, List<DownloadObjects.DownloadEpisodeCached>>,
-        matchingHeaderIds: Set<Int>
+        matchingHeaderIds: Set<Int>,
+        headerId: Int,
+        existingIds: Set<Int>
     ): Int {
         var foundCount = 0
         
@@ -83,19 +106,33 @@ object DownloadScanner {
                                     extraInfo = uri.toString(),
                                     basePath = basePath
                                 )
-                                context.setKey("KEY_DOWNLOAD_INFO", existingEpisode.id.toString(), fileInfo)
+                                // Use correct constant instead of string literal to match getDownloadFileInfo read path
+                                context.setKey(VideoDownloadManager.KEY_DOWNLOAD_INFO, existingEpisode.id.toString(), fileInfo)
+                                Log.d(TAG, "Cached DownloadedFileInfo with key: ${VideoDownloadManager.KEY_DOWNLOAD_INFO}/${existingEpisode.id}")
                                 
-                                // Also cache content URI for playback
-                                val contentUriKey = "CONTENT_URI_${existingEpisode.parentId}_$episodeNumber"
-                                context.setKey(DOWNLOAD_EPISODE_CACHE, contentUriKey, uri.toString())
+                                // Cache content URI in CONTENT_URI_* key (matches ResultViewModel2 behavior)
+                                val contentUriKey = "CONTENT_URI_${existingEpisode.id}"
+                                // Use path-level write instead of DOWNLOAD_EPISODE_CACHE namespace
+                                context.setKey(contentUriKey, uri.toString())
+                                Log.d(TAG, "Cached content URI with key: $contentUriKey")
                                 
                                 // Update downloadStatus map to trigger UI icon update
                                 VideoDownloadManager.downloadStatus[existingEpisode.id] = VideoDownloadManager.DownloadType.IsDone
                                 
+                                // Persist download status to storage
+                                context.setKey(
+                                    VideoDownloadManager.KEY_DOWNLOAD_STATUS,
+                                    existingEpisode.id.toString(),
+                                    VideoDownloadManager.DownloadType.IsDone.name
+                                )
+                                
                                 Log.d(TAG, "Updated episode $episodeNumber with ID ${existingEpisode.id}")
                                 foundCount++
                             } else {
-                                Log.d(TAG, "Episode $episodeNumber not found in library cache, skipping")
+                                // Episode not in library - skip it
+                                // We only update episodes that are already in the library (from the API)
+                                // because the episode list uses API episode IDs to check download status
+                                Log.d(TAG, "Episode $episodeNumber not in library, skipping (add to library first)")
                             }
                         }
                     } else {
@@ -107,7 +144,9 @@ object DownloadScanner {
                             basePath,
                             folderName,
                             episodesByParentId,
-                            matchingHeaderIds
+                            matchingHeaderIds,
+                            headerId,
+                            existingIds
                         )
                     }
                 }
@@ -148,7 +187,13 @@ object DownloadScanner {
                     .mapNotNull { CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(it) }
                     .groupBy { it.parentId }
                 
-                Log.d(TAG, "Built episode map with ${episodesByParentId.size} parent IDs")
+                // Get all existing episode IDs for collision detection
+                val existingIds = context.getKeys(DOWNLOAD_EPISODE_CACHE)
+                    .mapNotNull { CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(it) }
+                    .map { it.id }
+                    .toSet()
+                
+                Log.d(TAG, "Built episode map with ${episodesByParentId.size} parent IDs, ${existingIds.size} existing IDs")
                 
                 // Track which folder names we've already scanned to avoid duplicates
                 val scannedFolders = mutableSetOf<String>()
@@ -210,6 +255,9 @@ object DownloadScanner {
                     }
                     
                     if (files != null && files.isNotEmpty()) {
+                        // Use the first header ID for this folder (they all have the same name)
+                        val headerId = headerList.first().id
+                        
                         // Scan recursively to handle subfolders
                         foundCount += scanFolderRecursively(
                             context,
@@ -217,7 +265,9 @@ object DownloadScanner {
                             basePath,
                             folderName,
                             episodesByParentId,
-                            matchingHeaderIds
+                            matchingHeaderIds,
+                            headerId,
+                            existingIds
                         )
                     } else {
                         Log.d(TAG, "No files found for $folderName")
