@@ -95,12 +95,15 @@ class APIRepository(val api: MainAPI) {
                     for (item in cache) {
                         // 10 min save
                         if (item.hash == lookingForHash && (unixTime - item.unixTime) < 60 * 10) {
+                            android.util.Log.d("BannerCache", "CACHE HIT - Returning cached response for: $fixedUrl, backgroundPosterUrl: ${item.response.backgroundPosterUrl?.take(50)}")
                             return@withTimeout item.response
                         }
                     }
                 }
 
+                android.util.Log.d("BannerCache", "API LOAD - Loading from API for: $fixedUrl")
                 api.load(fixedUrl)?.also { response ->
+                    android.util.Log.d("BannerCache", "API LOAD SUCCESS - Got response from API, backgroundPosterUrl: ${response.backgroundPosterUrl?.take(50)}")
                     // Remove all blank tags as early as possible
                     response.tags = response.tags?.filter { it.isNotBlank() }
                     val add = SavedLoadResponse(unixTime, response, lookingForHash)

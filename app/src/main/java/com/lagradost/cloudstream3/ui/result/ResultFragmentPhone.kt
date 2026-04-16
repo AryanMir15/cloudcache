@@ -400,6 +400,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 type = originalResponse.type,
                 name = originalResponse.name,
                 poster = originalPoster,
+                backgroundPosterUrl = originalResponse.backgroundPosterUrl,
                 plot = originalPlot,
                 score = originalResponse.score?.toInt(),
                 showStatus = if (originalResponse is com.lagradost.cloudstream3.AnimeLoadResponse) originalResponse.showStatus?.name else if (originalResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse) originalResponse.showStatus?.name else null,
@@ -409,6 +410,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 actors = originalActors?.map { actorData ->
                     "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
                 },
+                tags = originalResponse.tags,
                 id = originalResponse.getId(),
                 cacheTime = System.currentTimeMillis(),
                 hasCustomPoster = false,
@@ -418,8 +420,8 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         android.util.Log.d("MetadataSwap", "Stored original metadata for undo: ${originalResponse.url}_original")
 
         // Show field selection modal dialog
-        val fieldNames = arrayOf("Plot", "Poster", "Actors", "Score", "Status", "Year")
-        val fieldChecked = booleanArrayOf(true, true, true, true, true, true) // All fields selected by default
+        val fieldNames = arrayOf("Plot", "Poster", "Banner", "Actors", "Score", "Status", "Year")
+        val fieldChecked = booleanArrayOf(true, true, true, true, true, true, true) // All fields selected by default
 
         val context = activity ?: return
         val builder = androidx.appcompat.app.AlertDialog.Builder(context)
@@ -443,6 +445,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 when (fieldName) {
                     "Plot" -> MetadataField.PLOT
                     "Poster" -> MetadataField.POSTER
+                    "Banner" -> MetadataField.BANNER
                     "Actors" -> MetadataField.ACTORS
                     "Score" -> MetadataField.SCORE
                     "Status" -> MetadataField.STATUS
@@ -518,6 +521,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 type = originalCache.type,
                 name = originalCache.name,
                 poster = originalCache.poster,
+                backgroundPosterUrl = originalCache.backgroundPosterUrl,
                 plot = originalCache.plot,
                 score = originalCache.score,
                 showStatus = originalCache.showStatus,
@@ -525,6 +529,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 episodeCount = originalCache.episodeCount,
                 date = originalCache.date,
                 actors = originalCache.actors,
+                tags = originalCache.tags,
                 id = originalCache.id,
                 cacheTime = System.currentTimeMillis(),
                 hasCustomPoster = false,
@@ -751,6 +756,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 val swappedActors = (swappedResponse as? com.lagradost.cloudstream3.AnimeLoadResponse)?.actors ?: (swappedResponse as? com.lagradost.cloudstream3.TvSeriesLoadResponse)?.actors
                 val swappedPlot = (swappedResponse as? com.lagradost.cloudstream3.AnimeLoadResponse)?.plot ?: (swappedResponse as? com.lagradost.cloudstream3.TvSeriesLoadResponse)?.plot
                 val swappedPoster = swappedResponse.posterUrl
+
                 com.lagradost.cloudstream3.CloudStreamApp.setKey(
                     com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
                     cacheKey,
@@ -760,6 +766,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         type = swappedResponse.type,
                         name = swappedResponse.name,
                         poster = swappedPoster,
+                        backgroundPosterUrl = swappedResponse.backgroundPosterUrl,
                         plot = swappedPlot,
                         score = swappedResponse.score?.toInt(),
                         showStatus = if (swappedResponse is com.lagradost.cloudstream3.AnimeLoadResponse) swappedResponse.showStatus?.name else if (swappedResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse) swappedResponse.showStatus?.name else null,
@@ -769,6 +776,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         actors = swappedActors?.map { actorData ->
                             "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
                         },
+                        tags = swappedResponse.tags,
                         id = id,
                         cacheTime = System.currentTimeMillis(),
                         hasCustomPoster = true,

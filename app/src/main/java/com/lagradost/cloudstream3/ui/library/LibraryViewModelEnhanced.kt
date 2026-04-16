@@ -202,7 +202,7 @@ class LibraryViewModelEnhanced : ViewModel() {
     
     // New method to update episode file path
     fun updateEpisodeFilePath(seriesId: String, episodeId: String, filePath: String) = viewModelScope.launch {
-        localLibraryCache.updateEpisodeFilePath(seriesId, episodeId, filePath)
+        localLibraryCache.updateEpisodeFilePath(seriesId, source = "default", episodeId = episodeId, filePath = filePath)
     }
     
     // New method to clear cache for a series

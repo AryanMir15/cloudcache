@@ -101,16 +101,25 @@ fun loadAllCachedEpisodes(parentId: Int?): List<DownloadObjects.DownloadEpisodeC
         android.util.Log.d("EpisodeConverters", "Sample cache key: $key")
     }
     
-    val allEpisodes = allKeys
-        ?.mapNotNull { key ->
-            // Keys from getKeys already include cache name prefix, so use getKey without cache name parameter
-            val data = CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(key)
-            if (data == null) {
-                android.util.Log.d("EpisodeConverters", "Failed to load cache entry for key: $key")
+    val allEpisodes = allKeys?.mapNotNull { key ->
+        // Keys from getKeys already include cache name prefix, so use getKey without cache name parameter
+        val data = CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(key)
+        when {
+            data == null -> {
+                // Corrupted entry - clean it up
+                android.util.Log.d("EpisodeConverters", "Corrupted cache entry for key: $key, cleaning up")
+                CloudStreamApp.removeKey(key)
+                null
             }
-            data
+            data.id == 0 || data.episode <= 0 -> {
+                // Invalid data - clean it up
+                android.util.Log.d("EpisodeConverters", "Invalid cache entry for key: $key (id=${data.id}, episode=${data.episode}), cleaning up")
+                CloudStreamApp.removeKey(key)
+                null
+            }
+            else -> data
         }
-        ?: emptyList()
+    } ?: emptyList()
     
     android.util.Log.d("EpisodeConverters", "loadAllCachedEpisodes: loaded ${allEpisodes.size} episodes, parentIds=${allEpisodes.map { it.parentId }.distinct()}")
     

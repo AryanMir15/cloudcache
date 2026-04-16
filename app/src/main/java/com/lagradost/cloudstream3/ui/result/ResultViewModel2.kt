@@ -151,6 +151,7 @@ data class EpisodeRange(
 enum class MetadataField(val displayName: String) {
     PLOT("Plot"),
     POSTER("Poster"),
+    BANNER("Banner"),
     ACTORS("Actors"),
     SCORE("Score"),
     STATUS("Status"),
@@ -1587,18 +1588,8 @@ class ResultViewModel2 : ViewModel() {
                                                     fileUri
                                                 }
                                                 
-                                                // Cache the content URI in a separate key
-                                                CloudStreamApp.setKey(
-                                                    "CONTENT_URI_${click.data.id}",
-                                                    actualFileUri.toString()
-                                                )
-                                                android.util.Log.d("LocalLibraryTest", "Cached content URI: $actualFileUri")
-                                                
-                                                // Clear old cache to avoid stale directory URI
-                                                CloudStreamApp.removeKey(VideoDownloadManager.KEY_DOWNLOAD_INFO, click.data.id.toString())
-                                                
-                                                // Also update the DownloadedFileInfo cache with the content URI in extraInfo
-                                                // so getDownloadFileInfo can return it directly
+                                                // First, cache the new DownloadedFileInfo (prevents race condition)
+                                                // Old data will be overwritten, no need to explicitly remove
                                                 CloudStreamApp.setKey(
                                                     VideoDownloadManager.KEY_DOWNLOAD_INFO,
                                                     click.data.id.toString(),
@@ -1613,14 +1604,18 @@ class ResultViewModel2 : ViewModel() {
                                                 )
                                                 android.util.Log.d("LocalLibraryTest", "Updated DownloadedFileInfo cache with content URI in extraInfo")
                                                 
-                                                // Update download status to IsDone so entry shows as downloaded
-                                                com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.downloadStatus[click.data.id] = 
-                                                    com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.DownloadType.IsDone
-                                                // Persist download status to storage
+                                                // Then cache the content URI in a separate key
                                                 CloudStreamApp.setKey(
-                                                    com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.KEY_DOWNLOAD_STATUS,
-                                                    click.data.id.toString(),
-                                                    com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.DownloadType.IsDone.name
+                                                    "CONTENT_URI_${click.data.id}",
+                                                    actualFileUri.toString()
+                                                )
+                                                android.util.Log.d("LocalLibraryTest", "Cached content URI: $actualFileUri")
+                                                
+                                                // Update download status to IsDone so entry shows as downloaded
+                                                com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.setDownloadStatus(
+                                                    click.data.id,
+                                                    com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.DownloadType.IsDone,
+                                                    ctx
                                                 )
                                                 android.util.Log.d("LocalLibraryTest", "Updated downloadStatus to IsDone for episode ${click.data.id}")
                                                 
@@ -1714,6 +1709,7 @@ class ResultViewModel2 : ViewModel() {
                                                 type = response?.type ?: TvType.Anime,
                                                 name = response?.name ?: "Unknown",
                                                 poster = response?.posterUrl,
+                                                backgroundPosterUrl = response?.backgroundPosterUrl,
                                                 plot = response?.plot,
                                                 score = cachedScore,
                                                 showStatus = cachedShowStatus,
@@ -1721,7 +1717,10 @@ class ResultViewModel2 : ViewModel() {
                                                 episodeCount = if (response is AnimeLoadResponse) response.episodes.values.flatten().size else if (response is TvSeriesLoadResponse) response.episodes.size else null,
                                                 date = null,
                                                 actors = cachedActors,
+                                                tags = response?.tags,
                                                 cacheTime = System.currentTimeMillis(),
+                                                hasCustomPoster = false,
+                                                hasSwappedMetadata = false,
                                                 id = parentId
                                             )
                                         )
@@ -1786,6 +1785,7 @@ class ResultViewModel2 : ViewModel() {
                                                         type = response?.type ?: TvType.Anime,
                                                         name = response?.name ?: "Unknown",
                                                         poster = response?.posterUrl,
+                                                        backgroundPosterUrl = response?.backgroundPosterUrl,
                                                         plot = response?.plot,
                                                         score = response?.score?.toInt(),
                                                         showStatus = if (response is AnimeLoadResponse) response.showStatus?.name else if (response is TvSeriesLoadResponse) response.showStatus?.name else if (response is LoadResponseFromSearch) response.showStatus?.name else null,
@@ -1793,7 +1793,10 @@ class ResultViewModel2 : ViewModel() {
                                                         episodeCount = if (response is AnimeLoadResponse) response.episodes.values.flatten().size else if (response is TvSeriesLoadResponse) response.episodes.size else null,
                                                         date = null,
                                                         actors = null,
+                                                        tags = response?.tags,
                                                         cacheTime = System.currentTimeMillis(),
+                                                        hasCustomPoster = false,
+                                                        hasSwappedMetadata = false,
                                                         id = parentId
                                                     )
                                                 )
@@ -2164,54 +2167,66 @@ class ResultViewModel2 : ViewModel() {
         fieldsToMerge: Set<MetadataField> = setOf(*MetadataField.values())
     ): LoadResponse {
         android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse called - target: ${target.name}, source: ${source.name}")
+        android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - target type: ${target::class.simpleName}, source type: ${source::class.simpleName}")
         android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - fieldsToMerge: $fieldsToMerge")
         return target.apply {
+            android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - before merge - this type: ${this::class.simpleName}, plot: ${plot?.take(30)}, actors: ${(this as? AnimeLoadResponse)?.actors?.size ?: (this as? TvSeriesLoadResponse)?.actors?.size}")
             if (MetadataField.POSTER in fieldsToMerge) {
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging POSTER - target.posterUrl: ${posterUrl?.take(30)}, source.posterUrl: ${source.posterUrl?.take(30)}")
-                posterUrl = source.posterUrl  // Always swap, don't check if target is blank
+                posterUrl = source.posterUrl
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after POSTER merge - posterUrl: ${posterUrl?.take(30)}")
+            }
+            if (MetadataField.BANNER in fieldsToMerge) {
+                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging BANNER - target.backgroundPosterUrl: ${backgroundPosterUrl?.take(30)}, source.backgroundPosterUrl: ${source.backgroundPosterUrl?.take(30)}")
+                backgroundPosterUrl = source.backgroundPosterUrl
+                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after BANNER merge - backgroundPosterUrl: ${backgroundPosterUrl?.take(30)}")
             }
             if (MetadataField.PLOT in fieldsToMerge) {
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging PLOT - target.plot: ${plot?.take(30)}, source.plot: ${source.plot?.take(30)}")
-                plot = source.plot  // Always swap, don't check if target is blank
+                plot = source.plot
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after PLOT merge - plot: ${plot?.take(30)}")
             }
             if (MetadataField.ACTORS in fieldsToMerge) {
+                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - ACTORS in fieldsToMerge, checking types - this is AnimeLoadResponse: ${this is AnimeLoadResponse}, source is AnimeLoadResponse: ${source is AnimeLoadResponse}")
+                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - this is TvSeriesLoadResponse: ${this is TvSeriesLoadResponse}, source is TvSeriesLoadResponse: ${source is TvSeriesLoadResponse}")
                 if (this is AnimeLoadResponse && source is AnimeLoadResponse) {
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging ACTORS (Anime) - target.actors: ${actors?.size}, source.actors: ${source.actors?.size}")
-                    actors = source.actors  // Always swap, don't check if target is null
+                    actors = source.actors
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after ACTORS merge - actors: ${actors?.size}")
                 } else if (this is TvSeriesLoadResponse && source is TvSeriesLoadResponse) {
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging ACTORS (TvSeries) - target.actors: ${actors?.size}, source.actors: ${source.actors?.size}")
-                    actors = source.actors  // Always swap, don't check if target is null
+                    actors = source.actors
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after ACTORS merge - actors: ${actors?.size}")
+                } else {
+                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - ACTORS merge skipped - type mismatch")
                 }
             }
             if (MetadataField.SCORE in fieldsToMerge) {
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging SCORE - target.score: $score, source.score: ${source.score}")
-                score = source.score  // Always swap, don't check if target is null
+                score = source.score
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after SCORE merge - score: $score")
             }
             if (MetadataField.YEAR in fieldsToMerge) {
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging YEAR - target.year: $year, source.year: ${source.year}")
-                year = source.year  // Always swap, don't check if target is null
+                year = source.year
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after YEAR merge - year: $year")
             }
             if (MetadataField.STATUS in fieldsToMerge) {
                 if (this is AnimeLoadResponse && source is AnimeLoadResponse) {
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging STATUS (Anime) - target.showStatus: $showStatus, source.showStatus: ${source.showStatus}")
-                    showStatus = source.showStatus  // Always swap, don't check if target is null
+                    showStatus = source.showStatus
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after STATUS merge - showStatus: $showStatus")
                 } else if (this is TvSeriesLoadResponse && source is TvSeriesLoadResponse) {
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging STATUS (TvSeries) - target.showStatus: $showStatus, source.showStatus: ${source.showStatus}")
-                    showStatus = source.showStatus  // Always swap, don't check if target is null
+                    showStatus = source.showStatus
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after STATUS merge - showStatus: $showStatus")
                 }
             }
-            // Tags are always merged for now
+            // Tags are always merged
             android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging TAGS - target.tags: ${tags?.size}, source.tags: ${source.tags?.size}")
-            tags = source.tags  // Always swap, don't check if target is null
+            tags = source.tags
             android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after TAGS merge - tags: ${tags?.size}")
+            android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after all merges - this type: ${this::class.simpleName}, plot: ${plot?.take(30)}, actors: ${(this as? AnimeLoadResponse)?.actors?.size ?: (this as? TvSeriesLoadResponse)?.actors?.size}")
         }
     }
 
@@ -2287,6 +2302,7 @@ class ResultViewModel2 : ViewModel() {
                                 type = mergedResponse.type,
                                 name = mergedResponse.name,
                                 poster = mergedPoster,
+                                backgroundPosterUrl = mergedResponse.backgroundPosterUrl,
                                 plot = mergedPlot,
                                 score = mergedResponse.score?.toInt(),
                                 showStatus = if (mergedResponse is AnimeLoadResponse) mergedResponse.showStatus?.name else if (mergedResponse is TvSeriesLoadResponse) mergedResponse.showStatus?.name else null,
@@ -2296,8 +2312,11 @@ class ResultViewModel2 : ViewModel() {
                                 actors = mergedActors?.map { actorData ->
                                     "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
                                 },
+                                tags = mergedResponse.tags,
                                 id = id,
                                 cacheTime = System.currentTimeMillis(),
+                                hasCustomPoster = true,
+                                hasSwappedMetadata = true
                             )
                         )
                     }
@@ -2328,6 +2347,7 @@ class ResultViewModel2 : ViewModel() {
                 tags = tags ?: meta.genres
                 plot = if (plot.isNullOrBlank()) meta.synopsis else plot
                 posterUrl = posterUrl ?: meta.posterUrl ?: meta.backgroundPosterUrl
+                backgroundPosterUrl = backgroundPosterUrl ?: meta.backgroundPosterUrl
                 actors = actors ?: meta.actors
 
                 if (this is EpisodeResponse) {
@@ -2507,6 +2527,7 @@ class ResultViewModel2 : ViewModel() {
                                 type = response.type,
                                 name = response.name,
                                 poster = response.posterUrl,
+                                backgroundPosterUrl = response.backgroundPosterUrl,
                                 plot = response.plot,
                                 score = response.score?.toInt(),
                                 showStatus = if (response is AnimeLoadResponse) response.showStatus?.name else if (response is TvSeriesLoadResponse) response.showStatus?.name else null,
@@ -2516,8 +2537,11 @@ class ResultViewModel2 : ViewModel() {
                                 actors = responseActors?.map { actorData ->
                                     "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
                                 },
+                                tags = response.tags,
                                 id = id,
                                 cacheTime = System.currentTimeMillis(),
+                                hasCustomPoster = false,
+                                hasSwappedMetadata = false
                             )
                         )
                     }
@@ -3234,6 +3258,7 @@ class ResultViewModel2 : ViewModel() {
         url: String,
         apiName: String
     ): LoadResponse {
+        android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Input cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
         // Parse cached actor data back to ActorData objects
         val actors = cachedHeader.actors?.map { actorDataString ->
             val parts = actorDataString.split("|")
@@ -3256,7 +3281,7 @@ class ResultViewModel2 : ViewModel() {
         }
 
         // Use LoadResponseFromSearch to avoid deprecated constructors
-        return LoadResponseFromSearch(
+        val response = LoadResponseFromSearch(
             name = cachedHeader.name,
             url = url,
             apiName = apiName,
@@ -3265,7 +3290,7 @@ class ResultViewModel2 : ViewModel() {
             year = cachedHeader.year,
             plot = cachedHeader.plot,
             score = cachedHeader.score?.let { if (it >= 0 && it <= 10) Score.from10(it) else null },
-            tags = null,
+            tags = cachedHeader.tags,
             duration = null,
             trailers = mutableListOf(),
             recommendations = null,
@@ -3273,26 +3298,30 @@ class ResultViewModel2 : ViewModel() {
             comingSoon = false,
             syncData = mutableMapOf(),
             posterHeaders = null,
-            backgroundPosterUrl = null,
+            backgroundPosterUrl = cachedHeader.backgroundPosterUrl,
             logoUrl = null,
             contentRating = null,
             uniqueUrl = url,
             id = cachedHeader.id,
             showStatus = cachedHeader.showStatus?.let { try { ShowStatus.valueOf(it) } catch (e: Exception) { null } }
         )
+        android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Output LoadResponse fields - plot: ${response.plot?.take(30)}, backgroundPosterUrl: ${response.backgroundPosterUrl?.take(30)}, tags: ${response.tags?.size}")
+        return response
     }
 
     private fun loadOfflineEpisodes(parentId: Int, cachedHeader: DownloadObjects.DownloadHeaderCached, apiName: String, validUrl: String, api: MainAPI) {
         ioSafe {
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Using DOWNLOAD_HEADER_CACHE for: ${cachedHeader.name}")
+            android.util.Log.d("CacheFlow", "Cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
             val cachedEpisodes = getKeys(DOWNLOAD_EPISODE_CACHE)
                 ?.mapNotNull { getKey<DownloadObjects.DownloadEpisodeCached>(it) }
                 ?.filter { it.parentId == parentId }
                 ?.sortedWith(compareBy<DownloadObjects.DownloadEpisodeCached> { it.season ?: 0 }
                     .thenBy { it.episode })
                 ?.distinctBy { it.episode }
-            
+
             if (cachedEpisodes.isNullOrEmpty()) {
-                android.util.Log.d("LocalLibraryTest", "No cached episodes found for parentId: $parentId, falling back to API")
+                android.util.Log.d("CacheFlow", "No cached episodes found for parentId: $parentId, falling back to API")
                 // Fall back to loading from API when no cached episodes are found
                 // This prevents infinite loading skeleton when cache is cleared
                 val repo = APIRepository(api)
@@ -3303,6 +3332,7 @@ class ResultViewModel2 : ViewModel() {
                     is Resource.Success<*> -> {
                         if (!isActive) return@ioSafe
                         val loadResponse = data.value as? LoadResponse ?: return@ioSafe
+                        android.util.Log.d("CacheFlow", "API fallback returned - plot: ${loadResponse.plot?.take(30)}, backgroundPosterUrl: ${loadResponse.backgroundPosterUrl?.take(30)}, tags: ${loadResponse.tags?.size}")
                         postSuccessful(loadResponse, cachedHeader.id, updateEpisodes = true, updateFillers = false, apiRepository = repo)
                     }
                     else -> {
@@ -3571,11 +3601,13 @@ class ResultViewModel2 : ViewModel() {
                     ?.find { it.id.toString() == url }
             
             android.util.Log.d("LocalLibraryTest", "Matched cached header: ${cachedHeader?.name} (url: ${cachedHeader?.url}, id: ${cachedHeader?.id})")
-            
+
             if (cachedHeader != null) {
-                android.util.Log.d("LocalLibraryTest", "Using cached header for: ${cachedHeader.name} (url: $url)")
+                android.util.Log.d("CacheFlow", "MAIN LOAD - Using DOWNLOAD_HEADER_CACHE for: ${cachedHeader.name} (url: $url)")
+                android.util.Log.d("CacheFlow", "Cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
                 // Create a minimal LoadResponse from cached data for local playback
                 val offlineResponse = createOfflineLoadResponse(cachedHeader, url, apiName)
+                android.util.Log.d("CacheFlow", "Created offline response - plot: ${offlineResponse.plot?.take(30)}, backgroundPosterUrl: ${offlineResponse.backgroundPosterUrl?.take(30)}, tags: ${offlineResponse.tags?.size}")
                 postSuccessful(
                     offlineResponse,
                     cachedHeader.id,
@@ -3586,7 +3618,7 @@ class ResultViewModel2 : ViewModel() {
                 // Load episodes from cache
                 loadOfflineEpisodes(cachedHeader.id, cachedHeader, apiName, validUrl, api)
             } else {
-                android.util.Log.d("LocalLibraryTest", "No cached header found, trying API")
+                android.util.Log.d("CacheFlow", "MAIN LOAD - No cached header found, calling API for: $validUrl")
                 when (val data = repo.load(validUrl)) {
                     is Resource.Failure -> {
                         _page.postValue(data)
@@ -3598,6 +3630,7 @@ class ResultViewModel2 : ViewModel() {
                         applyMeta(data.value, currentMeta, currentSync).first
                     }
                     if (!isActive) return@ioSafe
+                    android.util.Log.d("CacheFlow", "API returned - plot: ${loadResponse.plot?.take(30)}, backgroundPosterUrl: ${loadResponse.backgroundPosterUrl?.take(30)}, tags: ${loadResponse.tags?.size}")
                     val mainId = loadResponse.getId()
 
                     preferDubStatus = getDub(mainId) ?: preferDubStatus
@@ -3696,6 +3729,7 @@ class ResultViewModel2 : ViewModel() {
                                 type = loadResponse.type,
                                 name = loadResponse.name,
                                 poster = loadResponse.posterUrl,
+                                backgroundPosterUrl = loadResponse.backgroundPosterUrl,
                                 plot = loadResponse.plot,
                                 score = cachedScore,
                                 showStatus = if (loadResponse is AnimeLoadResponse) loadResponse.showStatus?.name else if (loadResponse is TvSeriesLoadResponse) loadResponse.showStatus?.name else if (loadResponse is LoadResponseFromSearch) loadResponse.showStatus?.name else null,
@@ -3705,8 +3739,11 @@ class ResultViewModel2 : ViewModel() {
                                 actors = loadResponse.actors?.map { actorData ->
                                     "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
                                 },
+                                tags = loadResponse.tags,
                                 id = mainId,
                                 cacheTime = System.currentTimeMillis(),
+                                hasCustomPoster = false,
+                                hasSwappedMetadata = false
                             )
                         )
                     }

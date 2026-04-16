@@ -208,6 +208,26 @@ object VideoDownloadManager {
     val downloadStatus = HashMap<Int, DownloadType>()
     val downloadStatusEvent = Event<Pair<Int, DownloadType>>()
     
+    /**
+     * Helper function to set download status and persist it immediately
+     * Use this instead of directly modifying downloadStatus map
+     */
+    fun setDownloadStatus(id: Int, status: DownloadType, context: Context) {
+        downloadStatus[id] = status
+        // Persist immediately to avoid stale state
+        com.lagradost.cloudstream3.CloudStreamApp.setKey(KEY_DOWNLOAD_STATUS, id.toString(), status.name)
+        downloadStatusEvent(Pair(id, status))
+    }
+    
+    /**
+     * Helper function to remove download status and persist the change
+     * Use this instead of directly removing from downloadStatus map
+     */
+    fun removeDownloadStatus(id: Int, context: Context) {
+        downloadStatus.remove(id)
+        com.lagradost.cloudstream3.CloudStreamApp.removeKey(KEY_DOWNLOAD_STATUS, id.toString())
+    }
+    
     fun loadPersistedDownloadStatus(context: Context) {
         android.util.Log.d("VideoDownloadManager", "loadPersistedDownloadStatus called")
         try {
@@ -2032,6 +2052,7 @@ object VideoDownloadManager {
                         type = downloadItem.resultType,
                         name = downloadItem.resultName,
                         poster = downloadItem.resultPoster,
+                        backgroundPosterUrl = null,
                         plot = null,
                         score = null,
                         showStatus = null,
@@ -2039,8 +2060,11 @@ object VideoDownloadManager {
                         episodeCount = null,
                         date = null,
                         actors = null,
+                        tags = null,
                         id = downloadItem.resultId,
                         cacheTime = System.currentTimeMillis(),
+                        hasCustomPoster = false,
+                        hasSwappedMetadata = false
                     )
                 )
                 setKey(

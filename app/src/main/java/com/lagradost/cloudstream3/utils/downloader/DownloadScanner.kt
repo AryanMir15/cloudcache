@@ -31,34 +31,28 @@ object DownloadScanner {
     fun clearLibraryCache(context: Context, headerId: Int) {
         try {
             // Get all episode keys for this header first
-            val episodeKeys = context.getKeys(DOWNLOAD_EPISODE_CACHE)
-            val episodesToDelete = episodeKeys.mapNotNull { key ->
-                context.getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, key)
-            }.filter { it.parentId == headerId }
+            val episodeKeys = com.lagradost.cloudstream3.CloudStreamApp.getKeys(DOWNLOAD_EPISODE_CACHE)
+            val episodesToDelete = episodeKeys?.mapNotNull { key ->
+                com.lagradost.cloudstream3.CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, key)
+            }?.filter { it.parentId == headerId } ?: emptyList()
             
             val episodeIds = episodesToDelete.map { it.id }
             
             // Clear episode cache
             episodesToDelete.forEach { ep ->
-                context.removeKey(DOWNLOAD_EPISODE_CACHE, ep.id.toString())
+                com.lagradost.cloudstream3.CloudStreamApp.removeKey(DOWNLOAD_EPISODE_CACHE, ep.id.toString())
             }
             
             // Clear file info for each episode
             episodeIds.forEach { id ->
-                context.removeKey(VideoDownloadManager.KEY_DOWNLOAD_INFO, id.toString())
+                com.lagradost.cloudstream3.CloudStreamApp.removeKey(VideoDownloadManager.KEY_DOWNLOAD_INFO, id.toString())
                 VideoDownloadManager.downloadStatus.remove(id)
                 // Clear content URI keys
-                context.removeKey("CONTENT_URI_$id")
+                com.lagradost.cloudstream3.CloudStreamApp.removeKey("CONTENT_URI_$id")
             }
             
             // Clear header
-            context.removeKey(DOWNLOAD_HEADER_CACHE, headerId.toString())
-            
-            // Clear backup entries too
-            episodeIds.forEach { id ->
-                context.removeKey(DOWNLOAD_EPISODE_CACHE_BACKUP, id.toString())
-            }
-            context.removeKey(DOWNLOAD_HEADER_CACHE_BACKUP, headerId.toString())
+            com.lagradost.cloudstream3.CloudStreamApp.removeKey(DOWNLOAD_HEADER_CACHE, headerId.toString())
             
             Log.d(TAG, "Cleared cache for header ID $headerId, deleted ${episodesToDelete.size} episodes")
         } catch (e: Exception) {
@@ -116,15 +110,8 @@ object DownloadScanner {
                                 context.setKey(contentUriKey, uri.toString())
                                 Log.d(TAG, "Cached content URI with key: $contentUriKey")
                                 
-                                // Update downloadStatus map to trigger UI icon update
-                                VideoDownloadManager.downloadStatus[existingEpisode.id] = VideoDownloadManager.DownloadType.IsDone
-                                
-                                // Persist download status to storage
-                                context.setKey(
-                                    VideoDownloadManager.KEY_DOWNLOAD_STATUS,
-                                    existingEpisode.id.toString(),
-                                    VideoDownloadManager.DownloadType.IsDone.name
-                                )
+                                // Update downloadStatus using helper to persist immediately
+                                VideoDownloadManager.setDownloadStatus(existingEpisode.id, VideoDownloadManager.DownloadType.IsDone, context)
                                 
                                 Log.d(TAG, "Updated episode $episodeNumber with ID ${existingEpisode.id}")
                                 foundCount++

@@ -76,6 +76,7 @@ class LocalLibraryCacheSimple(private val context: Context) {
     
     suspend fun cacheSeriesData(
         seriesId: String,
+        source: String = "default",
         name: String,
         posterUrl: String?,
         bannerUrl: String?,
@@ -87,8 +88,8 @@ class LocalLibraryCacheSimple(private val context: Context) {
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             // 1. Cache poster
-            val posterPath = posterUrl?.let { downloadImage(it, "posters/${seriesId}_poster.jpg") }
-            val bannerPath = bannerUrl?.let { downloadImage(it, "posters/${seriesId}_banner.jpg") }
+            val posterPath = posterUrl?.let { downloadImage(it, "posters/${source}_${seriesId}_poster.jpg") }
+            val bannerPath = bannerUrl?.let { downloadImage(it, "posters/${source}_${seriesId}_banner.jpg") }
             
             // 2. Cache series metadata
             val cachedSeries = CachedSeriesData(
@@ -104,7 +105,8 @@ class LocalLibraryCacheSimple(private val context: Context) {
                 lastRefetchedAt = System.currentTimeMillis()
             )
             
-            setKey("$SERIES_KEY_PREFIX$seriesId", cachedSeries)
+            // Include source in key to prevent collision between different sources with same ID
+            setKey("${SERIES_KEY_PREFIX}${source}_${seriesId}", cachedSeries)
             
             // 3. Cache episodes
             val cachedEpisodes = episodes.map { episode ->
@@ -125,7 +127,7 @@ class LocalLibraryCacheSimple(private val context: Context) {
                 )
             }
             
-            setKey("$EPISODES_KEY_PREFIX$seriesId", cachedEpisodes)
+            setKey("${EPISODES_KEY_PREFIX}${source}_${seriesId}", cachedEpisodes)
             
             // 4. Update cache status
             val cacheStatus = CacheStatusData(
@@ -137,7 +139,7 @@ class LocalLibraryCacheSimple(private val context: Context) {
                 lastAccessed = System.currentTimeMillis()
             )
             
-            setKey("$STATUS_KEY_PREFIX$seriesId", cacheStatus)
+            setKey("${STATUS_KEY_PREFIX}${source}_${seriesId}", cacheStatus)
             
             Result.success(Unit)
         } catch (e: Exception) {
@@ -146,8 +148,8 @@ class LocalLibraryCacheSimple(private val context: Context) {
         }
     }
     
-    fun getCachedSeries(seriesId: String): CachedSeriesData? {
-        return getKey<CachedSeriesData>("$SERIES_KEY_PREFIX$seriesId")
+    fun getCachedSeries(seriesId: String, source: String = "default"): CachedSeriesData? {
+        return getKey<CachedSeriesData>("${SERIES_KEY_PREFIX}${source}_${seriesId}")
     }
     
     fun getAllCachedSeries(): List<CachedSeriesData> {
@@ -157,23 +159,23 @@ class LocalLibraryCacheSimple(private val context: Context) {
         }?.filterNotNull() ?: emptyList()
     }
     
-    fun getCachedEpisodes(seriesId: String): List<CachedEpisodeData> {
-        return getKey<List<CachedEpisodeData>>("$EPISODES_KEY_PREFIX$seriesId") ?: emptyList()
+    fun getCachedEpisodes(seriesId: String, source: String = "default"): List<CachedEpisodeData> {
+        return getKey<List<CachedEpisodeData>>("${EPISODES_KEY_PREFIX}${source}_${seriesId}") ?: emptyList()
     }
     
-    fun updateEpisodeFilePath(seriesId: String, episodeId: String, filePath: String) {
-        val episodes = getCachedEpisodes(seriesId).toMutableList()
+    fun updateEpisodeFilePath(seriesId: String, source: String = "default", episodeId: String, filePath: String) {
+        val episodes = getCachedEpisodes(seriesId, source).toMutableList()
         val episodeIndex = episodes.indexOfFirst { it.id == episodeId }
         if (episodeIndex != -1) {
             episodes[episodeIndex] = episodes[episodeIndex].copy(filePath = filePath)
-            setKey("$EPISODES_KEY_PREFIX$seriesId", episodes)
+            setKey("${EPISODES_KEY_PREFIX}${source}_${seriesId}", episodes)
         }
     }
 
-    suspend fun updatePoster(seriesId: String, posterUrl: String?): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun updatePoster(seriesId: String, source: String = "default", posterUrl: String?, bannerUrl: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            android.util.Log.d("MetadataSwap", "updatePoster called - seriesId: $seriesId, posterUrl: $posterUrl")
-            val cachedSeries = getCachedSeries(seriesId)
+            android.util.Log.d("MetadataSwap", "updatePoster called - seriesId: $seriesId, source: $source, posterUrl: $posterUrl, bannerUrl: $bannerUrl")
+            val cachedSeries = getCachedSeries(seriesId, source)
             android.util.Log.d("MetadataSwap", "updatePoster - cachedSeries: ${cachedSeries?.name}")
             if (cachedSeries == null) {
                 android.util.Log.w("MetadataSwap", "updatePoster - Series not cached in local library")
@@ -181,26 +183,31 @@ class LocalLibraryCacheSimple(private val context: Context) {
             }
             
             // Download new poster
-            val newPosterPath = posterUrl?.let { downloadImage(it, "posters/${seriesId}_poster.jpg") }
+            val newPosterPath = posterUrl?.let { downloadImage(it, "posters/${source}_${seriesId}_poster.jpg") }
             android.util.Log.d("MetadataSwap", "updatePoster - newPosterPath: $newPosterPath")
             
-            // Update cached series data with new poster
+            // Download new banner if provided
+            val newBannerPath = bannerUrl?.let { downloadImage(it, "posters/${source}_${seriesId}_banner.jpg") }
+            android.util.Log.d("MetadataSwap", "updatePoster - newBannerPath: $newBannerPath")
+            
+            // Update cached series data with new poster and banner
             val updatedSeries = cachedSeries.copy(
                 posterPath = newPosterPath,
+                bannerPath = newBannerPath,
                 lastRefetchedAt = System.currentTimeMillis()
             )
             
-            setKey("$SERIES_KEY_PREFIX$seriesId", updatedSeries)
-            android.util.Log.d("MetadataSwap", "updatePoster - Updated cached series with new poster")
+            setKey("${SERIES_KEY_PREFIX}${source}_${seriesId}", updatedSeries)
+            android.util.Log.d("MetadataSwap", "updatePoster - Updated cached series with new poster and banner")
             
             // Update cache status
-            val cacheStatus = getCacheStatus(seriesId)
+            val cacheStatus = getCacheStatus(seriesId, source)
             if (cacheStatus != null) {
                 val updatedStatus = cacheStatus.copy(
-                    postersCached = newPosterPath != null,
+                    postersCached = newPosterPath != null || newBannerPath != null,
                     lastAccessed = System.currentTimeMillis()
                 )
-                setKey("$STATUS_KEY_PREFIX$seriesId", updatedStatus)
+                setKey("${STATUS_KEY_PREFIX}${source}_${seriesId}", updatedStatus)
             }
             
             android.util.Log.d("MetadataSwap", "updatePoster - Success")
@@ -291,18 +298,19 @@ class LocalLibraryCacheSimple(private val context: Context) {
         return totalSize
     }
     
-    fun getCacheStatus(seriesId: String): CacheStatusData? {
-        return getKey<CacheStatusData>("$STATUS_KEY_PREFIX$seriesId")
+    fun getCacheStatus(seriesId: String, source: String = "default"): CacheStatusData? {
+        return getKey<CacheStatusData>("${STATUS_KEY_PREFIX}${source}_${seriesId}")
     }
     
-    fun clearCache(seriesId: String) {
-        removeKey("$SERIES_KEY_PREFIX$seriesId")
-        removeKey("$EPISODES_KEY_PREFIX$seriesId")
-        removeKey("$STATUS_KEY_PREFIX$seriesId")
+    fun clearCache(seriesId: String, source: String = "default") {
+        removeKey("${SERIES_KEY_PREFIX}${source}_${seriesId}")
+        removeKey("${EPISODES_KEY_PREFIX}${source}_${seriesId}")
+        removeKey("${STATUS_KEY_PREFIX}${source}_${seriesId}")
         
         // Delete cached files
-        File(cacheDir, POSTERS_FOLDER).listFiles { file -> file.name.startsWith(seriesId) }?.forEach { it.delete() }
-        File(cacheDir, EPISODES_FOLDER).listFiles { file -> file.name.startsWith(seriesId) }?.forEach { it.delete() }
+        val filePrefix = "${source}_${seriesId}"
+        File(cacheDir, POSTERS_FOLDER).listFiles { file -> file.name.startsWith(filePrefix) }?.forEach { it.delete() }
+        File(cacheDir, EPISODES_FOLDER).listFiles { file -> file.name.startsWith(filePrefix) }?.forEach { it.delete() }
     }
     
     fun getTotalCacheSize(): Long {
