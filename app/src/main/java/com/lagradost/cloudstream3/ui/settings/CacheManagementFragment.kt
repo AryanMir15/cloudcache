@@ -115,7 +115,7 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
             keys?.forEach { key ->
                 val cachedData = com.lagradost.cloudstream3.CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(key)
                 if (cachedData?.parentId == parentId) {
-                    com.lagradost.cloudstream3.CloudStreamApp.removeKey(DOWNLOAD_EPISODE_CACHE, key)
+                    com.lagradost.cloudstream3.CloudStreamApp.removeKey(key)
                 }
             }
             
