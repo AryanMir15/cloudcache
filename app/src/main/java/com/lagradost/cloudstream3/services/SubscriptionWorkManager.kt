@@ -1,5 +1,12 @@
 package com.lagradost.cloudstream3.services
 
+/**
+ * DEPRECATED: This work manager is deprecated in favor of EpisodeCheckWorkManager.
+ * EpisodeCheckWorkManager provides cached-based episode checking that works offline,
+ * whereas this work manager requires online API calls to the provider.
+ * Use EpisodeCheckWorkManager for cached library approaches.
+ */
+
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent

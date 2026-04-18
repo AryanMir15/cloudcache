@@ -553,7 +553,6 @@ class LibraryFragment : BaseFragment<FragmentLibraryBinding>(
                 )
             }
         }
-
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

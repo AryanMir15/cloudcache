@@ -173,6 +173,7 @@ dependencies {
     implementation(libs.constraintlayout)
     implementation(libs.bundles.coil)
     implementation(libs.bundles.media3)
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation(libs.video)
     implementation(libs.bundles.nextlib)
 

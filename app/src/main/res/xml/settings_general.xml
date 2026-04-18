@@ -17,17 +17,26 @@
         android:title="@string/benene"
         app:summary="@string/benene_des" />
 
-    <PreferenceCategory android:title="@string/title_downloads">
+    <Preference
+        android:icon="@drawable/ic_refresh"
+        android:key="@string/episode_check_frequency_key"
+        android:title="@string/episode_check_frequency" />
+
+    <PreferenceCategory android:title="Library">
 
         <Preference
-            android:icon="@drawable/ic_baseline_language_24"
+            android:icon="@drawable/ic_baseline_folder_open_24"
             android:key="scan_downloads_key"
             android:title="Scan for Downloads" />
 
         <Preference
-            android:icon="@drawable/ic_baseline_delete_outline_24"
+            android:icon="@drawable/ic_baseline_storage_24"
             android:key="cache_management_key"
             android:title="Cache Management" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/title_downloads">
 
         <Preference
             android:icon="@drawable/netflix_download"

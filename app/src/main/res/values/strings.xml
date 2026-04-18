@@ -344,6 +344,8 @@
     <string name="video_disk_description">Causes problems if set too high on devices with low storage space, such as Android TV.</string>
     <string name="dns_pref">DNS over HTTPS</string>
     <string name="dns_pref_summary">Useful for bypassing ISP blocks</string>
+    <string name="episode_check_frequency">Episode Check Frequency</string>
+    <string name="episode_check_frequency_key">episode_check_frequency</string>
     <string name="jsdelivr_proxy">GitHub Proxy</string>
     <string name="jsdelivr_enabled">Could not reach GitHub. Turning on jsDelivr proxy…</string>
     <string name="jsdelivr_proxy_summary">Bypass blocking of raw github URLs using jsDelivr. May cause updates to be delayed by few days.</string>

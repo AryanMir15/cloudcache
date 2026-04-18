@@ -118,6 +118,10 @@ object DataStoreHelper {
             searchPreferenceTagsStrings = serializeTv(value)
         }
 
+    // Episode check preferences
+    var episodeCheckFrequencyHours by UserPreferenceDelegate("episode_check_interval", 12)
+    var episodeCheckEnabled by UserPreferenceDelegate("episode_check_enabled", true)
+
 
     private var homePreferenceStrings: List<String> by UserPreferenceDelegate(
         "home_pref_homepage",

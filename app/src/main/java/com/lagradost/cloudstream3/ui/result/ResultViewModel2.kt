@@ -155,7 +155,16 @@ enum class MetadataField(val displayName: String) {
     ACTORS("Actors"),
     SCORE("Score"),
     STATUS("Status"),
-    YEAR("Year")
+    YEAR("Year"),
+    LOGO("Logo")
+}
+
+enum class RefreshableField(val displayName: String) {
+    SCORE("Score"),
+    STATUS("Status"),
+    POSTER("Poster"),
+    BANNER("Banner"),
+    LOGO("Logo")
 }
 
 data class AutoResume(
@@ -530,6 +539,10 @@ class ResultViewModel2 : ViewModel() {
 
     val _metadataLoading: MutableLiveData<Boolean> = MutableLiveData(false)
     val metadataLoading: LiveData<Boolean> = _metadataLoading
+
+    private val _refreshError: MutableLiveData<String?> = MutableLiveData(null)
+    val refreshError: LiveData<String?> = _refreshError
+
     val episodes: LiveData<Resource<List<ResultEpisode>>?> = _episodes
 
     private val _movie: MutableLiveData<Resource<Pair<UiText, ResultEpisode>>?> =
@@ -614,6 +627,7 @@ class ResultViewModel2 : ViewModel() {
         const val TAG = "RVM2"
         var sharedOriginalResponse: LoadResponse? = null
         var sharedSwappedResponse: LoadResponse? = null
+        var sharedFieldsToSwap: Set<MetadataField>? = null
         var isMetadataSwapActive: Boolean = false
         //private const val EPISODE_RANGE_SIZE = 20
         //private const val EPISODE_RANGE_OVERLOAD = 30
@@ -2132,10 +2146,19 @@ class ResultViewModel2 : ViewModel() {
 
             android.util.Log.d("MetadataSwap", "Finding best match for name: $name, type: $type")
             val bestMatch = searchResults?.firstOrNull { result ->
-                val nameMatch = result.name.equals(name, ignoreCase = true)
+                // More lenient name matching: exact match OR substring match OR significant word overlap
+                val exactMatch = result.name.equals(name, ignoreCase = true)
+                val containsMatch = result.name.contains(name, ignoreCase = true) || name.contains(result.name, ignoreCase = true)
+                // Check for word overlap (at least 2 words match or 50% of words)
+                val resultWords = result.name.lowercase().split(Regex("[^a-zA-Z0-9]")).filter { it.isNotBlank() }
+                val nameWords = name.lowercase().split(Regex("[^a-zA-Z0-9]")).filter { it.isNotBlank() }
+                val wordOverlap = resultWords.intersect(nameWords.toSet()).size
+                val wordMatch = wordOverlap >= 2 || (resultWords.isNotEmpty() && wordOverlap >= resultWords.size * 0.5) || (nameWords.isNotEmpty() && wordOverlap >= nameWords.size * 0.5)
+
+                val nameMatch = exactMatch || containsMatch || wordMatch
                 val typeMatch = type == TvType.Movie || result.type == type
-                android.util.Log.d("MetadataSwap", "Checking match: ${result.name} vs $name (nameMatch: $nameMatch), type: ${result.type} vs $type (typeMatch: $typeMatch)")
-                Log.i(TAG, "Checking match: ${result.name} vs $name (nameMatch: $nameMatch), type: ${result.type} vs $type (typeMatch: $typeMatch)")
+                android.util.Log.d("MetadataSwap", "Checking match: ${result.name} vs $name (exactMatch: $exactMatch, containsMatch: $containsMatch, wordOverlap: $wordMatch, nameMatch: $nameMatch), type: ${result.type} vs $type (typeMatch: $typeMatch)")
+                Log.i(TAG, "Checking match: ${result.name} vs $name (exactMatch: $exactMatch, containsMatch: $containsMatch, wordOverlap: $wordMatch, nameMatch: $nameMatch), type: ${result.type} vs $type (typeMatch: $typeMatch)")
                 nameMatch && typeMatch
             }
 
@@ -2181,6 +2204,11 @@ class ResultViewModel2 : ViewModel() {
                 backgroundPosterUrl = source.backgroundPosterUrl
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after BANNER merge - backgroundPosterUrl: ${backgroundPosterUrl?.take(30)}")
             }
+            if (MetadataField.LOGO in fieldsToMerge) {
+                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging LOGO - target.logoUrl: ${logoUrl?.take(30)}, source.logoUrl: ${source.logoUrl?.take(30)}")
+                logoUrl = source.logoUrl
+                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after LOGO merge - logoUrl: ${logoUrl?.take(30)}")
+            }
             if (MetadataField.PLOT in fieldsToMerge) {
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging PLOT - target.plot: ${plot?.take(30)}, source.plot: ${source.plot?.take(30)}")
                 plot = source.plot
@@ -2189,6 +2217,7 @@ class ResultViewModel2 : ViewModel() {
             if (MetadataField.ACTORS in fieldsToMerge) {
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - ACTORS in fieldsToMerge, checking types - this is AnimeLoadResponse: ${this is AnimeLoadResponse}, source is AnimeLoadResponse: ${source is AnimeLoadResponse}")
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - this is TvSeriesLoadResponse: ${this is TvSeriesLoadResponse}, source is TvSeriesLoadResponse: ${source is TvSeriesLoadResponse}")
+                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - this is LoadResponseFromSearch: ${this is LoadResponseFromSearch}")
                 if (this is AnimeLoadResponse && source is AnimeLoadResponse) {
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging ACTORS (Anime) - target.actors: ${actors?.size}, source.actors: ${source.actors?.size}")
                     actors = source.actors
@@ -2197,8 +2226,12 @@ class ResultViewModel2 : ViewModel() {
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging ACTORS (TvSeries) - target.actors: ${actors?.size}, source.actors: ${source.actors?.size}")
                     actors = source.actors
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after ACTORS merge - actors: ${actors?.size}")
+                } else if (this is LoadResponseFromSearch && source.actors != null) {
+                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging ACTORS (LoadResponseFromSearch) - target.actors: ${actors?.size}, source.actors: ${source.actors?.size}")
+                    actors = source.actors
+                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after ACTORS merge - actors: ${actors?.size}")
                 } else {
-                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - ACTORS merge skipped - type mismatch")
+                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - ACTORS merge skipped - type mismatch or null source actors")
                 }
             }
             if (MetadataField.SCORE in fieldsToMerge) {
@@ -2212,6 +2245,9 @@ class ResultViewModel2 : ViewModel() {
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after YEAR merge - year: $year")
             }
             if (MetadataField.STATUS in fieldsToMerge) {
+                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - STATUS in fieldsToMerge, checking types - this is AnimeLoadResponse: ${this is AnimeLoadResponse}, source is AnimeLoadResponse: ${source is AnimeLoadResponse}")
+                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - this is TvSeriesLoadResponse: ${this is TvSeriesLoadResponse}, source is TvSeriesLoadResponse: ${source is TvSeriesLoadResponse}")
+                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - this is LoadResponseFromSearch: ${this is LoadResponseFromSearch}")
                 if (this is AnimeLoadResponse && source is AnimeLoadResponse) {
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging STATUS (Anime) - target.showStatus: $showStatus, source.showStatus: ${source.showStatus}")
                     showStatus = source.showStatus
@@ -2220,12 +2256,19 @@ class ResultViewModel2 : ViewModel() {
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging STATUS (TvSeries) - target.showStatus: $showStatus, source.showStatus: ${source.showStatus}")
                     showStatus = source.showStatus
                     android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after STATUS merge - showStatus: $showStatus")
+                } else if (this is LoadResponseFromSearch && source is AnimeLoadResponse) {
+                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging STATUS (LoadResponseFromSearch from Anime) - target.showStatus: $showStatus, source.showStatus: ${source.showStatus}")
+                    showStatus = source.showStatus
+                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after STATUS merge - showStatus: $showStatus")
+                } else if (this is LoadResponseFromSearch && source is TvSeriesLoadResponse) {
+                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging STATUS (LoadResponseFromSearch from TvSeries) - target.showStatus: $showStatus, source.showStatus: ${source.showStatus}")
+                    showStatus = source.showStatus
+                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after STATUS merge - showStatus: $showStatus")
+                } else {
+                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - STATUS merge skipped - type mismatch")
                 }
             }
-            // Tags are always merged
-            android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging TAGS - target.tags: ${tags?.size}, source.tags: ${source.tags?.size}")
-            tags = source.tags
-            android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after TAGS merge - tags: ${tags?.size}")
+            // Tags are not part of swap functionality, so don't merge them here
             android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after all merges - this type: ${this::class.simpleName}, plot: ${plot?.take(30)}, actors: ${(this as? AnimeLoadResponse)?.actors?.size ?: (this as? TvSeriesLoadResponse)?.actors?.size}")
         }
     }
@@ -2236,16 +2279,18 @@ class ResultViewModel2 : ViewModel() {
         }
     }
 
-    fun refreshMetadata(providerName: String? = null, fieldsToMerge: Set<MetadataField> = setOf(*MetadataField.values())) {
+    fun refreshMetadata(providerName: String? = null) {
         viewModelScope.launchSafe {
             currentResponse?.let { response ->
                 Log.i(TAG, "Manual metadata refresh for: ${response.name}")
+                _refreshError.value = null // Clear previous error
 
                 // If no provider specified, show selection UI
                 if (providerName == null) {
                     val metaProviders = getAvailableMetaProviders()
                     if (metaProviders.isEmpty()) {
                         Log.w(TAG, "No MetaProviders available")
+                        _refreshError.value = "No metadata providers available"
                         return@launchSafe
                     }
 
@@ -2254,6 +2299,79 @@ class ResultViewModel2 : ViewModel() {
                     return@launchSafe
                 }
 
+                // Get existing cache to check for swapped fields
+                val cacheKeyForSwap = response.url
+                val existingCache = getKey<DownloadObjects.DownloadHeaderCached>(
+                    DOWNLOAD_HEADER_CACHE,
+                    cacheKeyForSwap
+                )
+
+                // Determine which fields to update based on current response
+                // If a field is null, pull it from provider (full refresh for broken entries)
+                // If a field is not null, only pull refreshable fields
+                val allFields: Set<MetadataField> = MetadataField.values().toSet()
+                val refreshableFields: Set<MetadataField> = RefreshableField.values().map { refreshableField ->
+                    when (refreshableField) {
+                        RefreshableField.SCORE -> MetadataField.SCORE
+                        RefreshableField.STATUS -> MetadataField.STATUS
+                        RefreshableField.POSTER -> MetadataField.POSTER
+                        RefreshableField.BANNER -> MetadataField.BANNER
+                        RefreshableField.LOGO -> MetadataField.LOGO
+                    }
+                }.toSet()
+
+                // Check which fields are null in current response
+                val nullFields = mutableSetOf<MetadataField>()
+                if (response.posterUrl.isNullOrBlank()) nullFields.add(MetadataField.POSTER)
+                if (response.backgroundPosterUrl.isNullOrBlank()) nullFields.add(MetadataField.BANNER)
+                if (response.logoUrl.isNullOrBlank()) nullFields.add(MetadataField.LOGO)
+                if (response.plot.isNullOrBlank()) nullFields.add(MetadataField.PLOT)
+                if (response.score == null) nullFields.add(MetadataField.SCORE)
+                if (response.year == null) nullFields.add(MetadataField.YEAR)
+
+                val statusNull = when (response) {
+                    is AnimeLoadResponse -> response.showStatus == null
+                    is TvSeriesLoadResponse -> response.showStatus == null
+                    else -> true
+                }
+                if (statusNull) nullFields.add(MetadataField.STATUS)
+
+                val actorsNull = when (response) {
+                    is AnimeLoadResponse -> response.actors.isNullOrEmpty()
+                    is TvSeriesLoadResponse -> response.actors.isNullOrEmpty()
+                    else -> true
+                }
+                if (actorsNull) nullFields.add(MetadataField.ACTORS)
+
+                // For null fields, include all fields. For non-null fields, only include refreshable fields
+                val fieldsToConsider = mutableSetOf<MetadataField>()
+                for (field in MetadataField.values()) {
+                    val isNull = field in nullFields
+                    val isRefreshable = field == MetadataField.SCORE || field == MetadataField.STATUS || field == MetadataField.POSTER || field == MetadataField.BANNER || field == MetadataField.LOGO
+                    if (isNull || isRefreshable) {
+                        fieldsToConsider.add(field)
+                    }
+                }
+
+                // Determine non-swapped fields to update
+                val fieldsToUpdate = mutableSetOf<MetadataField>()
+                if (existingCache?.hasSwappedMetadata == true) {
+                    val swappedFields = existingCache.swappedFields.mapNotNull {
+                        try { MetadataField.valueOf(it) } catch (e: IllegalArgumentException) { null }
+                    }.toSet()
+                    for (field in fieldsToConsider) {
+                        if (field !in swappedFields) {
+                            fieldsToUpdate.add(field)
+                        }
+                    }
+                } else {
+                    for (field in fieldsToConsider) {
+                        fieldsToUpdate.add(field)
+                    }
+                }
+
+                Log.i(TAG, "Refresh metadata - null fields: $nullFields, updating fields: $fieldsToUpdate, swapped fields: ${existingCache?.swappedFields}")
+
                 // Fetch metadata with 30-second timeout
                 val metadata = try {
                     withTimeout(30_000) {
@@ -2261,9 +2379,11 @@ class ResultViewModel2 : ViewModel() {
                     }
                 } catch (e: TimeoutCancellationException) {
                     Log.e(TAG, "Request took too long to respond")
+                    _refreshError.value = "Request timed out"
                     null
                 } catch (e: Exception) {
                     Log.e(TAG, "Exception fetching metadata: ${e.message}", e)
+                    _refreshError.value = "Failed to fetch metadata: ${e.message}"
                     null
                 }
 
@@ -2271,31 +2391,25 @@ class ResultViewModel2 : ViewModel() {
                     val actorsCount = (metadata as? AnimeLoadResponse)?.actors?.size ?: (metadata as? TvSeriesLoadResponse)?.actors?.size
                     val plotPreview = (metadata as? AnimeLoadResponse)?.plot?.take(30) ?: (metadata as? TvSeriesLoadResponse)?.plot?.take(30)
                     Log.i(TAG, "Successfully refreshed metadata from $providerName - actors: $actorsCount, plot: $plotPreview")
-                    val mergedResponse = mergeMetadataFromLoadResponse(response, metadata, fieldsToMerge)
-                    
-                    // Handle poster and actors separately since they're not in merge function
-                    if (MetadataField.POSTER in fieldsToMerge) {
+                    val mergedResponse = mergeMetadataFromLoadResponse(response, metadata, fieldsToUpdate)
+
+                    // Handle poster separately since it's not in merge function
+                    if (MetadataField.POSTER in fieldsToUpdate) {
                         mergedResponse.posterUrl = metadata.posterUrl
                     }
-                    if (MetadataField.ACTORS in fieldsToMerge) {
-                        if (mergedResponse is AnimeLoadResponse && metadata is AnimeLoadResponse) {
-                            mergedResponse.actors = metadata.actors
-                        } else if (mergedResponse is TvSeriesLoadResponse && metadata is TvSeriesLoadResponse) {
-                            mergedResponse.actors = metadata.actors
-                        }
-                    }
-                    
+
                     currentResponse = mergedResponse
 
-                    // Update cache with new metadata and poster
+                    // Update cache with new metadata while preserving swapped fields
                     currentId?.let { id ->
                         val mergedActors = (mergedResponse as? AnimeLoadResponse)?.actors ?: (mergedResponse as? TvSeriesLoadResponse)?.actors
                         val mergedPlot = (mergedResponse as? AnimeLoadResponse)?.plot ?: (mergedResponse as? TvSeriesLoadResponse)?.plot
                         val mergedPoster = mergedResponse.posterUrl
+                        val mergedLogo = mergedResponse.logoUrl
 
                         setKey(
                             DOWNLOAD_HEADER_CACHE,
-                            id.toString(),
+                            cacheKeyForSwap,
                             DownloadObjects.DownloadHeaderCached(
                                 apiName = mergedResponse.apiName,
                                 url = mergedResponse.url,
@@ -2303,6 +2417,7 @@ class ResultViewModel2 : ViewModel() {
                                 name = mergedResponse.name,
                                 poster = mergedPoster,
                                 backgroundPosterUrl = mergedResponse.backgroundPosterUrl,
+                                logoUrl = mergedLogo,
                                 plot = mergedPlot,
                                 score = mergedResponse.score?.toInt(),
                                 showStatus = if (mergedResponse is AnimeLoadResponse) mergedResponse.showStatus?.name else if (mergedResponse is TvSeriesLoadResponse) mergedResponse.showStatus?.name else null,
@@ -2315,8 +2430,9 @@ class ResultViewModel2 : ViewModel() {
                                 tags = mergedResponse.tags,
                                 id = id,
                                 cacheTime = System.currentTimeMillis(),
-                                hasCustomPoster = true,
-                                hasSwappedMetadata = true
+                                hasCustomPoster = existingCache?.hasCustomPoster ?: false,
+                                hasSwappedMetadata = existingCache?.hasSwappedMetadata ?: false,
+                                swappedFields = existingCache?.swappedFields ?: emptySet()
                             )
                         )
                     }
@@ -2326,6 +2442,7 @@ class ResultViewModel2 : ViewModel() {
                     }
                 } else {
                     Log.w(TAG, "Failed to fetch metadata from $providerName")
+                    _refreshError.value = "Failed to fetch metadata from $providerName"
                 }
             }
         }
@@ -2514,7 +2631,10 @@ class ResultViewModel2 : ViewModel() {
                 )
                 val hasNewActors = existingCachedHeader?.actors == null || existingCachedHeader.actors.isNullOrEmpty()
                 
-                if (hasNewActors) {
+                // Don't overwrite cache if user has swapped metadata
+                val hasSwappedMetadata = existingCachedHeader?.hasSwappedMetadata == true
+                
+                if (hasNewActors && !hasSwappedMetadata) {
                     Log.i(TAG, "Updating cache with AniList sync metadata - actors: ${metaActors.size}")
                     value?.let { response ->
                         val responseActors = response.actors
@@ -2545,6 +2665,8 @@ class ResultViewModel2 : ViewModel() {
                             )
                         )
                     }
+                } else if (hasSwappedMetadata) {
+                    Log.i(TAG, "Skipping cache update - user has swapped metadata")
                 }
             }
         }
@@ -3299,13 +3421,13 @@ class ResultViewModel2 : ViewModel() {
             syncData = mutableMapOf(),
             posterHeaders = null,
             backgroundPosterUrl = cachedHeader.backgroundPosterUrl,
-            logoUrl = null,
+            logoUrl = cachedHeader.logoUrl,
             contentRating = null,
             uniqueUrl = url,
             id = cachedHeader.id,
             showStatus = cachedHeader.showStatus?.let { try { ShowStatus.valueOf(it) } catch (e: Exception) { null } }
         )
-        android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Output LoadResponse fields - plot: ${response.plot?.take(30)}, backgroundPosterUrl: ${response.backgroundPosterUrl?.take(30)}, tags: ${response.tags?.size}")
+        android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Output LoadResponse fields - plot: ${response.plot?.take(30)}, backgroundPosterUrl: ${response.backgroundPosterUrl?.take(30)}, tags: ${response.tags?.size}, actors: ${response.actors?.size}")
         return response
     }
 
@@ -3682,13 +3804,19 @@ class ResultViewModel2 : ViewModel() {
 
                     // Check for swapped metadata in cache and merge it into provider response
                     // This ensures swapped metadata (plot, status, cast) persists across reloads
-                    val swappedCache = getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, validUrl)
-                    val finalResponse = if (swappedCache?.hasCustomPoster == true) {
-                        android.util.Log.d("MetadataSwap", "Found swapped metadata in cache for url: $validUrl, merging into provider response")
+                    // Use the same cache key logic as when storing swapped metadata
+                    val cacheKeyForSwap = currentResponse?.url ?: validUrl
+                    val swappedCache = getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, cacheKeyForSwap)
+                    val finalResponse = if (swappedCache?.hasSwappedMetadata == true && swappedCache.swappedFields.isNotEmpty()) {
+                        android.util.Log.d("MetadataSwap", "Found swapped metadata in cache for url: $cacheKeyForSwap, swappedFields: ${swappedCache.swappedFields}")
                         // Create LoadResponse from swapped cache to merge with provider response
-                        val swappedResponse = createOfflineLoadResponse(swappedCache, validUrl, apiName)
-                        // Merge swapped metadata into provider response
-                        mergeMetadataFromLoadResponse(response, swappedResponse)
+                        val swappedResponse = createOfflineLoadResponse(swappedCache, cacheKeyForSwap, apiName)
+                        // Convert swapped field names back to MetadataField enum
+                        val swappedMetadataFields = swappedCache.swappedFields.mapNotNull { fieldName ->
+                            try { MetadataField.valueOf(fieldName) } catch (e: IllegalArgumentException) { null }
+                        }.toSet()
+                        // Merge only the swapped metadata fields into provider response
+                        mergeMetadataFromLoadResponse(response, swappedResponse, swappedMetadataFields)
                     } else {
                         response
                     }
@@ -3720,6 +3848,45 @@ class ResultViewModel2 : ViewModel() {
                     android.util.Log.d("LocalLibraryTest", "LoadResponse actors: ${loadResponse.actors?.size}, plot: ${loadResponse.plot?.take(30)}, score: ${loadResponse.score}")
                     
                     if (shouldCache) {
+                        // Preserve swapped fields from existing cache if they exist
+                        val preservedPoster = if (existingCachedHeader?.hasSwappedMetadata == true && "POSTER" in existingCachedHeader.swappedFields) {
+                            existingCachedHeader.poster
+                        } else {
+                            loadResponse.posterUrl
+                        }
+                        val preservedBanner = if (existingCachedHeader?.hasSwappedMetadata == true && "BANNER" in existingCachedHeader.swappedFields) {
+                            existingCachedHeader.backgroundPosterUrl
+                        } else {
+                            loadResponse.backgroundPosterUrl
+                        }
+                        val preservedPlot = if (existingCachedHeader?.hasSwappedMetadata == true && "PLOT" in existingCachedHeader.swappedFields) {
+                            existingCachedHeader.plot
+                        } else {
+                            loadResponse.plot
+                        }
+                        val preservedActors = if (existingCachedHeader?.hasSwappedMetadata == true && "ACTORS" in existingCachedHeader.swappedFields) {
+                            existingCachedHeader.actors
+                        } else {
+                            loadResponse.actors?.map { actorData ->
+                                "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
+                            }
+                        }
+                        val preservedScore = if (existingCachedHeader?.hasSwappedMetadata == true && "SCORE" in existingCachedHeader.swappedFields) {
+                            existingCachedHeader.score
+                        } else {
+                            cachedScore
+                        }
+                        val preservedYear = if (existingCachedHeader?.hasSwappedMetadata == true && "YEAR" in existingCachedHeader.swappedFields) {
+                            existingCachedHeader.year
+                        } else {
+                            loadResponse.year
+                        }
+                        val preservedStatus = if (existingCachedHeader?.hasSwappedMetadata == true && "STATUS" in existingCachedHeader.swappedFields) {
+                            existingCachedHeader.showStatus
+                        } else {
+                            if (loadResponse is AnimeLoadResponse) loadResponse.showStatus?.name else if (loadResponse is TvSeriesLoadResponse) loadResponse.showStatus?.name else if (loadResponse is LoadResponseFromSearch) loadResponse.showStatus?.name else null
+                        }
+                        
                         setKey(
                             DOWNLOAD_HEADER_CACHE,
                             mainId.toString(),
@@ -3728,22 +3895,21 @@ class ResultViewModel2 : ViewModel() {
                                 url = validUrl,
                                 type = loadResponse.type,
                                 name = loadResponse.name,
-                                poster = loadResponse.posterUrl,
-                                backgroundPosterUrl = loadResponse.backgroundPosterUrl,
-                                plot = loadResponse.plot,
-                                score = cachedScore,
-                                showStatus = if (loadResponse is AnimeLoadResponse) loadResponse.showStatus?.name else if (loadResponse is TvSeriesLoadResponse) loadResponse.showStatus?.name else if (loadResponse is LoadResponseFromSearch) loadResponse.showStatus?.name else null,
-                                year = loadResponse.year,
+                                poster = preservedPoster,
+                                backgroundPosterUrl = preservedBanner,
+                                plot = preservedPlot,
+                                score = preservedScore,
+                                showStatus = preservedStatus,
+                                year = preservedYear,
                                 episodeCount = if (loadResponse is AnimeLoadResponse) loadResponse.episodes.values.flatten().size else if (loadResponse is TvSeriesLoadResponse) loadResponse.episodes.size else null,
                                 date = null,
-                                actors = loadResponse.actors?.map { actorData ->
-                                    "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
-                                },
+                                actors = preservedActors,
                                 tags = loadResponse.tags,
                                 id = mainId,
                                 cacheTime = System.currentTimeMillis(),
-                                hasCustomPoster = false,
-                                hasSwappedMetadata = false
+                                hasCustomPoster = existingCachedHeader?.hasCustomPoster ?: false,
+                                hasSwappedMetadata = existingCachedHeader?.hasSwappedMetadata ?: false,
+                                swappedFields = existingCachedHeader?.swappedFields ?: emptySet()
                             )
                         )
                     }

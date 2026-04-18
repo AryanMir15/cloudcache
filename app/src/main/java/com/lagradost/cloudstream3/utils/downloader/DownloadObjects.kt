@@ -96,6 +96,7 @@ object DownloadObjects {
         @JsonProperty("name") val name: String,
         @JsonProperty("poster") val poster: String?,
         @JsonProperty("backgroundPosterUrl") val backgroundPosterUrl: String? = null,
+        @JsonProperty("logoUrl") val logoUrl: String? = null,
         @JsonProperty("plot") val plot: String?,
         @JsonProperty("score") val score: Int?,
         @JsonProperty("showStatus") val showStatus: String?,
@@ -107,6 +108,15 @@ object DownloadObjects {
         @JsonProperty("cacheTime") val cacheTime: Long,
         @JsonProperty("hasCustomPoster") val hasCustomPoster: Boolean = false,
         @JsonProperty("hasSwappedMetadata") val hasSwappedMetadata: Boolean = false,
+        @JsonProperty("swappedFields") val swappedFields: Set<String> = emptySet(),
+        @JsonProperty("originalPoster") val originalPoster: String? = null,
+        @JsonProperty("originalBanner") val originalBanner: String? = null,
+        @JsonProperty("originalLogo") val originalLogo: String? = null,
+        @JsonProperty("originalPlot") val originalPlot: String? = null,
+        @JsonProperty("originalActors") val originalActors: List<String>? = null,
+        @JsonProperty("originalScore") val originalScore: Int? = null,
+        @JsonProperty("originalYear") val originalYear: Int? = null,
+        @JsonProperty("originalShowStatus") val originalShowStatus: String? = null,
         override val id: Int,
     ) : DownloadCached(id)
 

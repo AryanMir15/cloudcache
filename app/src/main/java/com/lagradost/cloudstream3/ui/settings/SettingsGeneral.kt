@@ -408,6 +408,45 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
             return@setOnPreferenceClickListener true
         }
 
+        // Episode Check Configuration
+        getPref(R.string.episode_check_frequency_key)?.setOnPreferenceClickListener {
+            val frequencyOptions = arrayOf("6 hours", "12 hours", "24 hours", "Never")
+            val frequencyValues = arrayOf(6, 12, 24, 0)
+            val currentFrequency = com.lagradost.cloudstream3.utils.DataStoreHelper.episodeCheckFrequencyHours
+            val currentIndex = frequencyValues.indexOf(currentFrequency)
+
+            activity?.showDialog(
+                frequencyOptions.toList(),
+                currentIndex,
+                getString(R.string.episode_check_frequency),
+                true,
+                {}) { selectedIndex ->
+                val selectedFrequency = frequencyValues[selectedIndex]
+                com.lagradost.cloudstream3.utils.DataStoreHelper.episodeCheckFrequencyHours = selectedFrequency
+                
+                // Update or cancel the work based on selection
+                if (selectedFrequency == 0) {
+                    com.lagradost.cloudstream3.services.EpisodeCheckWorkManager.cancelWork(context)
+                } else {
+                    com.lagradost.cloudstream3.services.EpisodeCheckWorkManager.enqueuePeriodicWork(context, selectedFrequency)
+                }
+                
+                it.summary = if (selectedFrequency == 0) {
+                    "Never"
+                } else {
+                    "$selectedFrequency hours"
+                }
+            }
+            return@setOnPreferenceClickListener true
+        }
+
+        getPref(R.string.episode_check_frequency_key)?.summary = 
+            if (com.lagradost.cloudstream3.utils.DataStoreHelper.episodeCheckFrequencyHours == 0) {
+                "Never"
+            } else {
+                "${com.lagradost.cloudstream3.utils.DataStoreHelper.episodeCheckFrequencyHours} hours"
+            }
+
         try {
             beneneCount =
                 settingsManager.getInt(getString(R.string.benene_count), 0)

@@ -1455,8 +1455,7 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
                         if (newStatus == null) return@toggleSubscriptionStatus
 
                         val message = if (newStatus) {
-                            // Kinda icky to have this here, but it works.
-                            SubscriptionWorkManager.enqueuePeriodicWork(context)
+                            // Episode check is now handled by EpisodeCheckWorkManager with configurable frequency
                             R.string.subscription_new
                         } else {
                             R.string.subscription_deleted

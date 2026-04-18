@@ -136,6 +136,12 @@ class LibraryViewModel : ViewModel() {
         }
     }
 
+    fun refreshWholeLibrary(context: android.content.Context) {
+        // This will be called from the UI with confirmation dialog
+        // The actual refresh logic will be implemented in the UI layer
+        // This method is a placeholder for future enhancement
+    }
+
     init {
         MainActivity.reloadLibraryEvent += ::reloadPages
     }
