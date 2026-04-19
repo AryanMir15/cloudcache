@@ -314,7 +314,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             }
             activity?.showBottomDialog(
                 metaProviders,
-                0,
+                -1,
                 "Select metadata source",
                 false,
                 {},
@@ -384,11 +384,12 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
         // Observe metadata swap mode to show/hide swap metadata FAB
         viewModel.isMetadataSwapMode.observe(viewLifecycleOwner) { isSwapMode ->
-            android.util.Log.d("MetadataSwap", "isMetadataSwapMode changed: $isSwapMode, button visibility: ${if (isSwapMode) "VISIBLE" else "GONE"}")
+            val isLibraryEntry = getStoredData() != null
+            android.util.Log.d("MetadataSwap", "isMetadataSwapMode changed: $isSwapMode, isLibraryEntry: $isLibraryEntry, button visibility: ${if (isSwapMode && isLibraryEntry) "VISIBLE" else "GONE"}")
             android.util.Log.d("MetadataSwap", "resultSwapMetadataFab is null: ${binding?.resultSwapMetadataFab == null}")
-            binding?.resultSwapMetadataFab?.visibility = if (isSwapMode) android.view.View.VISIBLE else android.view.View.GONE
+            binding?.resultSwapMetadataFab?.visibility = if (isSwapMode && isLibraryEntry) android.view.View.VISIBLE else android.view.View.GONE
             // Hide bookmark FAB when in metadata swap mode to prevent overlap
-            binding?.resultBookmarkFab?.visibility = if (isSwapMode) android.view.View.GONE else android.view.View.VISIBLE
+            binding?.resultBookmarkFab?.visibility = if (isSwapMode && isLibraryEntry) android.view.View.GONE else android.view.View.VISIBLE
         }
 
         // Check cache for swapped metadata to show/hide undo button
@@ -1944,6 +1945,11 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
     override fun onPause() {
         super.onPause()
+        // Clear metadata swap mode when navigating away within QuickSearchFragment
+        if (com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive) {
+            android.util.Log.d("MetadataSwap", "onPause - Clearing isMetadataSwapMode")
+            viewModel.setMetadataSwapMode(false)
+        }
         PanelsChildGestureRegionObserver.Provider.get()
             .addGestureRegionsUpdateListener(gestureRegionsListener)
     }

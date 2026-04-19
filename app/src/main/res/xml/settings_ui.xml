@@ -35,7 +35,7 @@
             app:showSeekBarValue="true" />
 
         <SeekBarPreference
-            android:defaultValue="0"
+            android:defaultValue="4"
             android:icon="@drawable/baseline_grid_view_24"
             android:key="@string/poster_size_key"
             android:max="15"
@@ -47,7 +47,7 @@
             app:showSeekBarValue="true" />
 
         <SeekBarPreference
-            android:defaultValue="0"
+            android:defaultValue="4"
             android:icon="@drawable/baseline_grid_view_24"
             android:key="@string/library_poster_size_key"
             android:max="15"
