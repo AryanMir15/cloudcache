@@ -70,6 +70,7 @@ object DownloadObjects {
         @JsonProperty("description") val description: String?,
         @JsonProperty("date") val date: Long?,
         @JsonProperty("cacheTime") val cacheTime: Long,
+        @JsonProperty("dubStatus") val dubStatus: String? = null,
         @JsonProperty("data") val data: String? = null,
         override val id: Int,
     ) : DownloadCached(id) {
@@ -92,6 +93,7 @@ object DownloadObjects {
     data class DownloadHeaderCached(
         @JsonProperty("apiName") val apiName: String,
         @JsonProperty("url") val url: String,
+        @JsonProperty("originalUrl") val originalUrl: String? = null, // Immutable target URL for cache key
         @JsonProperty("type") val type: TvType,
         @JsonProperty("name") val name: String,
         @JsonProperty("poster") val poster: String?,

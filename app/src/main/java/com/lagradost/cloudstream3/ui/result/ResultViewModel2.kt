@@ -491,10 +491,10 @@ class ResultViewModel2 : ViewModel() {
 
     fun swapAllMetadata(target: LoadResponse, source: LoadResponse, fieldsToSwap: Set<MetadataField> = setOf(*MetadataField.values())): LoadResponse {
         android.util.Log.d("MetadataSwap", "swapAllMetadata called - target: ${target.name}, source: ${source.name}, fieldsToSwap: $fieldsToSwap")
-        android.util.Log.d("MetadataSwap", "swapAllMetadata - target actors: ${(target as? AnimeLoadResponse)?.actors?.size ?: (target as? TvSeriesLoadResponse)?.actors?.size}, source actors: ${(source as? AnimeLoadResponse)?.actors?.size ?: (source as? TvSeriesLoadResponse)?.actors?.size}")
-        android.util.Log.d("MetadataSwap", "swapAllMetadata - target plot: ${(target as? AnimeLoadResponse)?.plot?.take(30) ?: (target as? TvSeriesLoadResponse)?.plot?.take(30)}, source plot: ${(source as? AnimeLoadResponse)?.plot?.take(30) ?: (source as? TvSeriesLoadResponse)?.plot?.take(30)}")
+        android.util.Log.d("MetadataSwap", "swapAllMetadata - target actors: ${target.actors?.size}, source actors: ${source.actors?.size}")
+        android.util.Log.d("MetadataSwap", "swapAllMetadata - target plot: ${target.plot?.take(30)}, source plot: ${source.plot?.take(30)}")
         val result = mergeMetadataFromLoadResponse(target, source, fieldsToMerge = fieldsToSwap)
-        android.util.Log.d("MetadataSwap", "swapAllMetadata - result actors: ${(result as? AnimeLoadResponse)?.actors?.size ?: (result as? TvSeriesLoadResponse)?.actors?.size}, result plot: ${(result as? AnimeLoadResponse)?.plot?.take(30) ?: (result as? TvSeriesLoadResponse)?.plot?.take(30)}")
+        android.util.Log.d("MetadataSwap", "swapAllMetadata - result actors: ${result.actors?.size}, result plot: ${result.plot?.take(30)}")
         return result
     }
 
@@ -629,6 +629,8 @@ class ResultViewModel2 : ViewModel() {
         var sharedSwappedResponse: LoadResponse? = null
         var sharedFieldsToSwap: Set<MetadataField>? = null
         var isMetadataSwapActive: Boolean = false
+        // Feature flag for new swap system - disabled until compilation errors are fixed
+        const val USE_NEW_SWAP_SYSTEM = false
         //private const val EPISODE_RANGE_SIZE = 20
         //private const val EPISODE_RANGE_OVERLOAD = 30
 
@@ -2162,13 +2164,29 @@ class ResultViewModel2 : ViewModel() {
                 nameMatch && typeMatch
             }
 
-            if (bestMatch != null) {
-                android.util.Log.d("MetadataSwap", "Best match found: ${bestMatch.name}, loading from URL: ${bestMatch.url}")
-                Log.i(TAG, "Best match found: ${bestMatch.name}, loading from URL: ${bestMatch.url}")
-                android.util.Log.d("MetadataSwap", "Calling providerApi.load with URL: ${bestMatch.url}")
-                val loadResponse = providerApi.load(bestMatch.url)
-                val actorsCount = (loadResponse as? AnimeLoadResponse)?.actors?.size ?: (loadResponse as? TvSeriesLoadResponse)?.actors?.size
-                val plotPreview = (loadResponse as? AnimeLoadResponse)?.plot?.take(30) ?: (loadResponse as? TvSeriesLoadResponse)?.plot?.take(30)
+            // If no good match found but we have results, use the first result of the correct type
+            val finalMatch = if (bestMatch == null && searchResults?.isNotEmpty() == true) {
+                val firstOfTypeMatch = searchResults.firstOrNull { result ->
+                    type == TvType.Movie || result.type == type
+                }
+                if (firstOfTypeMatch != null) {
+                    android.util.Log.w("MetadataSwap", "No good name match found, using first result of correct type: ${firstOfTypeMatch.name}")
+                    Log.w(TAG, "No good name match found, using first result of correct type: ${firstOfTypeMatch.name}")
+                    firstOfTypeMatch
+                } else {
+                    bestMatch
+                }
+            } else {
+                bestMatch
+            }
+
+            if (finalMatch != null) {
+                android.util.Log.d("MetadataSwap", "Best match found: ${finalMatch.name}, loading from URL: ${finalMatch.url}")
+                Log.i(TAG, "Best match found: ${finalMatch.name}, loading from URL: ${finalMatch.url}")
+                android.util.Log.d("MetadataSwap", "Calling providerApi.load with URL: ${finalMatch.url}")
+                val loadResponse = providerApi.load(finalMatch.url)
+                val actorsCount = loadResponse?.actors?.size
+                val plotPreview = loadResponse?.plot?.take(30)
                 android.util.Log.d("MetadataSwap", "$providerName load result: ${loadResponse?.name}, actors: $actorsCount, plot: $plotPreview")
                 Log.i(TAG, "$providerName load result: ${loadResponse?.name}, actors: $actorsCount, plot: $plotPreview")
                 loadResponse
@@ -2193,7 +2211,7 @@ class ResultViewModel2 : ViewModel() {
         android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - target type: ${target::class.simpleName}, source type: ${source::class.simpleName}")
         android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - fieldsToMerge: $fieldsToMerge")
         return target.apply {
-            android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - before merge - this type: ${this::class.simpleName}, plot: ${plot?.take(30)}, actors: ${(this as? AnimeLoadResponse)?.actors?.size ?: (this as? TvSeriesLoadResponse)?.actors?.size}")
+            android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - before merge - this type: ${this::class.simpleName}, plot: ${plot?.take(30)}, actors: ${this.actors?.size}")
             if (MetadataField.POSTER in fieldsToMerge) {
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging POSTER - target.posterUrl: ${posterUrl?.take(30)}, source.posterUrl: ${source.posterUrl?.take(30)}")
                 posterUrl = source.posterUrl
@@ -2269,7 +2287,7 @@ class ResultViewModel2 : ViewModel() {
                 }
             }
             // Tags are not part of swap functionality, so don't merge them here
-            android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after all merges - this type: ${this::class.simpleName}, plot: ${plot?.take(30)}, actors: ${(this as? AnimeLoadResponse)?.actors?.size ?: (this as? TvSeriesLoadResponse)?.actors?.size}")
+            android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after all merges - this type: ${this::class.simpleName}, plot: ${plot?.take(30)}, actors: ${this.actors?.size}")
         }
     }
 
@@ -2284,6 +2302,13 @@ class ResultViewModel2 : ViewModel() {
             currentResponse?.let { response ->
                 Log.i(TAG, "Manual metadata refresh for: ${response.name}")
                 _refreshError.value = null // Clear previous error
+                
+                // Guard against blank names which cause API errors
+                if (response.name.isNullOrBlank()) {
+                    Log.w(TAG, "Skipping metadata refresh - response name is blank")
+                    _refreshError.value = "Cannot refresh metadata: name is blank"
+                    return@launchSafe
+                }
 
                 // If no provider specified, show selection UI
                 if (providerName == null) {
@@ -2388,13 +2413,33 @@ class ResultViewModel2 : ViewModel() {
                 }
 
                 if (metadata != null) {
-                    val actorsCount = (metadata as? AnimeLoadResponse)?.actors?.size ?: (metadata as? TvSeriesLoadResponse)?.actors?.size
-                    val plotPreview = (metadata as? AnimeLoadResponse)?.plot?.take(30) ?: (metadata as? TvSeriesLoadResponse)?.plot?.take(30)
+                    val actorsCount = metadata.actors?.size
+                    val plotPreview = metadata.plot?.take(30)
                     Log.i(TAG, "Successfully refreshed metadata from $providerName - actors: $actorsCount, plot: $plotPreview")
-                    val mergedResponse = mergeMetadataFromLoadResponse(response, metadata, fieldsToUpdate)
+                    
+                    // Preserve existing actors if provider returns null for actors
+                    val existingActors = when (response) {
+                        is AnimeLoadResponse -> response.actors
+                        is TvSeriesLoadResponse -> response.actors
+                        else -> null
+                    }
+                    val metadataActors = when (metadata) {
+                        is AnimeLoadResponse -> metadata.actors
+                        is TvSeriesLoadResponse -> metadata.actors
+                        else -> null
+                    }
+                    
+                    // If metadata has no actors but response does, remove ACTORS from fieldsToUpdate to preserve existing actors
+                    val adjustedFieldsToUpdate = if (metadataActors.isNullOrEmpty() && !existingActors.isNullOrEmpty()) {
+                        fieldsToUpdate - MetadataField.ACTORS
+                    } else {
+                        fieldsToUpdate
+                    }
+                    
+                    val mergedResponse = mergeMetadataFromLoadResponse(response, metadata, adjustedFieldsToUpdate)
 
                     // Handle poster separately since it's not in merge function
-                    if (MetadataField.POSTER in fieldsToUpdate) {
+                    if (MetadataField.POSTER in adjustedFieldsToUpdate) {
                         mergedResponse.posterUrl = metadata.posterUrl
                     }
 
@@ -2402,8 +2447,8 @@ class ResultViewModel2 : ViewModel() {
 
                     // Update cache with new metadata while preserving swapped fields
                     currentId?.let { id ->
-                        val mergedActors = (mergedResponse as? AnimeLoadResponse)?.actors ?: (mergedResponse as? TvSeriesLoadResponse)?.actors
-                        val mergedPlot = (mergedResponse as? AnimeLoadResponse)?.plot ?: (mergedResponse as? TvSeriesLoadResponse)?.plot
+                        val mergedActors = mergedResponse.actors
+                        val mergedPlot = mergedResponse.plot
                         val mergedPoster = mergedResponse.posterUrl
                         val mergedLogo = mergedResponse.logoUrl
 
@@ -2432,7 +2477,15 @@ class ResultViewModel2 : ViewModel() {
                                 cacheTime = System.currentTimeMillis(),
                                 hasCustomPoster = existingCache?.hasCustomPoster ?: false,
                                 hasSwappedMetadata = existingCache?.hasSwappedMetadata ?: false,
-                                swappedFields = existingCache?.swappedFields ?: emptySet()
+                                swappedFields = existingCache?.swappedFields ?: emptySet(),
+                                originalPoster = existingCache?.originalPoster,
+                                originalBanner = existingCache?.originalBanner,
+                                originalLogo = existingCache?.originalLogo,
+                                originalPlot = existingCache?.originalPlot,
+                                originalActors = existingCache?.originalActors,
+                                originalScore = existingCache?.originalScore,
+                                originalYear = existingCache?.originalYear,
+                                originalShowStatus = existingCache?.originalShowStatus
                             )
                         )
                     }
@@ -2625,9 +2678,11 @@ class ResultViewModel2 : ViewModel() {
             val metaActors = meta?.actors
             val id = currentId
             if (metaActors != null && metaActors.isNotEmpty() && id != null) {
+                // Use originalUrl from existing cache if available, otherwise use currentResponse.url or id
+                val cacheKey = currentResponse?.url ?: id.toString()
                 val existingCachedHeader = getKey<DownloadObjects.DownloadHeaderCached>(
                     DOWNLOAD_HEADER_CACHE,
-                    id.toString()
+                    cacheKey
                 )
                 val hasNewActors = existingCachedHeader?.actors == null || existingCachedHeader.actors.isNullOrEmpty()
                 
@@ -2638,12 +2693,15 @@ class ResultViewModel2 : ViewModel() {
                     Log.i(TAG, "Updating cache with AniList sync metadata - actors: ${metaActors.size}")
                     value?.let { response ->
                         val responseActors = response.actors
+                        // Preserve originalUrl from existing cache to maintain cache key consistency
+                        val originalUrl = existingCachedHeader?.originalUrl ?: existingCachedHeader?.url ?: response.url
                         setKey(
                             DOWNLOAD_HEADER_CACHE,
-                            id.toString(),
+                            originalUrl,
                             DownloadObjects.DownloadHeaderCached(
                                 apiName = response.apiName,
                                 url = response.url,
+                                originalUrl = originalUrl,
                                 type = response.type,
                                 name = response.name,
                                 poster = response.posterUrl,
@@ -2717,6 +2775,9 @@ class ResultViewModel2 : ViewModel() {
         indexer: EpisodeIndexer,
         range: EpisodeRange,
     ): List<ResultEpisode> {
+        android.util.Log.d("CacheFlow", "getEpisodes - indexer: $indexer, range: $range")
+        android.util.Log.d("CacheFlow", "getEpisodes - currentEpisodes keys: ${currentEpisodes.keys}")
+        android.util.Log.d("CacheFlow", "getEpisodes - currentEpisodes[indexer] exists: ${currentEpisodes[indexer] != null}, size: ${currentEpisodes[indexer]?.size}")
         return currentEpisodes[indexer]?.let { list ->
             val start = minOf(list.size, range.startIndex)
             val end = minOf(list.size, start + range.length)
@@ -2941,7 +3002,9 @@ class ResultViewModel2 : ViewModel() {
                 _sortSelections.postValue(emptyList())
                 _selectedSortingIndex.postValue(-1)
                 _selectedSorting.postValue(null)
+                android.util.Log.d("CacheFlow", "postEpisodeRange - Posting ${ret.size} episodes to _episodes LiveData (single episode case)")
                 _episodes.postValue(Resource.Success(ret))
+                android.util.Log.d("CacheFlow", "postEpisodeRange - Finished posting ${ret.size} episodes to _episodes LiveData (single episode case)")
             } else {
                 val sortOptions = mutableListOf<Pair<UiText, EpisodeSortType>>().apply {
                     // Episode number sorting is always available
@@ -2984,7 +3047,9 @@ class ResultViewModel2 : ViewModel() {
                         EpisodeSortType.DATE_OLDEST -> txt(R.string.sort_button_date, "↑")
                     }
                 )
+                android.util.Log.d("CacheFlow", "postEpisodeRange - Posting ${getSortedEpisodes(ret, correctedSorting).size} episodes to _episodes LiveData")
                 _episodes.postValue(Resource.Success(getSortedEpisodes(ret, correctedSorting)))
+                android.util.Log.d("CacheFlow", "postEpisodeRange - Finished posting to _episodes LiveData")
             }
         }
     }
@@ -2996,9 +3061,11 @@ class ResultViewModel2 : ViewModel() {
         updateEpisodes: Boolean,
         updateFillers: Boolean,
     ) {
+        android.util.Log.d("CacheFlow", "postSuccessful - Input actors count: ${loadResponse.actors?.size}")
         currentId = mainId
         currentResponse = loadResponse
         postPage(loadResponse, apiRepository)
+        android.util.Log.d("CacheFlow", "postSuccessful - After postPage, currentResponse actors count: ${currentResponse?.actors?.size}")
         postSubscription(loadResponse)
         postFavorites(loadResponse)
         _watchStatus.postValue(getResultWatchState(mainId))
@@ -3065,11 +3132,10 @@ class ResultViewModel2 : ViewModel() {
                                     seasonData = seasonData,
                                 )
 
-                            // Cache episode with metadata
-                            CloudStreamApp.setKey(
-                                DOWNLOAD_EPISODE_CACHE,
-                                id.toString(),
-                                DownloadObjects.DownloadEpisodeCached(
+                            // Cache episode with metadata - only if not already cached
+                            val existingCachedEpisode = getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, id.toString())
+                            if (existingCachedEpisode == null) {
+                                val episodeCached = DownloadObjects.DownloadEpisodeCached(
                                     name = i.name,
                                     poster = i.posterUrl,
                                     episode = episode,
@@ -3080,9 +3146,18 @@ class ResultViewModel2 : ViewModel() {
                                     description = i.description,
                                     date = i.date,
                                     cacheTime = System.currentTimeMillis(),
+                                    dubStatus = ep.key.name,
                                     data = i.data
                                 )
-                            )
+                                CloudStreamApp.setKey(
+                                    DOWNLOAD_EPISODE_CACHE,
+                                    id.toString(),
+                                    episodeCached
+                                )
+                                android.util.Log.d("CacheFlow", "postEpisodes - Cached new episode: id=$id, episode=$episode, season=${i.season}")
+                            } else {
+                                android.util.Log.d("CacheFlow", "postEpisodes - Episode already cached, skipping: id=$id, episode=$episode")
+                            }
 
                             val season = eps.seasonIndex ?: 0
                             val indexer = EpisodeIndexer(ep.key, season)
@@ -3141,11 +3216,10 @@ class ResultViewModel2 : ViewModel() {
                                 seasonData = seasonData,
                             )
 
-                        // Cache episode with metadata
-                        CloudStreamApp.setKey(
-                            DOWNLOAD_EPISODE_CACHE,
-                            id.toString(),
-                            DownloadObjects.DownloadEpisodeCached(
+                        // Cache episode with metadata - only if not already cached
+                        val existingCachedEpisode = getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, id.toString())
+                        if (existingCachedEpisode == null) {
+                            val episodeCached = DownloadObjects.DownloadEpisodeCached(
                                 name = episode.name,
                                 poster = episode.posterUrl,
                                 episode = episodeIndex,
@@ -3156,9 +3230,18 @@ class ResultViewModel2 : ViewModel() {
                                 description = episode.description,
                                 date = episode.date,
                                 cacheTime = System.currentTimeMillis(),
+                                dubStatus = com.lagradost.cloudstream3.DubStatus.None.name,
                                 data = episode.data
                             )
-                        )
+                            CloudStreamApp.setKey(
+                                DOWNLOAD_EPISODE_CACHE,
+                                id.toString(),
+                                episodeCached
+                            )
+                            android.util.Log.d("CacheFlow", "postEpisodes - Cached new episode: id=$id, episode=$episodeIndex, season=${episode.season}")
+                        } else {
+                            android.util.Log.d("CacheFlow", "postEpisodes - Episode already cached, skipping: id=$id, episode=$episodeIndex")
+                        }
 
                         val season = ep.seasonIndex ?: 0
                         val indexer = EpisodeIndexer(DubStatus.None, season)
@@ -3367,7 +3450,7 @@ class ResultViewModel2 : ViewModel() {
 
     // this instantly updates the metadata on the page
     fun postPage(loadResponse: LoadResponse, apiRepository: APIRepository) {
-        android.util.Log.d("MetadataSwap", "postPage called with: ${loadResponse.name}, actors: ${(loadResponse as? AnimeLoadResponse)?.actors?.size ?: (loadResponse as? TvSeriesLoadResponse)?.actors?.size}, plot: ${(loadResponse as? AnimeLoadResponse)?.plot?.take(30) ?: (loadResponse as? TvSeriesLoadResponse)?.plot?.take(30)}")
+        android.util.Log.d("MetadataSwap", "postPage called with: ${loadResponse.name}, actors: ${loadResponse.actors?.size}, plot: ${loadResponse.plot?.take(30)}")
         _recommendations.postValue(loadResponse.recommendations ?: emptyList())
         // Force UI refresh by posting null first, then the new value
         _page.postValue(null)
@@ -3378,33 +3461,47 @@ class ResultViewModel2 : ViewModel() {
     private fun createOfflineLoadResponse(
         cachedHeader: DownloadObjects.DownloadHeaderCached,
         url: String,
-        apiName: String
+        apiName: String,
+        api: MainAPI
     ): LoadResponse {
         android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Input cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
+        
+        // Use fallback name if cached name is blank
+        val name = cachedHeader.name.ifBlank { "Unknown" }
+        android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Using name: $name (cached: '${cachedHeader.name}')")
+        
         // Parse cached actor data back to ActorData objects
-        val actors = cachedHeader.actors?.map { actorDataString ->
-            val parts = actorDataString.split("|")
-            if (parts.size >= 5) {
-                ActorData(
-                    actor = Actor(name = parts[0], image = if (parts[1].isNotEmpty()) parts[1] else "android.resource://com.lagradost.cloudstream3/drawable/example_poster"),
-                    role = if (parts[2].isNotEmpty()) try { ActorRole.valueOf(parts[2]) } catch (e: Exception) { null } else null,
-                    roleString = if (parts[3].isNotEmpty()) parts[3] else null,
-                    voiceActor = if (parts[4].isNotEmpty()) Actor(name = parts[4], image = if (parts.size > 5 && parts[5].isNotEmpty()) parts[5] else null) else null
-                )
-            } else {
-                // Fallback for old cached data or malformed data
-                ActorData(
-                    actor = Actor(name = actorDataString, image = "android.resource://com.lagradost.cloudstream3/drawable/example_poster"),
-                    role = null,
-                    roleString = null,
-                    voiceActor = null
-                )
+        android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Starting actor parsing, input actors count: ${cachedHeader.actors?.size}")
+        val actors = cachedHeader.actors?.mapNotNull { actorDataString ->
+            try {
+                val parts = actorDataString.split("|")
+                if (parts.size >= 5) {
+                    ActorData(
+                        actor = Actor(name = parts[0], image = if (parts[1].isNotEmpty()) parts[1] else "android.resource://com.lagradost.cloudstream3/drawable/example_poster"),
+                        role = if (parts[2].isNotEmpty()) try { ActorRole.valueOf(parts[2]) } catch (e: Exception) { null } else null,
+                        roleString = if (parts[3].isNotEmpty()) parts[3] else null,
+                        voiceActor = if (parts[4].isNotEmpty()) Actor(name = parts[4], image = if (parts.size > 5 && parts[5].isNotEmpty()) parts[5] else null) else null
+                    )
+                } else {
+                    // Fallback for old cached data or malformed data
+                    android.util.Log.w("CacheFlow", "createOfflineLoadResponse - Malformed actor data: $actorDataString")
+                    ActorData(
+                        actor = Actor(name = actorDataString, image = "android.resource://com.lagradost.cloudstream3/drawable/example_poster"),
+                        role = null,
+                        roleString = null,
+                        voiceActor = null
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("CacheFlow", "createOfflineLoadResponse - Error parsing actor data: $actorDataString", e)
+                null
             }
         }
+        android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Parsed actors count: ${actors?.size}")
 
-        // Use LoadResponseFromSearch to avoid deprecated constructors
+        // Use LoadResponseFromSearch to avoid episodes field - UI will use _episodes LiveData instead
         val response = LoadResponseFromSearch(
-            name = cachedHeader.name,
+            name = name,
             url = url,
             apiName = apiName,
             type = cachedHeader.type,
@@ -3427,6 +3524,8 @@ class ResultViewModel2 : ViewModel() {
             id = cachedHeader.id,
             showStatus = cachedHeader.showStatus?.let { try { ShowStatus.valueOf(it) } catch (e: Exception) { null } }
         )
+        
+        android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Output LoadResponse type: LoadResponseFromSearch (no episodes field)")
         android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Output LoadResponse fields - plot: ${response.plot?.take(30)}, backgroundPosterUrl: ${response.backgroundPosterUrl?.take(30)}, tags: ${response.tags?.size}, actors: ${response.actors?.size}")
         return response
     }
@@ -3435,6 +3534,8 @@ class ResultViewModel2 : ViewModel() {
         ioSafe {
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Using DOWNLOAD_HEADER_CACHE for: ${cachedHeader.name}")
             android.util.Log.d("CacheFlow", "Cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
+            
+            // Load episodes from DOWNLOAD_EPISODE_CACHE using parentId (unified approach)
             val cachedEpisodes = getKeys(DOWNLOAD_EPISODE_CACHE)
                 ?.mapNotNull { getKey<DownloadObjects.DownloadEpisodeCached>(it) }
                 ?.filter { it.parentId == parentId }
@@ -3464,8 +3565,11 @@ class ResultViewModel2 : ViewModel() {
                 }
                 return@ioSafe
             }
+            
+            android.util.Log.d("CacheFlow", "Loaded ${cachedEpisodes.size} cached episodes from DOWNLOAD_EPISODE_CACHE")
 
             android.util.Log.d("LocalLibraryTest", "Loaded ${cachedEpisodes.size} cached episodes for offline mode")
+            android.util.Log.d("LocalLibraryTest", "Converting ${cachedEpisodes.size} episodes to ResultEpisode format")
             android.util.Log.d("LocalLibraryTest", "Cached header - score: ${cachedHeader.score}, showStatus: ${cachedHeader.showStatus}, year: ${cachedHeader.year}, episodeCount: ${cachedHeader.episodeCount}, actors: ${cachedHeader.actors}")
             android.util.Log.d("LocalLibraryTest", "Cached header - url: ${cachedHeader.url}")
             cachedEpisodes.forEach {
@@ -3473,6 +3577,7 @@ class ResultViewModel2 : ViewModel() {
             }
 
             // Convert cached episodes to ResultEpisode format
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Starting conversion of ${cachedEpisodes.size} episodes to ResultEpisode")
             val resultEpisodes = cachedEpisodes.mapIndexed { index, cached ->
                 val posDur = getViewPos(cached.id)
                 // Use cached episode data if available
@@ -3501,15 +3606,60 @@ class ResultViewModel2 : ViewModel() {
                     airDate = cached.date
                 )
             }
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Converted ${resultEpisodes.size} episodes to ResultEpisode format")
             
-            // Group episodes by season and create new map
-            val episodesBySeason = resultEpisodes.groupBy { it.season ?: 0 }
+            // Group episodes by season AND their original dub status
+            val episodesBySeasonAndDub = resultEpisodes.groupBy { 
+                val cachedDub = cachedEpisodes.find { cached -> cached.id == it.id }?.dubStatus
+                val dubStatus = try { 
+                    com.lagradost.cloudstream3.DubStatus.valueOf(cachedDub ?: com.lagradost.cloudstream3.DubStatus.Subbed.name) 
+                } catch (e: Exception) { 
+                    com.lagradost.cloudstream3.DubStatus.Subbed 
+                }
+                (it.season ?: 0) to dubStatus
+            }
             val newEpisodes = mutableMapOf<EpisodeIndexer, List<ResultEpisode>>()
-            episodesBySeason.forEach { (season, episodes) ->
-                newEpisodes[EpisodeIndexer(dubStatus = preferDubStatus ?: DubStatus.Subbed, season = season)] = 
+            episodesBySeasonAndDub.forEach { (seasonDubPair, episodes) ->
+                val (season, dubStatus) = seasonDubPair
+                newEpisodes[EpisodeIndexer(dubStatus = dubStatus, season = season)] = 
                     episodes.sortedBy { it.episode }
             }
             currentEpisodes = newEpisodes
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Set currentEpisodes with ${newEpisodes.size} season groups")
+            
+            // Initialize missing state variables that postEpisodeRange depends on
+            // Collect unique dub statuses and seasons from cached episodes
+            val dubSelection = mutableSetOf<String>()
+            val seasonsSelection = mutableSetOf<Int>()
+            resultEpisodes.forEach { ep ->
+                // Use cached dub status or fallback to Subbed
+                val cachedDub = cachedEpisodes.find { it.id == ep.id }?.dubStatus 
+                    ?: com.lagradost.cloudstream3.DubStatus.Subbed.name
+                dubSelection += cachedDub
+                seasonsSelection += ep.season ?: 0
+            }
+            
+            // Convert dub status strings to DubStatus enum
+            val dubStatusList = dubSelection.mapNotNull { dubStr ->
+                try { com.lagradost.cloudstream3.DubStatus.valueOf(dubStr) } catch (e: Exception) { null }
+            }
+            currentDubStatus = dubStatusList
+            currentSeasons = seasonsSelection.toList()
+            currentId = parentId
+            
+            // Post dub/season selections
+            _dubSubSelections.postValue(dubStatusList.map { txt(it) to it })
+            _seasonSelections.postValue(seasonsSelection.map { seasonNumber ->
+                txt(R.string.season) to seasonNumber
+            })
+            
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Initialized state - currentDubStatus: $currentDubStatus, currentSeasons: $currentSeasons, currentId: $currentId")
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - newEpisodes keys: ${newEpisodes.keys}, size: ${newEpisodes.size}")
+            
+            // Set up ranges like postEpisodes does
+            val ranges = getRanges(newEpisodes, EPISODE_RANGE_SIZE)
+            currentRanges = ranges
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - currentRanges keys: ${currentRanges.keys}")
             
             // Set up episode sorting for local library
             val sortOptions = mutableListOf<Pair<UiText, EpisodeSortType>>().apply {
@@ -3537,10 +3687,6 @@ class ResultViewModel2 : ViewModel() {
             _selectedSorting.postValue(txt(R.string.sort_button_episode, ""))
             _selectedSortingIndex.postValue(0)
             
-            // Set up ranges like postEpisodes does
-            val ranges = getRanges(newEpisodes, EPISODE_RANGE_SIZE)
-            currentRanges = ranges
-            
             // Set up range and post episodes
             val min = ranges.keys.minByOrNull { index ->
                 kotlin.math.abs(
@@ -3553,7 +3699,10 @@ class ResultViewModel2 : ViewModel() {
                 it.startEpisode >= (preferStartEpisode ?: 0)
             } ?: ranger?.lastOrNull()
             
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Calling postEpisodeRange with min: $min, range: $range, total episodes in range: ${range?.length ?: 0}")
             postEpisodeRange(min, range, defaultSorting)
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Called postEpisodeRange successfully")
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - currentResponse episodes count: ${(currentResponse as? AnimeLoadResponse)?.episodes?.values?.flatten()?.size ?: (currentResponse as? TvSeriesLoadResponse)?.episodes?.size}")
             postResume()
         }
     }
@@ -3711,32 +3860,58 @@ class ResultViewModel2 : ViewModel() {
             currentRepo = repo
 
             // CACHE-FIRST APPROACH: Check cache first, then API if cache not found
-            val allCachedHeaders = getKeys(DOWNLOAD_HEADER_CACHE)
-                ?.mapNotNull { getKey<DownloadObjects.DownloadHeaderCached>(it) }
-            
-            android.util.Log.d("LocalLibraryTest", "Checking cache first for url: $url, found ${allCachedHeaders?.size} cached headers")
-            allCachedHeaders?.forEach { android.util.Log.d("LocalLibraryTest", "  Cached: ${it.name} (url: ${it.url}, id: ${it.id})") }
-            
-            val cachedHeader = allCachedHeaders
-                ?.find { it.url == url }
-                ?: allCachedHeaders
-                    ?.find { it.id.toString() == url }
+            val cachedHeader = if (USE_NEW_SWAP_SYSTEM) {
+                // Use new CacheCoordinator for unified key resolution
+                val cacheKey = com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.resolveKey(url, null)
+                android.util.Log.d(TAG, "Using new CacheCoordinator - resolved key: $cacheKey")
+                com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.getHeaderCached(cacheKey)
+            } else {
+                // Old manual resolution
+                val allCachedHeaders = getKeys(DOWNLOAD_HEADER_CACHE)
+                    ?.mapNotNull { getKey<DownloadObjects.DownloadHeaderCached>(it) }
+                
+                android.util.Log.d("LocalLibraryTest", "Checking cache first for url: $url, found ${allCachedHeaders?.size} cached headers")
+                allCachedHeaders?.forEach { android.util.Log.d("LocalLibraryTest", "  Cached: ${it.name} (url: ${it.url}, id: ${it.id})") }
+                
+                allCachedHeaders
+                    ?.find { it.url == url }
+                    ?: allCachedHeaders
+                        ?.find { it.id.toString() == url }
+            }
             
             android.util.Log.d("LocalLibraryTest", "Matched cached header: ${cachedHeader?.name} (url: ${cachedHeader?.url}, id: ${cachedHeader?.id})")
 
             if (cachedHeader != null) {
                 android.util.Log.d("CacheFlow", "MAIN LOAD - Using DOWNLOAD_HEADER_CACHE for: ${cachedHeader.name} (url: $url)")
                 android.util.Log.d("CacheFlow", "Cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
-                // Create a minimal LoadResponse from cached data for local playback
-                val offlineResponse = createOfflineLoadResponse(cachedHeader, url, apiName)
+                
+                // Check swap state if new system is enabled
+                var offlineResponse = createOfflineLoadResponse(cachedHeader, url, apiName, api)
+                
+                if (USE_NEW_SWAP_SYSTEM && activity != null && cachedHeader.hasSwappedMetadata) {
+                    val cacheKey = com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.resolveKey(url, cachedHeader.id)
+                    android.util.Log.d(TAG, "Checking swap state for cacheKey: $cacheKey")
+                    
+                    val swapMetadata = ioWork {
+                        com.lagradost.cloudstream3.ui.result.swap.MetadataSwapManager.getCurrentMetadata(activity, cacheKey)
+                    }
+                    
+                    if (swapMetadata != null) {
+                        android.util.Log.d(TAG, "Applying swap metadata from MetadataSwapManager")
+                        offlineResponse = swapMetadata.applyTo(offlineResponse)
+                    }
+                }
+                
                 android.util.Log.d("CacheFlow", "Created offline response - plot: ${offlineResponse.plot?.take(30)}, backgroundPosterUrl: ${offlineResponse.backgroundPosterUrl?.take(30)}, tags: ${offlineResponse.tags?.size}")
                 postSuccessful(
                     offlineResponse,
                     cachedHeader.id,
-                    updateEpisodes = true,
+                    updateEpisodes = false,
                     updateFillers = false,
                     apiRepository = repo
                 )
+                // Set currentId before loading episodes
+                currentId = cachedHeader.id
                 // Load episodes from cache
                 loadOfflineEpisodes(cachedHeader.id, cachedHeader, apiName, validUrl, api)
             } else {
@@ -3774,22 +3949,43 @@ class ResultViewModel2 : ViewModel() {
                                 (loadResponse is TvSeriesLoadResponse && loadResponse.showStatus == null)
 
                         if (needsMetadata) {
-                            Log.i(TAG, "Fetching metadata from AniList for: ${loadResponse.name}")
-                            val anilistMetadata = try {
-                                ioWork {
-                                    fetchMetadataFromProvider("AniList", loadResponse.name, null, loadResponse.type)
+                            // Only fetch metadata if name is not empty
+                            if (loadResponse.name.isNotBlank()) {
+                                Log.i(TAG, "Fetching metadata from available APIs for: ${loadResponse.name}")
+                                val availableApis = synchronized(apis) { apis.toList() }
+                                Log.i(TAG, "Available APIs: ${availableApis.map { it.name }}")
+                                
+                                val metadata = try {
+                                    ioWork {
+                                        var result: LoadResponse? = null
+                                        for (api in availableApis) {
+                                            Log.i(TAG, "Trying to fetch metadata from ${api.name}")
+                                            val fetched = fetchMetadataFromProvider(api.name, loadResponse.name, null, loadResponse.type)
+                                            if (fetched != null) {
+                                                Log.i(TAG, "Successfully fetched metadata from ${api.name} - actors: ${fetched.actors?.size}, plot: ${fetched.plot?.take(30)}")
+                                                result = fetched
+                                                break
+                                            } else {
+                                                Log.w(TAG, "Failed to fetch metadata from ${api.name}")
+                                            }
+                                        }
+                                        result
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Exception fetching metadata from available APIs: ${e.message}", e)
+                                    null
                                 }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Exception fetching AniList metadata: ${e.message}", e)
-                                null
-                            }
-                            if (anilistMetadata != null) {
-                                Log.i(TAG, "Successfully fetched metadata from AniList - actors: ${anilistMetadata.actors?.size}, plot: ${anilistMetadata.plot?.take(30)}, score: ${anilistMetadata.score}")
-                                val mergedResponse = mergeMetadataFromLoadResponse(loadResponse, anilistMetadata)
-                                Log.i(TAG, "After merge - actors: ${mergedResponse.actors?.size}, plot: ${mergedResponse.plot?.take(30)}, score: ${mergedResponse.score}")
-                                mergedResponse
+                                if (metadata != null) {
+                                    Log.i(TAG, "Successfully fetched metadata - actors: ${metadata.actors?.size}, plot: ${metadata.plot?.take(30)}, score: ${metadata.score}")
+                                    val mergedResponse = mergeMetadataFromLoadResponse(loadResponse, metadata)
+                                    Log.i(TAG, "After merge - actors: ${mergedResponse.actors?.size}, plot: ${mergedResponse.plot?.take(30)}, score: ${mergedResponse.score}")
+                                    mergedResponse
+                                } else {
+                                    Log.w(TAG, "Failed to fetch metadata from all available APIs - returned null")
+                                    loadResponse
+                                }
                             } else {
-                                Log.w(TAG, "Failed to fetch metadata from AniList - returned null")
+                                Log.w(TAG, "Skipping metadata fetch - loadResponse.name is blank")
                                 loadResponse
                             }
                         } else {
@@ -3807,10 +4003,12 @@ class ResultViewModel2 : ViewModel() {
                     // Use the same cache key logic as when storing swapped metadata
                     val cacheKeyForSwap = currentResponse?.url ?: validUrl
                     val swappedCache = getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, cacheKeyForSwap)
+                    // Use originalUrl from cache if available for consistent cache key
+                    val actualCacheKey = swappedCache?.originalUrl ?: swappedCache?.url ?: cacheKeyForSwap
                     val finalResponse = if (swappedCache?.hasSwappedMetadata == true && swappedCache.swappedFields.isNotEmpty()) {
-                        android.util.Log.d("MetadataSwap", "Found swapped metadata in cache for url: $cacheKeyForSwap, swappedFields: ${swappedCache.swappedFields}")
+                        android.util.Log.d("MetadataSwap", "Found swapped metadata in cache for url: $cacheKeyForSwap, actualCacheKey: $actualCacheKey, swappedFields: ${swappedCache.swappedFields}")
                         // Create LoadResponse from swapped cache to merge with provider response
-                        val swappedResponse = createOfflineLoadResponse(swappedCache, cacheKeyForSwap, apiName)
+                        val swappedResponse = createOfflineLoadResponse(swappedCache, actualCacheKey, apiName, api)
                         // Convert swapped field names back to MetadataField enum
                         val swappedMetadataFields = swappedCache.swappedFields.mapNotNull { fieldName ->
                             try { MetadataField.valueOf(fieldName) } catch (e: IllegalArgumentException) { null }
@@ -3848,55 +4046,66 @@ class ResultViewModel2 : ViewModel() {
                     android.util.Log.d("LocalLibraryTest", "LoadResponse actors: ${loadResponse.actors?.size}, plot: ${loadResponse.plot?.take(30)}, score: ${loadResponse.score}")
                     
                     if (shouldCache) {
-                        // Preserve swapped fields from existing cache if they exist
+                        // Preserve swapped fields from existing cache if they exist, otherwise prefer provider values but fallback to cache
                         val preservedPoster = if (existingCachedHeader?.hasSwappedMetadata == true && "POSTER" in existingCachedHeader.swappedFields) {
                             existingCachedHeader.poster
                         } else {
-                            loadResponse.posterUrl
+                            loadResponse.posterUrl ?: existingCachedHeader?.poster
                         }
                         val preservedBanner = if (existingCachedHeader?.hasSwappedMetadata == true && "BANNER" in existingCachedHeader.swappedFields) {
                             existingCachedHeader.backgroundPosterUrl
                         } else {
-                            loadResponse.backgroundPosterUrl
+                            loadResponse.backgroundPosterUrl ?: existingCachedHeader?.backgroundPosterUrl
+                        }
+                        val preservedLogo = if (existingCachedHeader?.hasSwappedMetadata == true && "LOGO" in existingCachedHeader.swappedFields) {
+                            existingCachedHeader.logoUrl
+                        } else {
+                            loadResponse.logoUrl ?: existingCachedHeader?.logoUrl
                         }
                         val preservedPlot = if (existingCachedHeader?.hasSwappedMetadata == true && "PLOT" in existingCachedHeader.swappedFields) {
                             existingCachedHeader.plot
                         } else {
-                            loadResponse.plot
+                            loadResponse.plot ?: existingCachedHeader?.plot
                         }
                         val preservedActors = if (existingCachedHeader?.hasSwappedMetadata == true && "ACTORS" in existingCachedHeader.swappedFields) {
                             existingCachedHeader.actors
                         } else {
                             loadResponse.actors?.map { actorData ->
                                 "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
-                            }
+                            } ?: existingCachedHeader?.actors
                         }
                         val preservedScore = if (existingCachedHeader?.hasSwappedMetadata == true && "SCORE" in existingCachedHeader.swappedFields) {
                             existingCachedHeader.score
                         } else {
-                            cachedScore
+                            cachedScore ?: existingCachedHeader?.score
                         }
                         val preservedYear = if (existingCachedHeader?.hasSwappedMetadata == true && "YEAR" in existingCachedHeader.swappedFields) {
                             existingCachedHeader.year
                         } else {
-                            loadResponse.year
+                            loadResponse.year ?: existingCachedHeader?.year
                         }
                         val preservedStatus = if (existingCachedHeader?.hasSwappedMetadata == true && "STATUS" in existingCachedHeader.swappedFields) {
                             existingCachedHeader.showStatus
                         } else {
-                            if (loadResponse is AnimeLoadResponse) loadResponse.showStatus?.name else if (loadResponse is TvSeriesLoadResponse) loadResponse.showStatus?.name else if (loadResponse is LoadResponseFromSearch) loadResponse.showStatus?.name else null
+                            val providerStatus = if (loadResponse is AnimeLoadResponse) loadResponse.showStatus?.name else if (loadResponse is TvSeriesLoadResponse) loadResponse.showStatus?.name else if (loadResponse is LoadResponseFromSearch) loadResponse.showStatus?.name else null
+                            providerStatus ?: existingCachedHeader?.showStatus
                         }
+                        val preservedTags = loadResponse.tags ?: existingCachedHeader?.tags
                         
+                        // Preserve originalUrl from existing cache to maintain cache key consistency
+                        val originalUrl = existingCachedHeader?.originalUrl ?: existingCachedHeader?.url ?: validUrl
                         setKey(
                             DOWNLOAD_HEADER_CACHE,
-                            mainId.toString(),
+                            originalUrl,
                             DownloadObjects.DownloadHeaderCached(
                                 apiName = apiName,
                                 url = validUrl,
+                                originalUrl = originalUrl,
                                 type = loadResponse.type,
                                 name = loadResponse.name,
                                 poster = preservedPoster,
                                 backgroundPosterUrl = preservedBanner,
+                                logoUrl = preservedLogo,
                                 plot = preservedPlot,
                                 score = preservedScore,
                                 showStatus = preservedStatus,
@@ -3904,12 +4113,20 @@ class ResultViewModel2 : ViewModel() {
                                 episodeCount = if (loadResponse is AnimeLoadResponse) loadResponse.episodes.values.flatten().size else if (loadResponse is TvSeriesLoadResponse) loadResponse.episodes.size else null,
                                 date = null,
                                 actors = preservedActors,
-                                tags = loadResponse.tags,
+                                tags = preservedTags,
                                 id = mainId,
                                 cacheTime = System.currentTimeMillis(),
                                 hasCustomPoster = existingCachedHeader?.hasCustomPoster ?: false,
                                 hasSwappedMetadata = existingCachedHeader?.hasSwappedMetadata ?: false,
-                                swappedFields = existingCachedHeader?.swappedFields ?: emptySet()
+                                swappedFields = existingCachedHeader?.swappedFields ?: emptySet(),
+                                originalPoster = existingCachedHeader?.originalPoster,
+                                originalBanner = existingCachedHeader?.originalBanner,
+                                originalLogo = existingCachedHeader?.originalLogo,
+                                originalPlot = existingCachedHeader?.originalPlot,
+                                originalActors = existingCachedHeader?.originalActors,
+                                originalScore = existingCachedHeader?.originalScore,
+                                originalYear = existingCachedHeader?.originalYear,
+                                originalShowStatus = existingCachedHeader?.originalShowStatus
                             )
                         )
                     }
