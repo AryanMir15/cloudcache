@@ -440,12 +440,83 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
             return@setOnPreferenceClickListener true
         }
 
-        getPref(R.string.episode_check_frequency_key)?.summary = 
+        getPref(R.string.episode_check_frequency_key)?.summary =
             if (com.lagradost.cloudstream3.utils.DataStoreHelper.episodeCheckFrequencyHours == 0) {
                 "Never"
             } else {
                 "${com.lagradost.cloudstream3.utils.DataStoreHelper.episodeCheckFrequencyHours} hours"
             }
+
+        // Spoiler Prevention Mode
+        getPref(R.string.spoiler_prevention_key)?.setOnPreferenceClickListener {
+            val currentMode = com.lagradost.cloudstream3.utils.DataStoreHelper.spoilerPreventionMode
+            val options = listOf(
+                getString(R.string.spoiler_prevention_off),
+                getString(R.string.spoiler_prevention_poster),
+                getString(R.string.spoiler_prevention_blur)
+            )
+
+            activity?.showDialog(
+                options,
+                currentMode,
+                getString(R.string.spoiler_prevention_title),
+                true,
+                {}
+            ) { selectedIndex ->
+                if (selectedIndex == 0) {
+                    // Disabling - no disclaimer needed
+                    com.lagradost.cloudstream3.utils.DataStoreHelper.spoilerPreventionMode = com.lagradost.cloudstream3.utils.SPOILER_MODE_OFF
+                    it.summary = getString(R.string.spoiler_prevention_off)
+                } else {
+                    // Enabling - show disclaimer
+                    if (selectedIndex == 2 && android.os.Build.VERSION.SDK_INT < 31) {
+                        // Blur selected but Android < 12
+                        AlertDialog.Builder(context ?: return@showDialog, R.style.AlertDialogCustom)
+                            .setTitle(R.string.spoiler_disclaimer_title)
+                            .setMessage(getString(R.string.spoiler_blur_warning))
+                            .setPositiveButton(R.string.yes) { _, _ ->
+                                // Fall back to poster
+                                com.lagradost.cloudstream3.utils.DataStoreHelper.spoilerPreventionMode = com.lagradost.cloudstream3.utils.SPOILER_MODE_POSTER
+                                it.summary = getString(R.string.spoiler_prevention_poster)
+                            }
+                            .setNegativeButton(R.string.no) { _, _ ->
+                                // Don't change
+                            }
+                            .show()
+                    } else {
+                        // Show standard disclaimer
+                        AlertDialog.Builder(context ?: return@showDialog, R.style.AlertDialogCustom)
+                            .setTitle(R.string.spoiler_disclaimer_title)
+                            .setMessage(R.string.spoiler_disclaimer_message)
+                            .setPositiveButton(R.string.yes) { _, _ ->
+                                // Map selected index to mode constant
+                                val mode = when (selectedIndex) {
+                                    1 -> com.lagradost.cloudstream3.utils.SPOILER_MODE_POSTER
+                                    2 -> com.lagradost.cloudstream3.utils.SPOILER_MODE_BLUR
+                                    else -> com.lagradost.cloudstream3.utils.SPOILER_MODE_OFF
+                                }
+                                com.lagradost.cloudstream3.utils.DataStoreHelper.spoilerPreventionMode = mode
+                                it.summary = options[selectedIndex]
+                            }
+                            .setNegativeButton(R.string.no) { _, _ ->
+                                // Don't change
+                            }
+                            .show()
+                    }
+                }
+            }
+            return@setOnPreferenceClickListener true
+        }
+
+        // Set initial summary for spoiler prevention
+        getPref(R.string.spoiler_prevention_key)?.summary = when (com.lagradost.cloudstream3.utils.DataStoreHelper.spoilerPreventionMode) {
+            com.lagradost.cloudstream3.utils.SPOILER_MODE_OFF -> getString(R.string.spoiler_prevention_off)
+            com.lagradost.cloudstream3.utils.SPOILER_MODE_POSTER -> getString(R.string.spoiler_prevention_poster)
+            com.lagradost.cloudstream3.utils.SPOILER_MODE_BANNER -> getString(R.string.spoiler_prevention_poster) // Fallback to poster
+            com.lagradost.cloudstream3.utils.SPOILER_MODE_LOGO -> getString(R.string.spoiler_prevention_poster) // Fallback to poster
+            com.lagradost.cloudstream3.utils.SPOILER_MODE_BLUR -> getString(R.string.spoiler_prevention_blur)
+            else -> getString(R.string.spoiler_prevention_off)
+        }
 
         try {
             beneneCount =

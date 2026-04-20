@@ -346,6 +346,17 @@
     <string name="dns_pref_summary">Useful for bypassing ISP blocks</string>
     <string name="episode_check_frequency">Episode Check Frequency</string>
     <string name="episode_check_frequency_key">episode_check_frequency</string>
+    <string name="spoiler_prevention_title">Spoiler Prevention Mode</string>
+    <string name="spoiler_prevention_summary">Protect against spoilers by hiding episode thumbnails and details</string>
+    <string name="spoiler_prevention_key">spoiler_prevention_key</string>
+    <string name="spoiler_prevention_off">Disabled</string>
+    <string name="spoiler_prevention_poster">Replace with Poster</string>
+    <string name="spoiler_prevention_banner">Replace with Banner</string>
+    <string name="spoiler_prevention_logo">Replace with Logo</string>
+    <string name="spoiler_prevention_blur">Blur Thumbnails</string>
+    <string name="spoiler_disclaimer_title">Spoiler Prevention Mode</string>
+    <string name="spoiler_disclaimer_message">This feature will hide episode thumbnails, show only episode numbers, and remove descriptions for unwatched episodes to prevent spoilers. Are you sure you want to enable this?</string>
+    <string name="spoiler_blur_warning">Blur effect is only available on Android 12 and above. Your device will use the poster fallback instead.</string>
     <string name="jsdelivr_proxy">GitHub Proxy</string>
     <string name="jsdelivr_enabled">Could not reach GitHub. Turning on jsDelivr proxy…</string>
     <string name="jsdelivr_proxy_summary">Bypass blocking of raw github URLs using jsDelivr. May cause updates to be delayed by few days.</string>

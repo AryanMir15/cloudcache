@@ -52,6 +52,14 @@ const val RESULT_DUB = "result_dub"
 const val KEY_RESULT_SORT = "result_sort"
 const val USER_PINNED_PROVIDERS = "user_pinned_providers" //key for pinned user set
 
+// Spoiler prevention mode constants
+const val SPOILER_PREV_KEY = "spoiler_prevention_mode"
+const val SPOILER_MODE_OFF = 0
+const val SPOILER_MODE_POSTER = 1
+const val SPOILER_MODE_BANNER = 2
+const val SPOILER_MODE_LOGO = 3
+const val SPOILER_MODE_BLUR = 4
+
 class UserPreferenceDelegate<T : Any>(
     private val key: String, private val default: T //, private val klass: KClass<T>
 ) {
@@ -121,6 +129,9 @@ object DataStoreHelper {
     // Episode check preferences
     var episodeCheckFrequencyHours by UserPreferenceDelegate("episode_check_interval", 12)
     var episodeCheckEnabled by UserPreferenceDelegate("episode_check_enabled", true)
+
+    // Spoiler prevention mode
+    var spoilerPreventionMode by UserPreferenceDelegate(SPOILER_PREV_KEY, SPOILER_MODE_OFF)
 
 
     private var homePreferenceStrings: List<String> by UserPreferenceDelegate(

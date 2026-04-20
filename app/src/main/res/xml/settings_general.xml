@@ -18,6 +18,12 @@
         app:summary="@string/benene_des" />
 
     <Preference
+        android:icon="@drawable/ic_baseline_visibility_off_24"
+        android:key="@string/spoiler_prevention_key"
+        android:summary="@string/spoiler_prevention_summary"
+        android:title="@string/spoiler_prevention_title" />
+
+    <Preference
         android:icon="@drawable/ic_refresh"
         android:key="@string/episode_check_frequency_key"
         android:title="@string/episode_check_frequency" />

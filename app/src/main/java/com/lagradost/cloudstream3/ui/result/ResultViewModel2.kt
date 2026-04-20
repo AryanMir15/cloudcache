@@ -3130,6 +3130,9 @@ class ResultViewModel2 : ViewModel() {
                                     airDate = i.date,
                                     runTime = i.runTime,
                                     seasonData = seasonData,
+                                    showPoster = loadResponse.posterUrl,
+                                    showBanner = loadResponse.backgroundPosterUrl,
+                                    showLogo = loadResponse.logoUrl,
                                 )
 
                             // Cache episode with metadata - only if not already cached
@@ -3214,6 +3217,9 @@ class ResultViewModel2 : ViewModel() {
                                 airDate = episode.date,
                                 runTime = episode.runTime,
                                 seasonData = seasonData,
+                                showPoster = loadResponse.posterUrl,
+                                showBanner = loadResponse.backgroundPosterUrl,
+                                showLogo = loadResponse.logoUrl,
                             )
 
                         // Cache episode with metadata - only if not already cached
@@ -3273,6 +3279,9 @@ class ResultViewModel2 : ViewModel() {
                         loadResponse.type,
                         mainId,
                         null,
+                        showPoster = loadResponse.posterUrl,
+                        showBanner = loadResponse.backgroundPosterUrl,
+                        showLogo = loadResponse.logoUrl,
                     )
                 )
             }
@@ -3295,7 +3304,10 @@ class ResultViewModel2 : ViewModel() {
                         null,
                         loadResponse.type,
                         mainId,
-                        null
+                        null,
+                        showPoster = loadResponse.posterUrl,
+                        showBanner = loadResponse.backgroundPosterUrl,
+                        showLogo = loadResponse.logoUrl,
                     )
                 )
             }
@@ -3318,7 +3330,10 @@ class ResultViewModel2 : ViewModel() {
                         null,
                         loadResponse.type,
                         mainId,
-                        null
+                        null,
+                        showPoster = loadResponse.posterUrl,
+                        showBanner = loadResponse.backgroundPosterUrl,
+                        showLogo = loadResponse.logoUrl,
                     )
                 )
             }
@@ -3603,7 +3618,10 @@ class ResultViewModel2 : ViewModel() {
                     parentId = parentId,
                     videoWatchState = getVideoWatchState(cached.id) ?: VideoWatchState.None,
                     totalEpisodeIndex = cached.episode,
-                    airDate = cached.date
+                    airDate = cached.date,
+                    showPoster = cachedHeader.poster,
+                    showBanner = null, // Not cached in header
+                    showLogo = null, // Not cached in header
                 )
             }
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Converted ${resultEpisodes.size} episodes to ResultEpisode format")

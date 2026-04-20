@@ -1,8 +1,10 @@
 package com.lagradost.cloudstream3.ui.result
 
 import android.content.Context
+import android.os.Build
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import android.graphics.RenderEffect
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.core.view.setPadding
@@ -28,7 +30,13 @@ import com.lagradost.cloudstream3.ui.settings.Globals.TV
 import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
 import com.lagradost.cloudstream3.utils.AppContextUtils.html
 import com.lagradost.cloudstream3.utils.Coroutines.main
+import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.ImageLoader.loadImage
+import com.lagradost.cloudstream3.utils.SPOILER_MODE_BANNER
+import com.lagradost.cloudstream3.utils.SPOILER_MODE_BLUR
+import com.lagradost.cloudstream3.utils.SPOILER_MODE_LOGO
+import com.lagradost.cloudstream3.utils.SPOILER_MODE_OFF
+import com.lagradost.cloudstream3.utils.SPOILER_MODE_POSTER
 import com.lagradost.cloudstream3.utils.UIHelper.toPx
 import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
 import com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager
@@ -209,9 +217,20 @@ class EpisodeAdapter(
                     downloadButton.setPersistentId(item.id)
                     downloadButton.setStatus(status)
 
+                    val spoilerMode = DataStoreHelper.spoilerPreventionMode
+                    android.util.Log.d("SpoilerPrevention", "Episode: ${item.name}, spoilerMode: $spoilerMode, watchState: ${item.videoWatchState}")
+                    val shouldApplySpoiler = spoilerMode != SPOILER_MODE_OFF && item.videoWatchState != VideoWatchState.Watched
+                    android.util.Log.d("SpoilerPrevention", "shouldApplySpoiler: $shouldApplySpoiler")
+
                     val name =
-                        if (item.name == null) "${episodeText.context.getString(R.string.episode)} ${item.episode}" else "${item.episode}. ${item.name}"
-                    episodeFiller.isVisible = item.isFiller == true
+                        if (shouldApplySpoiler) {
+                            android.util.Log.d("SpoilerPrevention", "Stripping name for episode ${item.episode}")
+                            "${episodeText.context.getString(R.string.episode)} ${item.episode}"
+                        } else {
+                            if (item.name == null) "${episodeText.context.getString(R.string.episode)} ${item.episode}" else "${item.episode}. ${item.name}"
+                        }
+                    episodeFiller.isVisible = item.isFiller == true && !shouldApplySpoiler
+                    android.util.Log.d("SpoilerPrevention", "Name set to: $name, filler visible: ${episodeFiller.isVisible}")
                     episodeText.text =
                         name//if(card.isFiller == true) episodeText.context.getString(R.string.filler).format(name) else name
                     episodeText.isSelected = true // is needed for text repeating
@@ -242,20 +261,64 @@ class EpisodeAdapter(
                     }
 
                     val posterVisible = !item.poster.isNullOrBlank()
+                    android.util.Log.d("SpoilerPrevention", "Poster visible: $posterVisible, poster URL: ${item.poster}")
                     if (posterVisible) {
                         val isUpcoming = item.airDate != null && unixTimeMS < item.airDate
-                        episodePoster.loadImage(item.poster) {
-                            if (isUpcoming) {
-                                error {
-                                    // If the poster has an url, but it is faulty then
-                                    // we use the episodeUpcomingIcon if it is an upcoming episode
-                                    main {
-                                        // Make sure it is on the main thread
-                                        episodeUpcomingIcon.isVisible = true
-                                    }
 
-                                    null // We only care about the runnable
+                        if (shouldApplySpoiler) {
+                            android.util.Log.d("SpoilerPrevention", "Applying spoiler image replacement, mode: $spoilerMode")
+                            // Apply spoiler prevention
+                            val imageToLoad = when (spoilerMode) {
+                                SPOILER_MODE_POSTER -> item.showPoster ?: item.poster
+                                SPOILER_MODE_BANNER -> item.showBanner ?: item.showPoster ?: item.poster // Fallback to poster for now
+                                SPOILER_MODE_LOGO -> item.showLogo ?: item.showPoster ?: item.poster // Fallback to poster for now
+                                SPOILER_MODE_BLUR -> item.poster // Load episode poster for blur
+                                SPOILER_MODE_OFF -> item.poster
+                                else -> item.poster
+                            }
+
+                            android.util.Log.d("SpoilerPrevention", "Loading image: $imageToLoad")
+
+                            if (spoilerMode == SPOILER_MODE_BLUR && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                // Apply blur effect on Android 12+ - blur the episode poster
+                                android.util.Log.d("SpoilerPrevention", "Applying blur effect to episode poster")
+                                episodePoster.loadImage(item.poster)
+                                // Apply blur after image loads
+                                main {
+                                    episodePoster.setRenderEffect(
+                                        RenderEffect.createBlurEffect(
+                                            25f, 25f, // radiusX, radiusY
+                                            android.graphics.Shader.TileMode.CLAMP
+                                        )
+                                    )
                                 }
+                            } else if (spoilerMode == SPOILER_MODE_BLUR && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                                // Fallback for Android < 12 - show poster instead
+                                android.util.Log.d("SpoilerPrevention", "Blur not supported on Android < 12, falling back to poster")
+                                episodePoster.loadImage(item.showPoster ?: item.poster)
+                            } else {
+                                // Normal loading for other modes
+                                episodePoster.loadImage(imageToLoad)
+                            }
+                        } else {
+                            // Normal loading
+                            episodePoster.loadImage(item.poster) {
+                                if (isUpcoming) {
+                                    error {
+                                        // If the poster has an url, but it is faulty then
+                                        // we use the episodeUpcomingIcon if it is an upcoming episode
+                                        main {
+                                            // Make sure it is on the main thread
+                                            episodeUpcomingIcon.isVisible = true
+                                        }
+
+                                        null // We only care about the runnable
+                                    }
+                                }
+                            }
+                            // Clear any blur effect when spoiler is disabled
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                episodePoster.setRenderEffect(null)
                             }
                         }
                     } else {
@@ -290,24 +353,29 @@ class EpisodeAdapter(
                     }
 
                     episodeDescript.apply {
-                        text = item.description.html()
-                        isGone = text.isNullOrBlank()
+                        if (shouldApplySpoiler) {
+                            text = ""
+                            isGone = true
+                        } else {
+                            text = item.description.html()
+                            isGone = text.isNullOrBlank()
 
-                        var isExpanded = false
-                        setOnClickListener {
-                            if (isLayout(TV)) {
-                                clickCallback.invoke(
-                                    EpisodeClickEvent(
-                                        position,
-                                        ACTION_SHOW_DESCRIPTION,
-                                        item
+                            var isExpanded = false
+                            setOnClickListener {
+                                if (isLayout(TV)) {
+                                    clickCallback.invoke(
+                                        EpisodeClickEvent(
+                                            position,
+                                            ACTION_SHOW_DESCRIPTION,
+                                            item
+                                        )
                                     )
-                                )
-                            } else {
-                                isExpanded = !isExpanded
-                                maxLines = if (isExpanded) {
-                                    Integer.MAX_VALUE
-                                } else 4
+                                } else {
+                                    isExpanded = !isExpanded
+                                    maxLines = if (isExpanded) {
+                                        Integer.MAX_VALUE
+                                    } else 4
+                                }
                             }
                         }
                     }
@@ -398,6 +466,11 @@ class EpisodeAdapter(
                         if (isLayout(TV or EMULATOR)) TV_EP_SIZE.toPx else ViewGroup.LayoutParams.MATCH_PARENT
                 }
 
+                val spoilerMode = DataStoreHelper.spoilerPreventionMode
+                android.util.Log.d("SpoilerPrevention", "ResultEpisode - Episode: ${item.name}, spoilerMode: $spoilerMode, watchState: ${item.videoWatchState}")
+                val shouldApplySpoiler = spoilerMode != SPOILER_MODE_OFF && item.videoWatchState != VideoWatchState.Watched
+                android.util.Log.d("SpoilerPrevention", "ResultEpisode - shouldApplySpoiler: $shouldApplySpoiler")
+
                 binding.apply {
                     downloadButton.isVisible = hasDownloadSupport
                     downloadButton.setDefaultClickListener(
@@ -447,8 +520,12 @@ class EpisodeAdapter(
                     downloadButton.setStatus(status)
 
                     val name =
-                        if (item.name == null) "${episodeText.context.getString(R.string.episode)} ${item.episode}" else "${item.episode}. ${item.name}"
-                    episodeFiller.isVisible = item.isFiller == true
+                        if (shouldApplySpoiler) {
+                            "${episodeText.context.getString(R.string.episode)} ${item.episode}"
+                        } else {
+                            if (item.name == null) "${episodeText.context.getString(R.string.episode)} ${item.episode}" else "${item.episode}. ${item.name}"
+                        }
+                    episodeFiller.isVisible = item.isFiller == true && !shouldApplySpoiler
                     episodeText.text =
                         name//if(card.isFiller == true) episodeText.context.getString(R.string.filler).format(name) else name
                     episodeText.isSelected = true // is needed for text repeating
