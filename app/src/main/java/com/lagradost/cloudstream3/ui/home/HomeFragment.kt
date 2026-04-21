@@ -871,7 +871,6 @@ class HomeFragment : BaseFragment<FragmentHomeBinding>(
             }, deleteCallback = delete)
         }
 
-        homeViewModel.reloadStored()
         homeViewModel.loadAndCancel(DataStoreHelper.currentHomePage, false)
         //loadHomePage(false)
 

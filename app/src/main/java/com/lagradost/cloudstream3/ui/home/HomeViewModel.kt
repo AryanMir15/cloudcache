@@ -23,6 +23,7 @@ import com.lagradost.cloudstream3.mvvm.debugWarning
 import com.lagradost.cloudstream3.mvvm.launchSafe
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.plugins.PluginManager
+import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.ui.APIRepository
 import com.lagradost.cloudstream3.ui.APIRepository.Companion.noneApi
 import com.lagradost.cloudstream3.ui.APIRepository.Companion.randomApi
@@ -60,35 +61,75 @@ import java.util.concurrent.CopyOnWriteArrayList
 class HomeViewModel : ViewModel() {
     companion object {
         suspend fun getResumeWatching(): List<DataStoreHelper.ResumeWatchingResult>? {
+            android.util.Log.d("HomeViewModel", "getResumeWatching() called")
+            val resumeStateIds = getAllResumeStateIds()
+            android.util.Log.d("HomeViewModel", "getResumeWatching() got ${resumeStateIds?.size ?: 0} resume state IDs")
             val resumeWatching = withContext(Dispatchers.IO) {
-                getAllResumeStateIds()?.mapNotNull { id ->
-                    getLastWatched(id)
+                resumeStateIds?.mapNotNull { id ->
+                    android.util.Log.d("HomeViewModel", "getResumeWatching() processing id: $id")
+                    val lastWatched = getLastWatched(id)
+                    android.util.Log.d("HomeViewModel", "getResumeWatching() lastWatched for id $id: ${lastWatched != null}")
+                    lastWatched
                 }?.sortedBy { -it.updateTime }
             }
+            android.util.Log.d("HomeViewModel", "getResumeWatching() after processing: ${resumeWatching?.size ?: 0} items")
             val resumeWatchingResult = withContext(Dispatchers.IO) {
+                android.util.Log.d("HomeViewModel", "getResumeWatching() converting ${resumeWatching?.size ?: 0} items to ResumeWatchingResult")
                 resumeWatching?.mapNotNull { resume ->
+                    android.util.Log.d("HomeViewModel", "getResumeWatching() processing resume item: parentId=${resume.parentId}")
                     val headerCache = getKey<DownloadObjects.DownloadHeaderCached>(
                         DOWNLOAD_HEADER_CACHE,
                         resume.parentId.toString()
                     )
+                    android.util.Log.d("HomeViewModel", "getResumeWatching() headerCache for parentId ${resume.parentId}: ${headerCache != null}")
 
                     val data = if (headerCache == null) {
+                        android.util.Log.d("HomeViewModel", "getResumeWatching() headerCache null, trying backup")
                         // We store resume watching data in download header cache
                         // Because downloads automatically pruned outdated download headers we
                         // removed resume watching data. We should restore the data for affected users.
                         val oldData = getKey<DownloadObjects.DownloadHeaderCached>(
                             DOWNLOAD_HEADER_CACHE_BACKUP,
                             resume.parentId.toString()
-                        ) ?: return@mapNotNull null
-
-                        // Restore data
-                        setKey(DOWNLOAD_HEADER_CACHE, resume.parentId.toString(), oldData)
-                        oldData
+                        )
+                        android.util.Log.d("HomeViewModel", "getResumeWatching() backup data: ${oldData != null}")
+                        if (oldData == null) {
+                            android.util.Log.d("HomeViewModel", "getResumeWatching() no backup data, trying bookmarked data")
+                            // Try using bookmarked data as fallback (for cached library support)
+                            val bookmarkedData = getBookmarkedData(resume.parentId)
+                            android.util.Log.d("HomeViewModel", "getResumeWatching() bookmarked data: ${bookmarkedData != null}")
+                            if (bookmarkedData == null) {
+                                android.util.Log.d("HomeViewModel", "getResumeWatching() no bookmarked data, skipping")
+                                return@mapNotNull null
+                            }
+                            // Convert BookmarkedData to DownloadHeaderCached
+                            DownloadObjects.DownloadHeaderCached(
+                                name = bookmarkedData.name,
+                                url = bookmarkedData.url,
+                                apiName = bookmarkedData.apiName,
+                                type = bookmarkedData.type ?: TvType.TvSeries,
+                                poster = bookmarkedData.posterUrl,
+                                plot = bookmarkedData.plot,
+                                score = bookmarkedData.score?.toInt(),
+                                year = bookmarkedData.year,
+                                showStatus = null,
+                                episodeCount = null,
+                                date = null,
+                                actors = null,
+                                cacheTime = 0L,
+                                id = bookmarkedData.id ?: 0
+                            )
+                        } else {
+                            // Restore data
+                            setKey(DOWNLOAD_HEADER_CACHE, resume.parentId.toString(), oldData)
+                            oldData
+                        }
                     } else {
                         headerCache
                     }
 
                     val watchPos = getViewPos(resume.episodeId)
+                    android.util.Log.d("HomeViewModel", "getResumeWatching() watchPos: $watchPos")
 
                     DataStoreHelper.ResumeWatchingResult(
                         data.name,
@@ -105,6 +146,7 @@ class HomeViewModel : ViewModel() {
                     )
                 }
             }
+            android.util.Log.d("HomeViewModel", "getResumeWatching() final result: ${resumeWatchingResult?.size ?: 0} items")
             return resumeWatchingResult
         }
     }
@@ -152,7 +194,9 @@ class HomeViewModel : ViewModel() {
     val preview: LiveData<Resource<Pair<Boolean, List<LoadResponse>>>> = _preview
 
     private fun loadResumeWatching() = viewModelScope.launchSafe {
+        android.util.Log.d("HomeViewModel", "loadResumeWatching() called")
         val resumeWatchingResult = getResumeWatching()
+        android.util.Log.d("HomeViewModel", "loadResumeWatching() got ${resumeWatchingResult?.size ?: 0} items")
         if (isLayout(TV) && resumeWatchingResult != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             ioSafe {
                 // this WILL crash on non tvs, so keep this inside a try catch
@@ -160,17 +204,20 @@ class HomeViewModel : ViewModel() {
             }
         }
         resumeWatchingResult?.let {
+            android.util.Log.d("HomeViewModel", "loadResumeWatching() posting ${it.size} items to LiveData")
             _resumeWatching.postValue(it)
-        }
+        } ?: android.util.Log.d("HomeViewModel", "loadResumeWatching() result is null, not posting to LiveData")
     }
 
     fun loadStoredData(preferredWatchStatus: Set<WatchType>?) = viewModelScope.launchSafe {
+        android.util.Log.d("HomeViewModel", "loadStoredData() called with preferredWatchStatus: $preferredWatchStatus")
         val watchStatusIds = withContext(Dispatchers.IO) {
             getAllWatchStateIds()?.map { id ->
                 Pair(id, getResultWatchState(id))
             }
         }?.distinctBy { it.first } ?: return@launchSafe
 
+        android.util.Log.d("HomeViewModel", "loadStoredData() found ${watchStatusIds.size} watch status IDs")
         val length = WatchType.entries.size
         val currentWatchTypes = mutableSetOf<WatchType>()
 
@@ -182,15 +229,21 @@ class HomeViewModel : ViewModel() {
         }
 
         currentWatchTypes.remove(WatchType.NONE)
+        android.util.Log.d("HomeViewModel", "loadStoredData() currentWatchTypes: $currentWatchTypes")
 
         if (currentWatchTypes.size <= 0) {
+            android.util.Log.d("HomeViewModel", "loadStoredData() no watch types found, posting empty list")
             DataStoreHelper.homeBookmarkedList = intArrayOf()
             _availableWatchStatusTypes.postValue(setOf<WatchType>() to setOf())
             _bookmarks.postValue(Pair(false, ArrayList()))
             return@launchSafe
         }
 
-        val watchPrefNotNull = preferredWatchStatus ?: EnumSet.of(currentWatchTypes.first())
+        val watchPrefNotNull = if (preferredWatchStatus.isNullOrEmpty()) {
+            EnumSet.of(currentWatchTypes.first())
+        } else {
+            preferredWatchStatus
+        }
         //if (currentWatchTypes.any { watchPrefNotNull.contains(it) }) watchPrefNotNull else listOf(currentWatchTypes.first())
 
         DataStoreHelper.homeBookmarkedList = watchPrefNotNull.map { it.internalId }.toIntArray()
@@ -206,6 +259,7 @@ class HomeViewModel : ViewModel() {
                 .mapNotNull { getBookmarkedData(it.first) }
                 .sortedBy { -it.latestUpdatedTime }
         }
+        android.util.Log.d("HomeViewModel", "loadStoredData() posting ${list.size} bookmarks to LiveData")
         _bookmarks.postValue(Pair(true, list))
     }
 
@@ -421,6 +475,10 @@ class HomeViewModel : ViewModel() {
         }
     }
 
+    fun click(callback: LoadClickCallback) {
+        loadResult(callback.response.url, callback.response.apiName, callback.response.name, callback.action)
+    }
+
     private val _popup = MutableLiveData<Pair<ExpandableHomepageList, (() -> Unit)?>?>(null)
     val popup: LiveData<Pair<ExpandableHomepageList, (() -> Unit)?>?> = _popup
 
@@ -489,12 +547,9 @@ class HomeViewModel : ViewModel() {
     }
 
     fun reloadStored() {
+        android.util.Log.d("HomeViewModel", "reloadStored() called")
         loadResumeWatching()
         loadStoredData()
-    }
-
-    fun click(load: LoadClickCallback) {
-        loadResult(load.response.url, load.response.apiName, load.response.name, load.action)
     }
 
     // only save the key if it is from UI, as we don't want internal functions changing the setting

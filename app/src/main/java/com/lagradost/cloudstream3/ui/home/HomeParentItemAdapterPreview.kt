@@ -719,6 +719,7 @@ class HomeParentItemAdapterPreview(
         }
 
         private fun updateResume(resumeWatching: List<SearchResponse>) {
+            android.util.Log.d("HomeParentItemAdapterPreview", "updateResume() called with ${resumeWatching.size} items, setting visibility to ${resumeWatching.isNotEmpty()}")
             resumeHolder.isVisible = resumeWatching.isNotEmpty()
             resumeAdapter.submitList(resumeWatching)
 
@@ -1071,6 +1072,7 @@ class HomeParentItemAdapterPreview(
 
         private fun updateBookmarks(data: Pair<Boolean, List<SearchResponse>>) {
             val (visible, list) = data
+            android.util.Log.d("HomeParentItemAdapterPreview", "updateBookmarks() called with visible=$visible, size=${list.size}, setting visibility to $visible")
             bookmarkHolder.isVisible = visible
             bookmarkAdapter.submitList(list)
 
@@ -1117,11 +1119,15 @@ class HomeParentItemAdapterPreview(
                     }
                 }*/
                 observe(viewModel.resumeWatching) {
+                    android.util.Log.d("HomeParentItemAdapterPreview", "resumeWatching observer received ${it.size} items")
                     updateResume(it)
                 }
                 observe(viewModel.bookmarks) {
+                    android.util.Log.d("HomeParentItemAdapterPreview", "bookmarks observer received visible=${it.first}, size=${it.second.size}")
                     updateBookmarks(it)
                 }
+                // Load stored data after observers are attached to ensure they receive the data
+                viewModel.reloadStored()
                 observe(viewModel.availableWatchStatusTypes) { (checked, visible) ->
                     for ((chip, watch) in toggleList) {
                         chip.apply {
