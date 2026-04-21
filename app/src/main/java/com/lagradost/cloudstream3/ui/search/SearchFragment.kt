@@ -1,6 +1,7 @@
 package com.lagradost.cloudstream3.ui.search
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.DialogInterface
 import android.speech.RecognizerIntent
@@ -11,9 +12,12 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.AbsListView
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.ListView
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SearchView
@@ -22,8 +26,10 @@ import androidx.fragment.app.activityViewModels
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import androidx.activity.result.contract.ActivityResultContracts
 import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.chip.Chip
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
@@ -48,6 +54,10 @@ import com.lagradost.cloudstream3.ui.APIRepository
 import com.lagradost.cloudstream3.ui.BaseAdapter
 import com.lagradost.cloudstream3.ui.BaseFragment
 import com.lagradost.cloudstream3.ui.home.HomeFragment
+import com.lagradost.cloudstream3.syncproviders.AccountManager
+import com.lagradost.cloudstream3.syncproviders.AccountManager.Companion.aniListApi
+import com.lagradost.cloudstream3.syncproviders.SyncRepo
+import com.lagradost.cloudstream3.syncproviders.providers.AniListApi
 import com.lagradost.cloudstream3.ui.home.HomeFragment.Companion.bindChips
 import com.lagradost.cloudstream3.ui.home.HomeFragment.Companion.currentSpan
 import com.lagradost.cloudstream3.ui.home.HomeFragment.Companion.loadHomepageList
@@ -82,6 +92,10 @@ import com.lagradost.cloudstream3.utils.UIHelper.getSpanCount
 import com.lagradost.cloudstream3.utils.UIHelper.hideKeyboard
 import java.util.Locale
 import java.util.concurrent.locks.ReentrantLock
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
 
 class SearchFragment : BaseFragment<FragmentSearchBinding>(
     BaseFragment.BindingCreator.Bind(FragmentSearchBinding::bind)
@@ -98,6 +112,11 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                     true
                 }
             }
+        }
+
+        fun List<SearchResponse>.filterByGenre(genre: String?): List<SearchResponse> {
+            return if (genre == null) this
+            else this.filter { it.tags?.contains(genre) == true }
         }
 
         const val SEARCH_QUERY = "search_query"
@@ -158,6 +177,204 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
 
     var selectedSearchTypes = mutableListOf<TvType>()
     var selectedApis = mutableSetOf<String>()
+    var availableGenres = listOf<String>()
+    var selectedGenre: String? = null
+    var currentSearchResults: Map<String, com.lagradost.cloudstream3.ui.search.ExpandableSearchList>? = null
+    var anilistGenreMap: Map<String, List<String>> = emptyMap()
+    
+    // AniList Browse Mode State
+    var isShowingAniListResults: Boolean = false
+    var currentAniListPage: Int = 1
+    var currentSelectedGenre: String? = null
+    var hasMoreAniListResults: Boolean = false
+    var anilistBrowseResults: List<SearchResponse> = emptyList()
+    
+    // Multi-selection state for genres and tags
+    private var selectedGenres: MutableSet<String> = mutableSetOf()
+    private var selectedTags: MutableSet<String> = mutableSetOf()
+    
+    // Cache for AniList genres and tags (separate raw API response from processed strings)
+    private var cachedAniListGenres: List<String>? = null
+    private var cachedRawTags: List<AniListApi.MediaTag>? = null
+
+
+    private fun loadAniListResultsByGenreWithFilters(
+        seasonYear: Int?,
+        season: String?,
+        format: String?,
+        genres: List<String>,
+        tags: List<String>,
+        page: Int = 1
+    ) {
+        ioSafe {
+            main {
+                binding?.searchLoadingBar?.alpha = 1f
+            }
+
+            val response = aniListApi.getMediaByGenre(genres, tags, page, seasonYear, season, format)
+            val mediaItems = response?.data?.page?.media ?: emptyList()
+            val hasNextPage = response?.data?.page?.pageInfo?.hasNextPage ?: false
+
+            val searchResponses = mediaItems.mapNotNull { it.toSearchResponse() }
+
+            main {
+                binding?.searchLoadingBar?.alpha = 0f
+
+                if (page == 1) {
+                    anilistBrowseResults = searchResponses
+                } else {
+                    anilistBrowseResults = anilistBrowseResults + searchResponses
+                }
+
+                hasMoreAniListResults = hasNextPage
+                displayAniListResults()
+            }
+        }
+    }
+
+    private fun AniListApi.MediaByGenreItem.toSearchResponse(): SearchResponse {
+        @Suppress("DEPRECATION_ERROR")
+        return AnimeSearchResponse(
+            name = this.title?.romaji ?: this.title?.english ?: "",
+            url = "https://anilist.co/anime/${this.id}",
+            apiName = "AniList",
+            type = TvType.Anime,
+            id = this.id,
+            posterUrl = this.coverImage?.large ?: this.coverImage?.medium
+        )
+    }
+
+    private fun loadAniListResultsByGenre(genres: List<String>, tags: List<String> = emptyList(), page: Int) {
+        ioSafe {
+            main {
+                binding?.searchLoadingBar?.alpha = 1f
+            }
+
+            val response = aniListApi.getMediaByGenre(genres, tags, page)
+            val mediaItems = response?.data?.page?.media ?: emptyList()
+            val hasNextPage = response?.data?.page?.pageInfo?.hasNextPage ?: false
+
+            val searchResponses = mediaItems.mapNotNull { it.toSearchResponse() }
+
+            main {
+                binding?.searchLoadingBar?.alpha = 0f
+
+                if (page == 1) {
+                    anilistBrowseResults = searchResponses
+                } else {
+                    anilistBrowseResults = anilistBrowseResults + searchResponses
+                }
+
+                hasMoreAniListResults = hasNextPage
+
+                // Display AniList results in the search results view
+                displayAniListResults()
+            }
+        }
+    }
+
+    private fun displayAniListResults() {
+        val adapter = binding?.searchAutofitResults?.adapter as? SearchAdapter ?: return
+        
+        // Add "Load More" button if there are more results
+        val displayList = if (hasMoreAniListResults) {
+            anilistBrowseResults + createLoadMoreItem()
+        } else {
+            anilistBrowseResults
+        }
+
+        adapter.submitList(displayList)
+    }
+
+    private fun createLoadMoreItem(): SearchResponse {
+        @Suppress("DEPRECATION_ERROR")
+        return AnimeSearchResponse(
+            name = getString(R.string.anilist_browse_load_more),
+            url = "",
+            apiName = "AniList",
+            type = TvType.Anime,
+            id = -1,
+            posterUrl = null
+        )
+    }
+
+    private fun isAniListLoggedIn(): Boolean {
+        return AccountManager.accounts(aniListApi.idPrefix).isNotEmpty()
+    }
+
+    private fun showAniListLoginPrompt() {
+        activity?.let { ctx ->
+            val builder = AlertDialog.Builder(ctx)
+            builder.setTitle(getString(R.string.genre_filter_anilist_login_required))
+            builder.setMessage(getString(R.string.genre_filter_anilist_login_message))
+            builder.setPositiveButton(getString(R.string.genre_filter_anilist_login_button)) { dialog, _ ->
+                // Navigate to AniList settings
+                ctx.startActivity(Intent(ctx, com.lagradost.cloudstream3.ui.settings.SettingsAccount::class.java))
+                dialog.dismiss()
+            }
+            builder.setNegativeButton(android.R.string.cancel) { dialog, _ ->
+                dialog.dismiss()
+            }
+            builder.show()
+        }
+    }
+
+
+    private fun isAnimeProvider(providerName: String): Boolean {
+        val api = getApiFromNameNull(providerName) ?: return false
+        return api.supportedTypes.any { type ->
+            type == TvType.Anime || type == TvType.OVA || type == TvType.AnimeMovie
+        }
+    }
+
+    private suspend fun loadAniListGenresForAnime(
+        searchResults: List<SearchResponse>
+    ): Map<String, List<String>> {
+        return coroutineScope {
+            val semaphore = Semaphore(5)
+            val genreMap = mutableMapOf<String, List<String>>()
+
+            android.util.Log.d("GenreFilter", "loadAniListGenresForAnime: ${searchResults.size} search results")
+
+            val animeResults = searchResults.filter { result ->
+                result.type == TvType.Anime || result.type == TvType.OVA || result.type == TvType.AnimeMovie
+            }
+
+            android.util.Log.d("GenreFilter", "loadAniListGenresForAnime: ${animeResults.size} anime results")
+
+            val auth = AccountManager.accounts(aniListApi.idPrefix).firstOrNull()
+            android.util.Log.d("GenreFilter", "loadAniListGenresForAnime: auth=${auth != null}")
+
+            animeResults.map { result ->
+                async {
+                    semaphore.acquire()
+                    try {
+                        android.util.Log.d("GenreFilter", "Searching AniList for: ${result.name}")
+                        val anilistSearch = aniListApi.search(auth, result.name)
+                        android.util.Log.d("GenreFilter", "AniList search result: ${anilistSearch?.size} results")
+                        if (anilistSearch != null && anilistSearch.size > 0) {
+                            val anilistId = anilistSearch[0].syncId
+                            android.util.Log.d("GenreFilter", "Loading AniList metadata for id: $anilistId")
+                            val metadata = aniListApi.load(auth, anilistId)
+                            val genres = metadata?.genres
+                            android.util.Log.d("GenreFilter", "AniList genres for ${result.name}: ${genres?.size ?: 0}")
+                            if (genres != null) {
+                                genreMap[result.name] = genres
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("GenreFilter", "Error loading AniList metadata for ${result.name}: $e")
+                        logError(e)
+                    } finally {
+                        semaphore.release()
+                    }
+                }
+            }.awaitAll()
+
+            android.util.Log.d("GenreFilter", "loadAniListGenresForAnime: loaded ${genreMap.size} genre mappings")
+            genreMap
+        }
+    }
 
     /**
      * Will filter all providers by preferred media and selectedSearchTypes.
@@ -166,6 +383,7 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
      **/
     fun search(query: String?) {
         if (query == null) return
+        selectedGenre = null // Clear genre filter on new search
         // don't resume state from prev search
         (binding?.searchMasterRecycler?.adapter as? BaseAdapter<*, *>)?.clearState()
         context?.let { ctx ->
@@ -193,6 +411,45 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                 }.ifEmpty { notFilteredBySelectedTypes }.map { it.first }.toSet()
             )
         }
+    }
+
+    fun filterCurrentResultsByGenre(genre: String?) {
+        // Filter the parent adapter results
+        val list = currentSearchResults ?: return
+        val adapter = binding?.searchMasterRecycler?.adapter as? ParentItemAdapter ?: return
+
+        val pinnedOrder = DataStoreHelper.pinnedProviders.reversedArray()
+        val sortedList = list.entries.sortedWith(compareBy<Map.Entry<String, com.lagradost.cloudstream3.ui.search.ExpandableSearchList>> { entry ->
+            val providerName = entry.key
+            val index = pinnedOrder.indexOf(providerName)
+            if (index == -1) Int.MAX_VALUE else index
+        })
+
+        val filteredItems = sortedList.map { entry ->
+            val providerName = entry.key
+            val providerData = entry.value
+            val dataList = providerData.list
+            val dataListFiltered = if (genre == null) dataList else dataList.filter { item ->
+                // Check tags from search response
+                val hasTag = item.tags?.contains(genre) == true
+                // Check AniList genres
+                val hasAniListGenre = anilistGenreMap[item.name]?.contains(genre) == true
+                hasTag || hasAniListGenre
+            }
+
+            val homePageList = HomePageList(
+                providerName,
+                dataListFiltered
+            )
+
+            HomeViewModel.ExpandableHomepageList(
+                homePageList,
+                providerData.currentPage,
+                providerData.hasNext
+            )
+        }
+
+        adapter.submitList(filteredItems)
     }
 
     // Null if defined as a variable
@@ -239,7 +496,21 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                 SearchAdapter(
                     searchAutofitResults,
                 ) { callback ->
-                    SearchHelper.handleSearchClickCallback(callback)
+                    // Handle AniList browse mode clicks
+                    if (isShowingAniListResults) {
+                        val clickedItem = callback.card
+                        if (clickedItem.id == -1) {
+                            // Load more AniList results
+                            currentAniListPage++
+                            loadAniListResultsByGenre(selectedGenres.toList(), selectedTags.toList(), currentAniListPage)
+                        } else {
+                            // Open result in player
+                            SearchHelper.handleSearchClickCallback(callback)
+                        }
+                    } else {
+                        // Normal provider search handling
+                        SearchHelper.handleSearchClickCallback(callback)
+                    }
                 }
 
             searchRoot.findViewById<TextView>(androidx.appcompat.R.id.search_src_text)?.tag =
@@ -316,6 +587,10 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                     listView?.adapter = arrayAdapter
                     listView?.choiceMode = AbsListView.CHOICE_MODE_MULTIPLE
 
+                    // Genre filter button inside provider selector
+                    val genreFilterBtn = dialog.findViewById<ImageView>(R.id.genre_filter)
+                    genreFilterBtn?.isVisible = currentSelectedApis.any { isAnimeProvider(it) }
+
                     listView?.setOnItemClickListener { _, _, i, _ ->
                         if (currentValidApis.isNotEmpty()) {
                             val api = currentValidApis[i].name
@@ -326,6 +601,8 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                                 listView.setItemChecked(i, true)
                                 currentSelectedApis += api
                             }
+                            // Update genre filter button visibility based on selected providers
+                            genreFilterBtn?.isVisible = currentSelectedApis.any { isAnimeProvider(it) }
                         }
                     }
 
@@ -379,8 +656,17 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                         dialog.dismissSafe()
                     }
 
-                    cancelBtt?.setOnClickListener {
-                        dialog.dismissSafe()
+                    // Genre filter button click listener
+                    genreFilterBtn?.setOnClickListener {
+                        // Check if any selected providers are anime-focused
+                        val hasAnimeProviders = currentSelectedApis.any { isAnimeProvider(it) }
+
+                        if (hasAnimeProviders && !isAniListLoggedIn()) {
+                            showAniListLoginPrompt()
+                            return@setOnClickListener
+                        }
+
+                        // AniList Browse Mode dialog removed - filter UI only on homescreen
                     }
 
                     applyBtt?.setOnClickListener {
@@ -404,7 +690,22 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
             }
         }
 
-        val settingsManager = context?.let { PreferenceManager.getDefaultSharedPreferences(it) }
+        android.util.Log.d("GenreFilter", "Setting up genre filter click listener, button exists=${binding.genreFilter != null}")
+
+        binding.genreFilter.setOnClickListener {
+            android.util.Log.d("GenreFilter", "Genre filter button clicked! isVisible=${binding.genreFilter.isVisible}, isEnabled=${binding.genreFilter.isEnabled}")
+
+            // Check if any selected providers are anime-focused
+            val hasAnimeProviders = selectedApis.any { isAnimeProvider(it) }
+
+            if (hasAnimeProviders && !isAniListLoggedIn()) {
+                showAniListLoginPrompt()
+                return@setOnClickListener
+            }
+
+            // Setup AniList filter dropdowns removed - filter UI only on homescreen
+
+            val settingsManager = context?.let { PreferenceManager.getDefaultSharedPreferences(it) }
         val isAdvancedSearch = settingsManager?.getBoolean("advanced_search", true) ?: true
         val isSearchSuggestionsEnabled = settingsManager?.getBoolean("search_suggestions_enabled", true) ?: true
 
@@ -496,12 +797,27 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                 // https://stackoverflow.com/questions/6866238/concurrent-modification-exception-adding-to-an-arraylist
                 listLock.lock()
 
+                currentSearchResults = list // Store current results
+
                 val pinnedOrder = DataStoreHelper.pinnedProviders.reversedArray()
 
                 val sortedList = list.toList().sortedWith(compareBy { (providerName, _) ->
                     val index = pinnedOrder.indexOf(providerName)
                     if (index == -1) Int.MAX_VALUE else index
                 })
+
+                // Extract genres from selected providers only
+                val selectedProviderNames = selectedApis.toSet()
+                availableGenres = list
+                    .filter { (providerName, _) -> selectedProviderNames.contains(providerName) }
+                    .flatMap { (_, providerData) ->
+                        providerData.list.flatMap { it.tags ?: emptyList() }
+                    }
+                    .distinct()
+                    .sorted()
+
+                val hasAnimeProviders = selectedApis.any { isAnimeProvider(it) }
+                binding.genreFilter.isVisible = hasAnimeProviders || availableGenres.isNotEmpty()
 
                 (binding.searchMasterRecycler.adapter as? ParentItemAdapter)?.apply {
                     val newItems = sortedList.map { (providerName, providerData) ->
@@ -690,6 +1006,7 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                     activity?.detachBackPressedCallback("SearchFragment")
                 }
             }
+        }
         }
 
         searchViewModel.updateHistory()

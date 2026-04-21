@@ -281,7 +281,7 @@ object DataStoreHelper {
         @JsonProperty("posterHeaders") override var posterHeaders: Map<String, String>?,
         @JsonProperty("plot") open val plot: String? = null,
         @JsonProperty("score") override var score: Score? = null,
-        @JsonProperty("tags") open val tags: List<String>? = null,
+        @JsonProperty("tags") override var tags: List<String>? = null,
     ) : SearchResponse {
         @JsonProperty("rating", access = JsonProperty.Access.WRITE_ONLY)
         @Deprecated(
@@ -314,7 +314,7 @@ object DataStoreHelper {
         override var posterHeaders: Map<String, String>? = null,
         override val plot: String? = null,
         override var score: Score? = null,
-        override val tags: List<String>? = null,
+        override var tags: List<String>? = null,
     ) : LibrarySearchResponse(
         id,
         latestUpdatedTime,
@@ -369,7 +369,7 @@ object DataStoreHelper {
         override var posterHeaders: Map<String, String>? = null,
         override val plot: String? = null,
         override var score: Score? = null,
-        override val tags: List<String>? = null,
+        override var tags: List<String>? = null,
     ) : LibrarySearchResponse(
         id,
         latestUpdatedTime,
@@ -422,7 +422,7 @@ object DataStoreHelper {
         override var posterHeaders: Map<String, String>? = null,
         override val plot: String? = null,
         override var score: Score? = null,
-        override val tags: List<String>? = null,
+        override var tags: List<String>? = null,
     ) : LibrarySearchResponse(
         id,
         latestUpdatedTime,
@@ -475,6 +475,7 @@ object DataStoreHelper {
         @JsonProperty("quality") override var quality: SearchQuality? = null,
         @JsonProperty("posterHeaders") override var posterHeaders: Map<String, String>? = null,
         @JsonProperty("score") override var score: Score? = null,
+        @JsonProperty("tags") override var tags: List<String>? = null,
     ) : SearchResponse
 
     /**

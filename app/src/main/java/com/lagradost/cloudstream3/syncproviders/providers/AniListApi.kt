@@ -84,7 +84,7 @@ class AniListApi : SyncAPI() {
     }
 
     override suspend fun search(auth : AuthData?, query: String): List<SyncAPI.SyncSearchResult>? {
-        val data = searchShows(name) ?: return null
+        val data = searchShows(query) ?: return null
         return data.data?.page?.media?.map {
             SyncAPI.SyncSearchResult(
                 it.title.romaji ?: return null,
@@ -189,6 +189,21 @@ class AniListApi : SyncAPI() {
         const val MAX_STALE = 60 * 10
         private val aniListStatusString =
             arrayOf("CURRENT", "COMPLETED", "PAUSED", "DROPPED", "PLANNING", "REPEATING")
+
+        // Format mapping: UI text → AniList MediaFormat enum
+        private val formatMapping = mapOf(
+            "TV Show" to "TV",
+            "Movie" to "MOVIE",
+            "TV Short" to "TV_SHORT",
+            "Special" to "SPECIAL",
+            "OVA" to "OVA",
+            "ONA" to "ONA",
+            "Music" to "MUSIC"
+        )
+
+        fun mapFormatToAniListEnum(format: String?): String? {
+            return format?.let { formatMapping[it] }
+        }
 
         const val ANILIST_CACHED_LIST: String = "anilist_cached_list"
 
@@ -1136,5 +1151,154 @@ class AniListApi : SyncAPI() {
 
     data class GetSearchRoot(
         @JsonProperty("data") val data: GetSearchPage?,
+    )
+
+    // Genre Browse Feature
+    suspend fun getGenreCollection(): List<String>? {
+        val query = """
+            query {
+                GenreCollection
+            }
+        """
+        val data = app.post(
+            "https://graphql.anilist.co/",
+            data = mapOf("query" to query),
+            timeout = 5000
+        ).text
+        val response = tryParseJson<GenreCollectionResponse>(data) ?: return null
+        return response.data?.genreCollection
+    }
+
+    suspend fun getMediaTagCollection(): List<MediaTag>? {
+        val query = """
+            query {
+                MediaTagCollection {
+                    name
+                    description
+                    category
+                    isAdult
+                }
+            }
+        """
+        val data = app.post(
+            "https://graphql.anilist.co/",
+            data = mapOf("query" to query),
+            timeout = 5000
+        ).text
+        val response = tryParseJson<MediaTagCollectionResponse>(data) ?: return null
+        return response.data?.mediaTagCollection
+    }
+
+    suspend fun getMediaByGenre(
+        genres: List<String>,
+        tags: List<String> = emptyList(),
+        page: Int = 1,
+        seasonYear: Int? = null,
+        season: String? = null,
+        format: String? = null,
+        sort: String? = null,
+        search: String? = null
+    ): MediaByGenreResponse? {
+        // Fetch official genre list to validate/normalize genre names
+        val officialGenres = getGenreCollection()
+        android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: official genres from API=$officialGenres")
+        android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: requested genres=$genres")
+        android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: search=$search")
+        
+        // Normalize genre names to match official list (case-sensitive match)
+        val normalizedGenres = genres.map { genre ->
+            officialGenres?.firstOrNull { it.equals(genre, ignoreCase = true) } ?: genre
+        }
+        android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: normalized genres=$normalizedGenres")
+        
+        // Single master query with all possible filter variables including search
+        val query = """
+            query (${'$'}page: Int, ${'$'}perPage: Int, ${'$'}search: String, ${'$'}genres: [String], ${'$'}tags: [String], ${'$'}seasonYear: Int, ${'$'}season: MediaSeason, ${'$'}format: MediaFormat, ${'$'}sort: [MediaSort]) {
+                Page(page: ${'$'}page, perPage: ${'$'}perPage) {
+                    pageInfo { hasNextPage }
+                    media(type: ANIME, search: ${'$'}search, genre_in: ${'$'}genres, tag_in: ${'$'}tags, seasonYear: ${'$'}seasonYear, season: ${'$'}season, format: ${'$'}format, sort: ${'$'}sort) {
+                        id
+                        title { romaji english }
+                        coverImage { large }
+                    }
+                }
+            }
+        """
+        
+        // Build variables map, omitting null/empty values
+        val variables = mutableMapOf<String, Any?>(
+            "page" to page,
+            "perPage" to 25
+        )
+        if (search != null) variables["search"] = search
+        if (normalizedGenres.isNotEmpty()) variables["genres"] = normalizedGenres
+        if (tags.isNotEmpty()) variables["tags"] = tags
+        if (seasonYear != null) variables["seasonYear"] = seasonYear
+        if (season != null) variables["season"] = season
+        if (format != null) variables["format"] = format
+        if (sort != null) variables["sort"] = listOf(sort)
+        
+        android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: variables=$variables")
+        android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: variablesJson=${variables.toJson()}")
+        android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: query=$query")
+        
+        val data = app.post(
+            "https://graphql.anilist.co/",
+            data = mapOf(
+                "query" to query,
+                "variables" to variables.toJson()
+            ),
+            timeout = 5000
+        ).text
+        
+        android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: raw response=$data")
+        
+        return tryParseJson<MediaByGenreResponse>(data)
+    }
+
+    data class GenreCollectionResponse(
+        @JsonProperty("data") val data: GenreCollectionData?
+    )
+
+    data class GenreCollectionData(
+        @JsonProperty("GenreCollection") val genreCollection: List<String>?
+    )
+
+    data class MediaTagCollectionResponse(
+        @JsonProperty("data") val data: MediaTagCollectionData?
+    )
+
+    data class MediaTagCollectionData(
+        @JsonProperty("MediaTagCollection") val mediaTagCollection: List<MediaTag>?
+    )
+
+    data class MediaTag(
+        @JsonProperty("name") val name: String?,
+        @JsonProperty("description") val description: String?,
+        @JsonProperty("category") val category: String?,
+        @JsonProperty("isAdult") val isAdult: Boolean?
+    )
+
+    data class MediaByGenreResponse(
+        @JsonProperty("data") val data: MediaByGenreData?
+    )
+
+    data class MediaByGenreData(
+        @JsonProperty("Page") val page: MediaByGenrePage?
+    )
+
+    data class MediaByGenrePage(
+        @JsonProperty("pageInfo") val pageInfo: MediaByGenrePageInfo?,
+        @JsonProperty("media") val media: List<MediaByGenreItem>?
+    )
+
+    data class MediaByGenrePageInfo(
+        @JsonProperty("hasNextPage") val hasNextPage: Boolean?
+    )
+
+    data class MediaByGenreItem(
+        @JsonProperty("id") val id: Int?,
+        @JsonProperty("title") val title: MediaTitle?,
+        @JsonProperty("coverImage") val coverImage: CoverImage?
     )
 }

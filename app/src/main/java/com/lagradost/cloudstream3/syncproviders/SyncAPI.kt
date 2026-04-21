@@ -81,6 +81,7 @@ abstract class SyncAPI : AuthAPI() {
         override var posterHeaders: Map<String, String>? = null,
         override var id: Int? = null,
         override var score: Score? = null,
+        override var tags: List<String>? = null,
     ) : SearchResponse
 
     abstract class AbstractSyncStatus {
@@ -189,6 +190,6 @@ abstract class SyncAPI : AuthAPI() {
         override var id: Int? = null,
         val plot: String? = null,
         override var score: Score? = null,
-        val tags: List<String>? = null
+        override var tags: List<String>? = null
     ) : SearchResponse
 }

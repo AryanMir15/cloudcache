@@ -107,7 +107,19 @@
                     android:nextFocusRight="@id/main_search"
                     android:nextFocusUp="@id/nav_rail_view"
                     android:nextFocusDown="@id/search_autofit_results"
-                    android:src="@drawable/ic_baseline_tune_24"
+                    android:src="@drawable/ic_baseline_filter_list_24"
+                    app:tint="?attr/textColor" />
+
+                <ImageView
+                    android:id="@+id/genre_filter"
+                    android:layout_width="25dp"
+                    android:layout_height="25dp"
+                    android:layout_gravity="end|center_vertical"
+                    android:layout_margin="10dp"
+                    android:background="?selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/genre_filter_img_des"
+                    android:src="@drawable/ic_baseline_filter_list_24"
+                    android:visibility="invisible"
                     app:tint="?attr/textColor" />
             </FrameLayout>
         </LinearLayout>
@@ -115,8 +127,95 @@
         <include
             android:id="@+id/tvtypes_chips_scroll"
             layout="@layout/tvtypes_chips_scroll" />
-    </LinearLayout>
 
+        <!-- AniList Filter Labels -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="6dp">
+
+            <TextView
+                android:id="@+id/year_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:background="#4D000000"
+                android:clickable="true"
+                android:focusable="true"
+                android:minWidth="80dp"
+                android:paddingStart="12dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="8dp"
+                android:text="Year: All"
+                android:textColor="?attr/textColor"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/season_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:background="#4D000000"
+                android:clickable="true"
+                android:focusable="true"
+                android:minWidth="80dp"
+                android:paddingStart="12dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="8dp"
+                android:text="Season: All"
+                android:textColor="?attr/textColor"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/format_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="4dp"
+                android:background="#4D000000"
+                android:clickable="true"
+                android:focusable="true"
+                android:minWidth="80dp"
+                android:paddingStart="12dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="8dp"
+                android:text="Format: All"
+                android:textColor="?attr/textColor"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/sort_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="#4D000000"
+                android:clickable="true"
+                android:focusable="true"
+                android:minWidth="80dp"
+                android:paddingStart="12dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="8dp"
+                android:text="Sort: Popularity"
+                android:textColor="?attr/textColor"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <!-- Genre Chips -->
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/genre_chips"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone"
+            app:chipSpacing="6dp" />
+    </LinearLayout>
 
     <com.lagradost.cloudstream3.ui.AutofitRecyclerView
         android:id="@+id/search_autofit_results"
