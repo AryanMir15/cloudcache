@@ -170,6 +170,35 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
         afterPluginsLoadedEvent += ::reloadRepos
     }
 
+    override fun onStart() {
+        super.onStart()
+        android.util.Log.d("SearchFragment", "========== onStart called ==========")
+        android.util.Log.d("SearchFragment", "onStart: MainActivity.nextSearchQuery: ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        android.util.Log.d("SearchFragment", "onStart: mainSearch query: ${binding?.mainSearch?.query}")
+        android.util.Log.d("SearchFragment", "onStart: arguments SEARCH_QUERY: ${arguments?.getString(SEARCH_QUERY)}")
+        // Check for search query from MainActivity.nextSearchQuery (for navigation from other fragments)
+        // Only trigger if search bar is empty to avoid interfering with manual searches
+        if (MainActivity.nextSearchQuery != null) {
+            val query = MainActivity.nextSearchQuery
+            android.util.Log.d("SearchFragment", "onStart: MainActivity.nextSearchQuery is not null, query: $query")
+            android.util.Log.d("SearchFragment", "onStart: query.isNotBlank: ${query?.isNotBlank()}, mainSearch.query.isBlank: ${binding?.mainSearch?.query?.isBlank()}")
+            if (query?.isNotBlank() == true && binding?.mainSearch?.query?.isBlank() == true) {
+                android.util.Log.d("SearchFragment", "onStart: triggering search with query: $query")
+                binding?.mainSearch?.setQuery(query, true)
+                search(query)
+                MainActivity.nextSearchQuery = null
+                android.util.Log.d("SearchFragment", "onStart: cleared nextSearchQuery after triggering search")
+            } else {
+                // Clear nextSearchQuery even if we don't use it to prevent future redirects
+                android.util.Log.d("SearchFragment", "onStart: clearing nextSearchQuery without triggering search (query=" + query + ", searchBarBlank=" + (binding?.mainSearch?.query?.isBlank()) + ")")
+                MainActivity.nextSearchQuery = null
+            }
+        } else {
+            android.util.Log.d("SearchFragment", "onStart: nextSearchQuery is null, no action taken")
+        }
+        android.util.Log.d("SearchFragment", "========== onStart completed ==========")
+    }
+
     override fun onStop() {
         super.onStop()
         afterPluginsLoadedEvent -= ::reloadRepos
@@ -382,7 +411,16 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
      * providers by preferred media
      **/
     fun search(query: String?) {
-        if (query == null) return
+        android.util.Log.d("SearchFragment", "search() called with query: $query")
+        android.util.Log.d("SearchFragment", "search() call stack:", Exception())
+        if (query == null) {
+            android.util.Log.d("SearchFragment", "search() returned early because query is null")
+            return
+        }
+        if (query.isBlank()) {
+            android.util.Log.d("SearchFragment", "search() returned early because query is blank")
+            return
+        }
         selectedGenre = null // Clear genre filter on new search
         // don't resume state from prev search
         (binding?.searchMasterRecycler?.adapter as? BaseAdapter<*, *>)?.clearState()
@@ -396,6 +434,11 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
 
             val settings = ctx.getApiSettings()
 
+            android.util.Log.d("SearchFragment", "selectedApis: $selectedApis")
+            android.util.Log.d("SearchFragment", "settings: $settings")
+            android.util.Log.d("SearchFragment", "preferredTypes: $preferredTypes")
+            android.util.Log.d("SearchFragment", "selectedSearchTypes: $selectedSearchTypes")
+
             val notFilteredBySelectedTypes = selectedApis.filter { name ->
                 settings.contains(name)
             }.map { name ->
@@ -404,12 +447,24 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                 types?.any { preferredTypes.contains(it.ordinal) } == true
             }
 
-            searchViewModel.searchAndCancel(
-                query = query,
-                providersActive = notFilteredBySelectedTypes.filter { (_, types) ->
-                    types?.any { selectedSearchTypes.contains(it) } == true
-                }.ifEmpty { notFilteredBySelectedTypes }.map { it.first }.toSet()
-            )
+            android.util.Log.d("SearchFragment", "notFilteredBySelectedTypes: $notFilteredBySelectedTypes")
+
+            val providersActive = notFilteredBySelectedTypes.filter { (_, types) ->
+                types?.any { selectedSearchTypes.contains(it) } == true
+            }.ifEmpty { notFilteredBySelectedTypes }.map { it.first }.toSet()
+
+            android.util.Log.d("SearchFragment", "providersActive: $providersActive")
+
+            android.util.Log.d("SearchFragment", "About to call searchViewModel.searchAndCancel, searchViewModel: $searchViewModel")
+            try {
+                searchViewModel.searchAndCancel(
+                    query = query,
+                    providersActive = providersActive
+                )
+                android.util.Log.d("SearchFragment", "Successfully called searchViewModel.searchAndCancel")
+            } catch (e: Exception) {
+                android.util.Log.e("SearchFragment", "Exception calling searchViewModel.searchAndCancel", e)
+            }
         }
     }
 
@@ -463,11 +518,19 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                 selectedSearchTypes,
                 validAPIs.flatMap { api -> api.supportedTypes }.distinct()
             ) { list ->
+                android.util.Log.d("SearchFragment", "reloadRepos chip callback: selectedSearchTypes changed from $selectedSearchTypes to $list")
                 if (selectedSearchTypes.toSet() != list.toSet()) {
                     DataStoreHelper.searchPreferenceTags = list
                     selectedSearchTypes.clear()
                     selectedSearchTypes.addAll(list)
-                    search(binding?.mainSearch?.query?.toString())
+                    val currentQuery = binding?.mainSearch?.query?.toString()
+                    android.util.Log.d("SearchFragment", "reloadRepos: currentQuery: $currentQuery")
+                    if (!currentQuery.isNullOrBlank()) {
+                        android.util.Log.d("SearchFragment", "reloadRepos: calling search with query: $currentQuery")
+                        search(currentQuery)
+                    } else {
+                        android.util.Log.d("SearchFragment", "reloadRepos: query is blank, not calling search")
+                    }
                 }
             }
         }
@@ -490,8 +553,9 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
         binding: FragmentSearchBinding,
         savedInstanceState: Bundle?
     ) {
-        reloadRepos()
+        android.util.Log.d("SearchFragment", "onBindingCreated called")
         binding.apply {
+            android.util.Log.d("SearchFragment", "onBindingCreated: inside binding.apply")
             val adapter =
                 SearchAdapter(
                     searchAutofitResults,
@@ -515,6 +579,7 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
 
             searchRoot.findViewById<TextView>(androidx.appcompat.R.id.search_src_text)?.tag =
                 "tv_no_focus_tag"
+            android.util.Log.d("SearchFragment", "onBindingCreated: after searchRoot setup")
             searchAutofitResults.setRecycledViewPool(SearchAdapter.sharedPool)
             searchAutofitResults.adapter = adapter
             searchLoadingBar.alpha = 0f
@@ -546,148 +611,158 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
             }
         }
 
+        android.util.Log.d("SearchFragment", "onBindingCreated: after voiceSearch setup")
         val searchExitIcon =
             binding.mainSearch.findViewById<ImageView>(androidx.appcompat.R.id.search_close_btn)
 
+        // Enable submit button for SearchView to handle search icon clicks
+        binding.mainSearch.isSubmitButtonEnabled = true
+
         selectedApis = DataStoreHelper.searchPreferenceProviders.toMutableSet()
 
-        binding.searchFilter.setOnClickListener { searchView ->
-            searchView?.context?.let { ctx ->
-                val validAPIs = ctx.filterProviderByPreferredMedia(hasHomePageIsRequired = false)
-                var currentValidApis = listOf<MainAPI>()
-                val currentSelectedApis = if (selectedApis.isEmpty()) validAPIs.map { it.name }
-                    .toMutableSet() else selectedApis
+        android.util.Log.d("SearchFragment", "onBindingCreated: after selectedApis setup")
+        try {
+            binding.searchFilter.setOnClickListener { searchView ->
+                searchView?.context?.let { ctx ->
+                    val validAPIs = ctx.filterProviderByPreferredMedia(hasHomePageIsRequired = false)
+                    var currentValidApis = listOf<MainAPI>()
+                    val currentSelectedApis = if (selectedApis.isEmpty()) validAPIs.map { it.name }
+                        .toMutableSet() else selectedApis
 
-                val builder =
-                    BottomSheetDialog(ctx)
+                    val builder =
+                        BottomSheetDialog(ctx)
 
-                builder.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+                    builder.behavior.state = BottomSheetBehavior.STATE_EXPANDED
 
-                val selectMainpageBinding: HomeSelectMainpageBinding =
-                    HomeSelectMainpageBinding.inflate(
-                        builder.layoutInflater,
-                        null,
-                        false
-                    )
-                builder.setContentView(selectMainpageBinding.root)
-                builder.show()
-                builder.let { dialog ->
-                    val previousSelectedApis = selectedApis.toSet()
-                    val previousSelectedSearchTypes = selectedSearchTypes.toSet()
+                    val selectMainpageBinding: HomeSelectMainpageBinding =
+                        HomeSelectMainpageBinding.inflate(
+                            builder.layoutInflater,
+                            null,
+                            false
+                        )
+                    builder.setContentView(selectMainpageBinding.root)
+                    builder.show()
+                    builder.let { dialog ->
+                        val previousSelectedApis = selectedApis.toSet()
+                        val previousSelectedSearchTypes = selectedSearchTypes.toSet()
 
-                    val isMultiLang = ctx.getApiProviderLangSettings().let { set ->
-                        set.size > 1 || set.contains(AllLanguagesName)
-                    }
+                        val isMultiLang = ctx.getApiProviderLangSettings().let { set ->
+                            set.size > 1 || set.contains(AllLanguagesName)
+                        }
 
-                    val cancelBtt = dialog.findViewById<MaterialButton>(R.id.cancel_btt)
-                    val applyBtt = dialog.findViewById<MaterialButton>(R.id.apply_btt)
+                        val cancelBtt = dialog.findViewById<MaterialButton>(R.id.cancel_btt)
+                        val applyBtt = dialog.findViewById<MaterialButton>(R.id.apply_btt)
 
-                    val listView = dialog.findViewById<ListView>(R.id.listview1)
-                    val arrayAdapter = ArrayAdapter<String>(ctx, R.layout.sort_bottom_single_choice)
-                    listView?.adapter = arrayAdapter
-                    listView?.choiceMode = AbsListView.CHOICE_MODE_MULTIPLE
+                        val listView = dialog.findViewById<ListView>(R.id.listview1)
+                        val arrayAdapter = ArrayAdapter<String>(ctx, R.layout.sort_bottom_single_choice)
+                        listView?.adapter = arrayAdapter
+                        listView?.choiceMode = AbsListView.CHOICE_MODE_MULTIPLE
 
-                    // Genre filter button inside provider selector
-                    val genreFilterBtn = dialog.findViewById<ImageView>(R.id.genre_filter)
-                    genreFilterBtn?.isVisible = currentSelectedApis.any { isAnimeProvider(it) }
+                        // Genre filter button inside provider selector
+                        val genreFilterBtn = dialog.findViewById<ImageView>(R.id.genre_filter)
+                        genreFilterBtn?.isVisible = currentSelectedApis.any { isAnimeProvider(it) }
 
-                    listView?.setOnItemClickListener { _, _, i, _ ->
-                        if (currentValidApis.isNotEmpty()) {
-                            val api = currentValidApis[i].name
-                            if (currentSelectedApis.contains(api)) {
-                                listView.setItemChecked(i, false)
-                                currentSelectedApis -= api
-                            } else {
-                                listView.setItemChecked(i, true)
-                                currentSelectedApis += api
+                        listView?.setOnItemClickListener { _, _, i, _ ->
+                            if (currentValidApis.isNotEmpty()) {
+                                val api = currentValidApis[i].name
+                                if (currentSelectedApis.contains(api)) {
+                                    listView.setItemChecked(i, false)
+                                    currentSelectedApis -= api
+                                } else {
+                                    listView.setItemChecked(i, true)
+                                    currentSelectedApis += api
                             }
                             // Update genre filter button visibility based on selected providers
                             genreFilterBtn?.isVisible = currentSelectedApis.any { isAnimeProvider(it) }
                         }
                     }
 
-                    fun updateList(types: List<TvType>) {
-                        DataStoreHelper.searchPreferenceTags = types
+                        fun updateList(types: List<TvType>) {
+                            DataStoreHelper.searchPreferenceTags = types
 
-                        arrayAdapter.clear()
-                        currentValidApis = validAPIs.filter { api ->
-                            api.supportedTypes.any {
-                                types.contains(it)
+                            arrayAdapter.clear()
+                            currentValidApis = validAPIs.filter { api ->
+                                api.supportedTypes.any {
+                                    types.contains(it)
+                                }
+                            }.sortedBy { it.name.lowercase() }
+
+                            val names = currentValidApis.map {
+                                if (isMultiLang) "${
+                                    SubtitleHelper.getFlagFromIso(
+                                        it.lang
+                                    )?.plus(" ") ?: ""
+                                }${it.name}" else it.name
                             }
-                        }.sortedBy { it.name.lowercase() }
+                            for ((index, api) in currentValidApis.map { it.name }.withIndex()) {
+                                listView?.setItemChecked(index, currentSelectedApis.contains(api))
+                            }
 
-                        val names = currentValidApis.map {
-                            if (isMultiLang) "${
-                                SubtitleHelper.getFlagFromIso(
-                                    it.lang
-                                )?.plus(" ") ?: ""
-                            }${it.name}" else it.name
-                        }
-                        for ((index, api) in currentValidApis.map { it.name }.withIndex()) {
-                            listView?.setItemChecked(index, currentSelectedApis.contains(api))
+                            //arrayAdapter.notifyDataSetChanged()
+                            arrayAdapter.addAll(names)
+                            arrayAdapter.notifyDataSetChanged()
                         }
 
-                        //arrayAdapter.notifyDataSetChanged()
-                        arrayAdapter.addAll(names)
-                        arrayAdapter.notifyDataSetChanged()
-                    }
+                        bindChips(
+                            selectMainpageBinding.tvtypesChipsScroll.tvtypesChips,
+                            selectedSearchTypes,
+                            validAPIs.flatMap { api -> api.supportedTypes }.distinct()
+                        ) { list ->
+                            updateList(list)
 
-                    bindChips(
-                        selectMainpageBinding.tvtypesChipsScroll.tvtypesChips,
-                        selectedSearchTypes,
-                        validAPIs.flatMap { api -> api.supportedTypes }.distinct()
-                    ) { list ->
-                        updateList(list)
+                            // refresh selected chips in main chips
+                            if (selectedSearchTypes.toSet() != list.toSet()) {
+                                selectedSearchTypes.clear()
+                                selectedSearchTypes.addAll(list)
+                                updateChips(
+                                    binding.tvtypesChipsScroll.tvtypesChips,
+                                    selectedSearchTypes
+                                )
 
-                        // refresh selected chips in main chips
-                        if (selectedSearchTypes.toSet() != list.toSet()) {
-                            selectedSearchTypes.clear()
-                            selectedSearchTypes.addAll(list)
-                            updateChips(
-                                binding.tvtypesChipsScroll.tvtypesChips,
-                                selectedSearchTypes
-                            )
-
-                        }
-                    }
-
-
-                    cancelBtt?.setOnClickListener {
-                        dialog.dismissSafe()
-                    }
-
-                    // Genre filter button click listener
-                    genreFilterBtn?.setOnClickListener {
-                        // Check if any selected providers are anime-focused
-                        val hasAnimeProviders = currentSelectedApis.any { isAnimeProvider(it) }
-
-                        if (hasAnimeProviders && !isAniListLoggedIn()) {
-                            showAniListLoginPrompt()
-                            return@setOnClickListener
+                            }
                         }
 
-                        // AniList Browse Mode dialog removed - filter UI only on homescreen
-                    }
 
-                    applyBtt?.setOnClickListener {
-                        //if (currentApiName != selectedApiName) {
-                        //    currentApiName?.let(callback)
-                        //}
-                        dialog.dismissSafe()
-                    }
-
-                    dialog.setOnDismissListener {
-                        DataStoreHelper.searchPreferenceProviders = currentSelectedApis.toList()
-                        selectedApis = currentSelectedApis
-
-                        // run search when dialog is close
-                        if (previousSelectedApis != selectedApis.toSet() || previousSelectedSearchTypes != selectedSearchTypes.toSet()) {
-                            search(binding.mainSearch.query.toString())
+                        cancelBtt?.setOnClickListener {
+                            dialog.dismissSafe()
                         }
+
+                        // Genre filter button click listener
+                        genreFilterBtn?.setOnClickListener {
+                            // Check if any selected providers are anime-focused
+                            val hasAnimeProviders = currentSelectedApis.any { isAnimeProvider(it) }
+
+                            if (hasAnimeProviders && !isAniListLoggedIn()) {
+                                showAniListLoginPrompt()
+                                return@setOnClickListener
+                            }
+
+                            // AniList Browse Mode dialog removed - filter UI only on homescreen
+                        }
+
+                        applyBtt?.setOnClickListener {
+                            //if (currentApiName != selectedApiName) {
+                            //    currentApiName?.let(callback)
+                            //}
+                            dialog.dismissSafe()
+                        }
+
+                        dialog.setOnDismissListener {
+                            DataStoreHelper.searchPreferenceProviders = currentSelectedApis.toList()
+                            selectedApis = currentSelectedApis
+
+                            // run search when dialog is close
+                            if (previousSelectedApis != selectedApis.toSet() || previousSelectedSearchTypes != selectedSearchTypes.toSet()) {
+                                search(binding.mainSearch.query.toString())
+                            }
+                        }
+                        updateList(selectedSearchTypes.toList())
                     }
-                    updateList(selectedSearchTypes.toList())
                 }
             }
+        }
+        catch (e: Exception) {
+            android.util.Log.e("SearchFragment", "Exception in searchFilter setup", e)
         }
 
         android.util.Log.d("GenreFilter", "Setting up genre filter click listener, button exists=${binding.genreFilter != null}")
@@ -704,8 +779,9 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
             }
 
             // Setup AniList filter dropdowns removed - filter UI only on homescreen
+        }
 
-            val settingsManager = context?.let { PreferenceManager.getDefaultSharedPreferences(it) }
+        val settingsManager = context?.let { PreferenceManager.getDefaultSharedPreferences(it) }
         val isAdvancedSearch = settingsManager?.getBoolean("advanced_search", true) ?: true
         val isSearchSuggestionsEnabled = settingsManager?.getBoolean("search_suggestions_enabled", true) ?: true
 
@@ -715,7 +791,6 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
             binding.searchFilter.isFocusable = true
             binding.searchFilter.isFocusableInTouchMode = true
         }
-        
         // Hide suggestions when search view loses focus (phone only)
         if (isLayout(PHONE)) {
             binding.mainSearch.setOnQueryTextFocusChangeListener { _, hasFocus ->
@@ -728,6 +803,7 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
 
         binding.mainSearch.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String): Boolean {
+                android.util.Log.d("SearchFragment", "onQueryTextSubmit called with query: $query")
                 search(query)
                 searchViewModel.clearSuggestions()
 
@@ -763,15 +839,23 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
             }
         })
 
+        android.util.Log.d("SearchFragment", "onBindingCreated: after searchFilter setup")
+        android.util.Log.d("SearchFragment", "About to call observe(searchViewModel.searchResponse)")
         observe(searchViewModel.searchResponse) {
+            android.util.Log.d("SearchFragment", "searchResponse observer received: $it")
             when (it) {
                 is Resource.Success -> {
+                    android.util.Log.d("SearchFragment", "searchResponse is Success, value: ${it.value}")
                     it.value.let { data ->
                         val list = data.list
+                        android.util.Log.d("SearchFragment", "searchResponse list size: ${list.size}, isNotEmpty: ${list.isNotEmpty()}")
                         if (list.isNotEmpty()) {
+                            android.util.Log.d("SearchFragment", "Submitting list to SearchAdapter")
                             (binding.searchAutofitResults.adapter as? SearchAdapter)?.submitList(
                                 list
                             )
+                        } else {
+                            android.util.Log.d("SearchFragment", "searchResponse list is empty, not submitting")
                         }
                     }
                     searchExitIcon?.alpha = 1f
@@ -977,6 +1061,9 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
             }
         }
 
+        // Call reloadRepos after query initialization to ensure query is set before chip binding
+        reloadRepos()
+
         observe(searchViewModel.currentHistory) { list ->
             (binding.searchHistoryRecycler.adapter as? SearchHistoryAdaptor?)?.submitList(list)
              // Scroll to top to show newest items (list is sorted by newest first)
@@ -1006,7 +1093,6 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                     activity?.detachBackPressedCallback("SearchFragment")
                 }
             }
-        }
         }
 
         searchViewModel.updateHistory()

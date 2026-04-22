@@ -749,8 +749,8 @@ class HomeParentItemAdapterPreview(
         }
 
         private fun showAniListGenreFilter(context: Context) {
-            // Hardcoded AniList genres
-            val genres = listOf(
+            // Combined list of all AniList genres and tags
+            val allGenresAndTags = listOf(
                 "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror", "Mahou Shoujo", "Mecha", "Music",
                 "Mystery", "Psychological", "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller",
                 "4-koma", "Achromatic", "Achronological Order", "Acrobatics", "Acting", "Adoption", "Advertisement",
@@ -806,6 +806,10 @@ class HomeParentItemAdapterPreview(
                 "Work", "Wrestling", "Writing", "Wuxia", "Yakuza", "Yandere", "Youkai", "Yuri", "Zombie"
             )
 
+            // UI-only separation: genres (first 18 items) vs tags (rest)
+            val genres = allGenresAndTags.take(18)
+            val tags = allGenresAndTags.drop(18)
+
             // Hardcoded Years
             val years = listOf("All") + (1940..2027).reversed().map { it.toString() }
 
@@ -827,6 +831,7 @@ class HomeParentItemAdapterPreview(
             ).map { it.first }
 
             val selectedGenres = mutableSetOf<String>()
+            val selectedTags = mutableSetOf<String>()
             var selectedYear: String? = "All" // Default to All
             var selectedSeason: String? = "All" // Default to All
             var selectedFormat: String? = "All" // Default to All
@@ -848,10 +853,22 @@ class HomeParentItemAdapterPreview(
                 } else {
                     selectedGenres.remove(item)
                 }
-                dialogBinding.genresCount.text = "${selectedGenres.size} selected"
+                dialogBinding.genresCount.text = "${selectedGenres.size}"
             })
             dialogBinding.genresRecycler.adapter = genresAdapter
             dialogBinding.genresRecycler.layoutManager = LinearLayoutManager(context)
+
+            // Setup tags adapter
+            val tagsAdapter = AniListCheckboxAdapter(tags, selectedTags, { item, isChecked ->
+                if (isChecked) {
+                    selectedTags.add(item)
+                } else {
+                    selectedTags.remove(item)
+                }
+                dialogBinding.tagsCount.text = "${selectedTags.size}"
+            })
+            dialogBinding.tagsRecycler.adapter = tagsAdapter
+            dialogBinding.tagsRecycler.layoutManager = LinearLayoutManager(context)
 
             // Setup years adapter (radio mode)
             val selectedYearsSet = if (selectedYear != null) setOf(selectedYear) else emptySet()
@@ -926,7 +943,8 @@ class HomeParentItemAdapterPreview(
             dialogBinding.sortRecycler.layoutManager = LinearLayoutManager(context)
 
             // Update initial counts
-            dialogBinding.genresCount.text = "0 selected"
+            dialogBinding.genresCount.text = "0"
+            dialogBinding.tagsCount.text = "0"
             // Hide count text views for single-select fields (year, season, format, sort)
             dialogBinding.yearCount.visibility = View.GONE
             dialogBinding.seasonCount.visibility = View.GONE
@@ -941,6 +959,17 @@ class HomeParentItemAdapterPreview(
                 } else {
                     dialogBinding.genresRecycler.visibility = View.VISIBLE
                     dialogBinding.genresExpandIcon.rotation = 90f
+                }
+            }
+
+            // Accordion toggle for tags
+            dialogBinding.tagsHeader.setOnClickListener {
+                if (dialogBinding.tagsRecycler.visibility == View.VISIBLE) {
+                    dialogBinding.tagsRecycler.visibility = View.GONE
+                    dialogBinding.tagsExpandIcon.rotation = 0f
+                } else {
+                    dialogBinding.tagsRecycler.visibility = View.VISIBLE
+                    dialogBinding.tagsExpandIcon.rotation = 90f
                 }
             }
 
@@ -991,17 +1020,19 @@ class HomeParentItemAdapterPreview(
             // Clear button
             dialogBinding.clearButton.setOnClickListener {
                 selectedGenres.clear()
+                selectedTags.clear()
                 selectedYear = "All" // Reset to All
                 selectedSeason = "All" // Reset to All
                 selectedFormat = "All" // Reset to All
                 selectedSort = "All" // Reset to All
                 genresAdapter.notifyDataSetChanged()
+                tagsAdapter.notifyDataSetChanged()
                 yearsAdapter.updateSelectedSet(emptySet())
                 seasonsAdapter.updateSelectedSet(emptySet())
                 formatsAdapter.updateSelectedSet(emptySet())
-                sortAdapter?.updateSelectedSet(emptySet())
-                dialogBinding.genresCount.text = "0 selected"
-                // Removed '1 selected' text for single-select fields
+                sortAdapter.updateSelectedSet(emptySet())
+                dialogBinding.genresCount.text = "0"
+                dialogBinding.tagsCount.text = "0"
             }
 
             // Apply button - fetch AniList results with selected filters

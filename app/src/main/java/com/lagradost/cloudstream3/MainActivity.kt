@@ -744,14 +744,31 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
     private var lastNavTime = 0L
     private fun onNavDestinationSelected(item: MenuItem, navController: NavController): Boolean {
         val currentTime = System.currentTimeMillis()
+        android.util.Log.d("MainActivity", "onNavDestinationSelected: itemId=${item.itemId}, title=${item.title}")
+        android.util.Log.d("MainActivity", "onNavDestinationSelected: currentDestination=${navController.currentDestination?.id}")
+        android.util.Log.d("MainActivity", "onNavDestinationSelected: nextSearchQuery=$nextSearchQuery")
         // safeDebounce: Check if a previous tap happened within the last 400ms
-        if (currentTime - lastNavTime < 400) return false
+        if (currentTime - lastNavTime < 400) {
+            android.util.Log.d("MainActivity", "onNavDestinationSelected: DEBOUNCED (within 400ms)")
+            return false
+        }
         lastNavTime = currentTime
 
         val destinationId = item.itemId
 
         // Check if we are already at the selected destination
-        if (navController.currentDestination?.id == destinationId) return false
+        if (navController.currentDestination?.id == destinationId) {
+            android.util.Log.d("MainActivity", "onNavDestinationSelected: already at destination, returning false")
+            return false
+        }
+
+        // Clear nextSearchQuery and saved state when navigating to home to prevent redirect
+        if (destinationId == R.id.navigation_home) {
+            android.util.Log.d("MainActivity", "onNavDestinationSelected: clearing nextSearchQuery before navigating to home")
+            nextSearchQuery = null
+            // Clear saved state for SearchFragment to prevent search_query from being restored
+            navController.clearBackStack(R.id.navigation_search)
+        }
 
         // Make all nav buttons focus on this specific view when nextFocusRightId
         val targetView = when (destinationId) {
@@ -783,20 +800,27 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
         }
 
 
-        val builder = NavOptions.Builder().setLaunchSingleTop(true).setRestoreState(true)
+        val builder = NavOptions.Builder().setLaunchSingleTop(true)
             .setEnterAnim(R.anim.enter_anim)
             .setExitAnim(R.anim.exit_anim)
             .setPopEnterAnim(R.anim.pop_enter)
             .setPopExitAnim(R.anim.pop_exit)
+        // Don't restore state when navigating to home to prevent search_query bundle from being restored
+        if (destinationId != R.id.navigation_home) {
+            builder.setRestoreState(true)
+        }
         if (item.order and Menu.CATEGORY_SECONDARY == 0) {
+            // Don't save state when navigating to home to prevent SearchFragment state from being restored
             builder.setPopUpTo(
                 navController.graph.findStartDestination().id,
                 inclusive = false,
-                saveState = true
+                saveState = destinationId != R.id.navigation_home
             )
         }
         return try {
-            navController.navigate(destinationId, null, builder.build())
+            // Pass null bundle when navigating to home to prevent search_query from being restored
+            val navBundle = if (destinationId == R.id.navigation_home) null else null
+            navController.navigate(destinationId, navBundle, builder.build())
             navController.currentDestination?.matchDestination(destinationId) == true
         } catch (e: IllegalArgumentException) {
             Log.e("NavigationError", "Failed to navigate: ${e.message}")
@@ -1662,19 +1686,25 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
         val navController = navHostFragment.navController
 
         navController.addOnDestinationChangedListener { _: NavController, navDestination: NavDestination, bundle: Bundle? ->
+            android.util.Log.d("MainActivity", "onDestinationChanged: destination=${navDestination.id}, label=${navDestination.label}")
+            android.util.Log.d("MainActivity", "onDestinationChanged: nextSearchQuery=$nextSearchQuery")
+            android.util.Log.d("MainActivity", "onDestinationChanged: bundle keys=${bundle?.keySet()?.toList()}")
             // Intercept search and add a query
             updateNavBar(navDestination)
-            if (navDestination.matchDestination(R.id.navigation_search) && !nextSearchQuery.isNullOrBlank()) {
-                bundle?.apply {
-                    this.putString(SearchFragment.SEARCH_QUERY, nextSearchQuery)
-                }
-            }
-
+            // Removed nextSearchQuery bundle injection - causing repeated redirects
+            // SearchFragment handles nextSearchQuery directly in onStart
+            
             if (navDestination.matchDestination(R.id.navigation_home)) {
+                android.util.Log.d("MainActivity", "onDestinationChanged: clearing search_query from bundle for home")
+                bundle?.remove(SearchFragment.SEARCH_QUERY)
+                android.util.Log.d("MainActivity", "onDestinationChanged: attaching back callback for home")
                 attachBackPressedCallback("MainActivity") {
                     showConfirmExitDialog(settingsManager)
                 }
-            } else detachBackPressedCallback("MainActivity")
+            } else {
+                android.util.Log.d("MainActivity", "onDestinationChanged: detaching back callback")
+                detachBackPressedCallback("MainActivity")
+            }
         }
 
         //val navController = findNavController(R.id.nav_host_fragment)

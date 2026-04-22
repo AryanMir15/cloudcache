@@ -27,6 +27,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
 import com.lagradost.cloudstream3.CommonActivity.activity
 import com.lagradost.cloudstream3.HomePageList
+import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.databinding.QuickSearchBinding
 import com.lagradost.cloudstream3.mvvm.Resource
@@ -71,6 +72,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import androidx.recyclerview.widget.StaggeredGridLayoutManager // Added import
+import androidx.navigation.NavOptions
 
 class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
     BaseFragment.BindingCreator.Inflate(QuickSearchBinding::inflate)
@@ -80,6 +82,7 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
         const val AUTOSEARCH_KEY = "autosearch"
         const val PROVIDER_KEY = "providers"
         const val ANILIST_GENRES_KEY = "anilist_genres"
+        const val ANILIST_TAGS_KEY = "anilist_tags"
         const val ANILIST_SEASON_YEAR_KEY = "anilist_season_year"
         const val ANILIST_SEASON_KEY = "anilist_season"
         const val ANILIST_FORMAT_KEY = "anilist_format"
@@ -97,26 +100,27 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
             autoSearch: String? = null,
             providers: Array<String>? = null
         ) {
-            activity.navigate(R.id.global_to_navigation_quick_search, Bundle().apply {
-                providers?.let {
-                    putStringArray(PROVIDER_KEY, it)
-                }
-                autoSearch?.let {
-                    putString(
-                        AUTOSEARCH_KEY,
-                        it.trim()
-                            .removeSuffix("(DUB)")
-                            .removeSuffix("(SUB)")
-                            .removeSuffix("(Dub)")
-                            .removeSuffix("(Sub)").trim()
-                    )
-                }
-            })
+            activity?.let { ctx ->
+                // Navigate to search tab with query as argument
+                ctx.navigate(R.id.navigation_search, Bundle().apply {
+                    if (autoSearch != null) {
+                        putString(
+                            com.lagradost.cloudstream3.ui.search.SearchFragment.SEARCH_QUERY,
+                            autoSearch.trim()
+                                .removeSuffix("(DUB)")
+                                .removeSuffix("(SUB)")
+                                .removeSuffix("(Dub)")
+                                .removeSuffix("(Sub)").trim()
+                        )
+                    }
+                })
+            }
         }
 
         fun pushSearchWithAniListFilters(
             activity: Activity?,
             genres: Array<String>? = null,
+            tags: Array<String>? = null,
             seasonYear: Int? = null,
             season: String? = null,
             format: String? = null,
@@ -125,6 +129,9 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
             activity.navigate(R.id.global_to_navigation_quick_search, Bundle().apply {
                 genres?.let {
                     putStringArray(ANILIST_GENRES_KEY, it)
+                }
+                tags?.let {
+                    putStringArray(ANILIST_TAGS_KEY, it)
                 }
                 seasonYear?.let {
                     putInt(ANILIST_SEASON_YEAR_KEY, it)
@@ -178,27 +185,12 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
 
     private fun displayAniListResults() {
         val adapter = binding?.quickSearchAutofitResults?.adapter as? SearchAdapter ?: return
-        
-        // Add "Load More" button if there are more results
-        val displayList = if (hasMoreAniListResults) {
-            anilistBrowseResults + createLoadMoreItem()
-        } else {
-            anilistBrowseResults
-        }
 
-        adapter.submitList(displayList)
-    }
+        // Show/hide FAB based on whether there are more results
+        binding?.loadMoreFab?.visibility = if (hasMoreAniListResults) View.VISIBLE else View.GONE
 
-    private fun createLoadMoreItem(): SearchResponse {
-        @Suppress("DEPRECATION_ERROR")
-        return AnimeSearchResponse(
-            name = getString(R.string.anilist_browse_load_more),
-            url = "",
-            apiName = "AniList",
-            type = TvType.Anime,
-            id = -1,
-            posterUrl = null
-        )
+        // Don't add load more item to the list anymore
+        adapter.submitList(anilistBrowseResults)
     }
 
     private fun AniListApi.MediaByGenreItem.toSearchResponse(): SearchResponse {
@@ -253,17 +245,14 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
 
                 hasMoreAniListResults = hasNextPage
 
-                val displayList = if (hasMoreAniListResults) {
-                    anilistBrowseResults + createLoadMoreItem()
-                } else {
-                    anilistBrowseResults
-                }
+                // Show/hide FAB based on whether there are more results
+                binding?.loadMoreFab?.visibility = if (hasMoreAniListResults) View.VISIBLE else View.GONE
 
-                android.util.Log.d("GenreFilter", "loadAniListResultsByGenre: displayList size=${displayList.size}, isShowingAniListResults=$isShowingAniListResults")
+                android.util.Log.d("GenreFilter", "loadAniListResultsByGenre: displayList size=${anilistBrowseResults.size}, isShowingAniListResults=$isShowingAniListResults")
 
                 val adapter = binding?.quickSearchAutofitResults?.adapter as? SearchAdapter
                 android.util.Log.d("GenreFilter", "loadAniListResultsByGenre: adapter=$adapter")
-                adapter?.submitList(displayList)
+                adapter?.submitList(anilistBrowseResults)
                 android.util.Log.d("GenreFilter", "loadAniListResultsByGenre: submitList called")
             }
         }
@@ -385,8 +374,8 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
     }
 
     private fun showAniListFilterDialog() {
-        // Hardcoded AniList genres
-        val genres = listOf(
+        // Combined list of all AniList genres and tags
+        val allGenresAndTags = listOf(
             "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror", "Mahou Shoujo", "Mecha", "Music",
             "Mystery", "Psychological", "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller",
             "4-koma", "Achromatic", "Achronological Order", "Acrobatics", "Acting", "Adoption", "Advertisement",
@@ -442,6 +431,11 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
             "Work", "Wrestling", "Writing", "Wuxia", "Yakuza", "Yandere", "Youkai", "Yuri", "Zombie"
         )
 
+        // UI-only separation: genres (first 18 items) vs tags (rest)
+        val genres = allGenresAndTags.take(18)
+        val tags = allGenresAndTags.drop(18)
+        android.util.Log.d("GenreFilter", "UI separation: allGenresAndTags.size=${allGenresAndTags.size}, genres.size=${genres.size}, tags.size=${tags.size}")
+
         // Hardcoded Years
         val years = listOf("All") + (1940..2027).reversed().map { it.toString() }
 
@@ -480,16 +474,30 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
             dialog.setTitle("Filter")
 
             // Setup genres adapter
+            android.util.Log.d("GenreFilter", "Setting up genres adapter with ${genres.size} items")
             val genresAdapter = AniListCheckboxAdapter(genres, dialogGenres, { item, isChecked ->
                 if (isChecked) {
                     dialogGenres.add(item)
                 } else {
                     dialogGenres.remove(item)
                 }
-                dialogBinding.genresCount.text = "${dialogGenres.size} selected"
+                dialogBinding.genresCount.text = "${dialogGenres.size}"
             })
             dialogBinding.genresRecycler.adapter = genresAdapter
             dialogBinding.genresRecycler.layoutManager = LinearLayoutManager(ctx)
+
+            // Setup tags adapter
+            android.util.Log.d("GenreFilter", "Setting up tags adapter with ${tags.size} items")
+            val tagsAdapter = AniListCheckboxAdapter(tags, dialogTags, { item, isChecked ->
+                if (isChecked) {
+                    dialogTags.add(item)
+                } else {
+                    dialogTags.remove(item)
+                }
+                dialogBinding.tagsCount.text = "${dialogTags.size}"
+            })
+            dialogBinding.tagsRecycler.adapter = tagsAdapter
+            dialogBinding.tagsRecycler.layoutManager = LinearLayoutManager(ctx)
 
             // Setup years adapter (radio mode)
             val selectedYearsSet = if (dialogYear != null && dialogYear != "All") setOf(dialogYear) else setOf("All")
@@ -560,7 +568,8 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
             dialogBinding.sortRecycler.layoutManager = LinearLayoutManager(ctx)
 
             // Update initial counts
-            dialogBinding.genresCount.text = "${dialogGenres.size} selected"
+            dialogBinding.genresCount.text = "${dialogGenres.size}"
+            dialogBinding.tagsCount.text = "${dialogTags.size}"
             // Hide count text views for single-select fields (year, season, format, sort)
             dialogBinding.yearCount.visibility = View.GONE
             dialogBinding.seasonCount.visibility = View.GONE
@@ -575,6 +584,17 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                 } else {
                     dialogBinding.genresRecycler.visibility = View.VISIBLE
                     dialogBinding.genresExpandIcon.rotation = 90f
+                }
+            }
+
+            // Accordion toggle for tags
+            dialogBinding.tagsHeader.setOnClickListener {
+                if (dialogBinding.tagsRecycler.visibility == View.VISIBLE) {
+                    dialogBinding.tagsRecycler.visibility = View.GONE
+                    dialogBinding.tagsExpandIcon.rotation = 0f
+                } else {
+                    dialogBinding.tagsRecycler.visibility = View.VISIBLE
+                    dialogBinding.tagsExpandIcon.rotation = 90f
                 }
             }
 
@@ -631,11 +651,13 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                 dialogFormat = "All"
                 dialogSort = "All"
                 genresAdapter.notifyDataSetChanged()
+                tagsAdapter.notifyDataSetChanged()
                 yearsAdapter.updateSelectedSet(setOf("All"))
                 seasonsAdapter.updateSelectedSet(setOf("All"))
                 formatsAdapter.updateSelectedSet(setOf("All"))
                 sortAdapter?.updateSelectedSet(setOf("All"))
-                dialogBinding.genresCount.text = "0 selected"
+                dialogBinding.genresCount.text = "0"
+                dialogBinding.tagsCount.text = "0"
             }
 
             // Apply button
@@ -660,6 +682,7 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                     // Update filter labels
                     updateFilterLabels()
                     updateGenreChips()
+                    updateTagsChips()
 
                     // Convert UI values to API types
                     val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
@@ -726,6 +749,54 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                         selectedGenres.remove(genre)
                         updateGenreChips()
                         // Reload results without this genre
+                        val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
+                        val season = if (selectedSeason == "All") null else selectedSeason?.let {
+                            when (it) {
+                                "Winter" -> "WINTER"
+                                "Spring" -> "SPRING"
+                                "Summer" -> "SUMMER"
+                                "Fall" -> "FALL"
+                                else -> null
+                            }
+                        }
+                        val format = if (selectedFormat == "All") null else AniListApi.mapFormatToAniListEnum(selectedFormat)
+                        val sort = if (selectedSort == "All") null else selectedSort?.let {
+                            when (it) {
+                                "Popularity" -> "POPULARITY_DESC"
+                                "Average Score" -> "SCORE_DESC"
+                                "Trending" -> "TRENDING_DESC"
+                                "Favorites" -> "FAVOURITES_DESC"
+                                "Title" -> "TITLE_ROMAJI"
+                                "Date Added" -> "ID_DESC"
+                                "Release Date" -> "START_DATE_DESC"
+                                else -> "POPULARITY_DESC"
+                            }
+                        }
+                        currentAniListPage = 1
+                        loadAniListResultsByGenre(selectedGenres.toList(), selectedTags.toList(), 1, seasonYear, season, format, sort, null)
+                    }
+                }
+                chipGroup.addView(chip)
+            }
+        } else {
+            chipGroup.visibility = View.GONE
+        }
+    }
+
+    private fun updateTagsChips() {
+        binding?.tagsChips?.removeAllViews()
+        val chipGroup = binding?.tagsChips ?: return
+
+        if (selectedTags.isNotEmpty()) {
+            chipGroup.visibility = View.VISIBLE
+            selectedTags.forEach { tag ->
+                val chip = Chip(context).apply {
+                    text = tag
+                    isCloseIconVisible = true
+                    setOnCloseIconClickListener {
+                        selectedTags.remove(tag)
+                        updateTagsChips()
+                        // Reload results without this tag
                         val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
                         val season = if (selectedSeason == "All") null else selectedSeason?.let {
                             when (it) {
@@ -838,44 +909,26 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                 ) { callback ->
                     // Handle AniList browse mode clicks
                     if (isShowingAniListResults) {
-                        val clickedItem = callback.card
-                        if (clickedItem.id == -1) {
-                            // Load more AniList results
-                            currentAniListPage++
-                            
-                            // Convert UI values to API types
-                            val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
-                            val season = if (selectedSeason == "All") null else selectedSeason?.let {
-                                when (it) {
-                                    "Winter" -> "WINTER"
-                                    "Spring" -> "SPRING"
-                                    "Summer" -> "SUMMER"
-                                    "Fall" -> "FALL"
-                                    else -> null
-                                }
-                            }
-                            val format = if (selectedFormat == "All") null else AniListApi.mapFormatToAniListEnum(selectedFormat)
-                            val sort = if (selectedSort == "All") null else selectedSort?.let {
-                                when (it) {
-                                    "Popularity" -> "POPULARITY_DESC"
-                                    "Average Score" -> "SCORE_DESC"
-                                    "Trending" -> "TRENDING_DESC"
-                                    "Favorites" -> "FAVOURITES_DESC"
-                                    "Title" -> "TITLE_ROMAJI"
-                                    "Date Added" -> "ID_DESC"
-                                    "Release Date" -> "START_DATE_DESC"
-                                    else -> "POPULARITY_DESC"
-                                }
-                            }
-                            
-                            loadAniListResultsByGenre(selectedGenres.toList(), selectedTags.toList(), currentAniListPage, seasonYear, season, format, sort, null)
-                        } else {
-                            // Open QuickSearchFragment with the anime title (self)
-                            pushSearch(activity, clickedItem.name, null)
-                        }
+                        // Clear AniList filters and redirect to main search with title
+                        isShowingAniListResults = false
+                        selectedGenres.clear()
+                        selectedTags.clear()
+                        selectedYear = "All"
+                        selectedSeason = "All"
+                        selectedFormat = "All"
+                        selectedSort = "Popularity"
+                        updateFilterLabels()
+                        updateGenreChips()
+                        updateTagsChips()
+                        android.util.Log.d("QuickSearchFragment", "========== AniList result clicked (location 1) ==========")
+                        android.util.Log.d("QuickSearchFragment", "Setting nextSearchQuery to: ${callback.card.name}")
+                        com.lagradost.cloudstream3.MainActivity.nextSearchQuery = callback.card.name
+                        android.util.Log.d("QuickSearchFragment", "Navigating to search tab")
+                        activity.navigate(R.id.navigation_search)
+                        android.util.Log.d("QuickSearchFragment", "========== Navigation complete ==========")
                     } else {
-                        // Normal provider search handling
-                        SearchHelper.handleSearchClickCallback(callback)
+                        // Normal provider search mode
+                        clickCallback?.invoke(callback)
                     }
                 }
             }
@@ -1040,25 +1093,60 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
 
         android.util.Log.d("GenreFilter", "QuickSearch: Setting up genre filter click listener, button exists=${binding.quickGenreFilter != null}")
 
+        // Set up FAB click listener for load more
+        binding.loadMoreFab.setOnClickListener {
+            currentAniListPage++
+
+            // Convert UI values to API types
+            val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
+            val season = if (selectedSeason == "All") null else selectedSeason?.let {
+                when (it) {
+                    "Winter" -> "WINTER"
+                    "Spring" -> "SPRING"
+                    "Summer" -> "SUMMER"
+                    "Fall" -> "FALL"
+                    else -> null
+                }
+            }
+            val format = if (selectedFormat == "All") null else AniListApi.mapFormatToAniListEnum(selectedFormat)
+            val sort = if (selectedSort == "All") null else selectedSort?.let {
+                when (it) {
+                    "Popularity" -> "POPULARITY_DESC"
+                    "Average Score" -> "SCORE_DESC"
+                    "Trending" -> "TRENDING_DESC"
+                    "Favorites" -> "FAVOURITES_DESC"
+                    "Title" -> "TITLE_ROMAJI"
+                    "Date Added" -> "ID_DESC"
+                    "Release Date" -> "START_DATE_DESC"
+                    else -> "POPULARITY_DESC"
+                }
+            }
+
+            loadAniListResultsByGenre(selectedGenres.toList(), selectedTags.toList(), currentAniListPage, seasonYear, season, format, sort, null)
+        }
+
         // Check for AniList filter parameters and auto-load results (after adapter is set up)
         android.util.Log.d("GenreFilter", "QuickSearchFragment: Checking for AniList filter parameters")
         val genres = arguments?.getStringArray(ANILIST_GENRES_KEY)?.toList()
+        val tags = arguments?.getStringArray(ANILIST_TAGS_KEY)?.toList()
         val seasonYear = if (arguments?.containsKey(ANILIST_SEASON_YEAR_KEY) == true) arguments?.getInt(ANILIST_SEASON_YEAR_KEY) else null
         val season = arguments?.getString(ANILIST_SEASON_KEY)
         val format = arguments?.getString(ANILIST_FORMAT_KEY)
         val sort = arguments?.getString(ANILIST_SORT_KEY) ?: "POPULARITY_DESC"
 
         android.util.Log.d("GenreFilter", "QuickSearchFragment: genres=$genres")
+        android.util.Log.d("GenreFilter", "QuickSearchFragment: tags=$tags")
         android.util.Log.d("GenreFilter", "QuickSearchFragment: seasonYear=$seasonYear")
         android.util.Log.d("GenreFilter", "QuickSearchFragment: season=$season")
         android.util.Log.d("GenreFilter", "QuickSearchFragment: format=$format")
         android.util.Log.d("GenreFilter", "QuickSearchFragment: sort=$sort")
 
-        if (genres != null || seasonYear != null || season != null || format != null || sort != null) {
+        if (genres != null || tags != null || seasonYear != null || season != null || format != null || sort != null) {
             android.util.Log.d("GenreFilter", "QuickSearchFragment: AniList filter parameters found, auto-loading results")
             isShowingAniListResults = true
             currentAniListPage = 1
             selectedGenres.addAll(genres ?: emptyList())
+            selectedTags.addAll(tags ?: emptyList())
             
             // Convert API parameters back to UI values for filter labels
             selectedYear = seasonYear?.toString() ?: "All"
@@ -1099,6 +1187,7 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
             // Update filter labels and genre chips
             updateFilterLabels()
             updateGenreChips()
+            updateTagsChips()
 
             // Set up adapter for AniList mode if not already set (needed for multi-provider case)
             if (binding.quickSearchAutofitResults.adapter == null) {
@@ -1110,44 +1199,26 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                     ) { callback ->
                         // Handle AniList browse mode clicks
                         if (isShowingAniListResults) {
-                            val clickedItem = callback.card
-                            if (clickedItem.id == -1) {
-                                // Load more AniList results
-                                currentAniListPage++
-                                
-                                // Convert UI values to API types
-                                val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
-                                val season = if (selectedSeason == "All") null else selectedSeason?.let {
-                                    when (it) {
-                                        "Winter" -> "WINTER"
-                                        "Spring" -> "SPRING"
-                                        "Summer" -> "SUMMER"
-                                        "Fall" -> "FALL"
-                                        else -> null
-                                    }
-                                }
-                                val format = if (selectedFormat == "All") null else AniListApi.mapFormatToAniListEnum(selectedFormat)
-                                val sort = if (selectedSort == "All") null else selectedSort?.let {
-                                    when (it) {
-                                        "Popularity" -> "POPULARITY_DESC"
-                                        "Average Score" -> "SCORE_DESC"
-                                        "Trending" -> "TRENDING_DESC"
-                                        "Favorites" -> "FAVOURITES_DESC"
-                                        "Title" -> "TITLE_ROMAJI"
-                                        "Date Added" -> "ID_DESC"
-                                        "Release Date" -> "START_DATE_DESC"
-                                        else -> "POPULARITY_DESC"
-                                    }
-                                }
-                                
-                                loadAniListResultsByGenre(selectedGenres.toList(), selectedTags.toList(), currentAniListPage, seasonYear, season, format, sort, null)
-                            } else {
-                                // Open QuickSearchFragment with the anime title (self)
-                                pushSearch(activity, clickedItem.name, null)
-                            }
+                            // Clear AniList filters and redirect to main search with title
+                            isShowingAniListResults = false
+                            selectedGenres.clear()
+                            selectedTags.clear()
+                            selectedYear = "All"
+                            selectedSeason = "All"
+                            selectedFormat = "All"
+                            selectedSort = "Popularity"
+                            updateFilterLabels()
+                            updateGenreChips()
+                            updateTagsChips()
+                            android.util.Log.d("QuickSearchFragment", "========== AniList result clicked (location 2) ==========")
+                            android.util.Log.d("QuickSearchFragment", "Setting nextSearchQuery to: ${callback.card.name}")
+                            com.lagradost.cloudstream3.MainActivity.nextSearchQuery = callback.card.name
+                            android.util.Log.d("QuickSearchFragment", "Navigating to search tab")
+                            activity.navigate(R.id.navigation_search)
+                            android.util.Log.d("QuickSearchFragment", "========== Navigation complete ==========")
                         } else {
-                            // Normal provider search handling
-                            SearchHelper.handleSearchClickCallback(callback)
+                            // Normal provider search mode
+                            clickCallback?.invoke(callback)
                         }
                     }
                 }
@@ -1158,8 +1229,8 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
             binding.quickSearchMasterRecycler.isGone = true
             android.util.Log.d("GenreFilter", "QuickSearchFragment: Showing quickSearchAutofitResults for AniList mode")
 
-            android.util.Log.d("GenreFilter", "QuickSearchFragment: Calling loadAniListResultsByGenre with genres=$genres, seasonYear=$seasonYear, season=$season, format=$format, sort=$sort")
-            loadAniListResultsByGenre(genres ?: emptyList(), emptyList(), 1, seasonYear, season, format, sort, null)
+            android.util.Log.d("GenreFilter", "QuickSearchFragment: Calling loadAniListResultsByGenre with genres=$genres, tags=$tags, seasonYear=$seasonYear, season=$season, format=$format, sort=$sort")
+            loadAniListResultsByGenre(genres ?: emptyList(), tags ?: emptyList(), 1, seasonYear, season, format, sort, null)
         } else {
             android.util.Log.d("GenreFilter", "QuickSearchFragment: No AniList filter parameters found")
         }

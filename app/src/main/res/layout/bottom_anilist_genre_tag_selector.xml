@@ -61,6 +61,59 @@
         android:nestedScrollingEnabled="false" />
 
     <LinearLayout
+        android:id="@+id/tags_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Tags"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+            <TextView
+                android:id="@+id/tags_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0 selected"
+                android:textSize="14sp"
+                android:textColor="?attr/textColor" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tags_expand_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_baseline_arrow_forward_24"
+            android:tint="?attr/textColor"
+            android:contentDescription="Expand" />
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tags_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:maxHeight="300dp"
+        android:visibility="gone"
+        android:nestedScrollingEnabled="false" />
+
+    <LinearLayout
         android:id="@+id/year_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

@@ -77,6 +77,7 @@ class SearchViewModel : ViewModel() {
         ignoreSettings: Boolean = false,
         isQuickSearch: Boolean = false,
     ) {
+        android.util.Log.d("SearchFragment", "SearchViewModel: searchAndCancel called with query: $query, providersActive: $providersActive, isQuickSearch: $isQuickSearch")
         currentSearchIndex++
         onGoingSearch?.cancel()
         onGoingSearch = search(query, providersActive, ignoreSettings, isQuickSearch)
@@ -202,8 +203,10 @@ class SearchViewModel : ViewModel() {
         isQuickSearch: Boolean = false,
     ) =
         viewModelScope.launchSafe {
+            android.util.Log.d("SearchFragment", "SearchViewModel: search() coroutine started with query: $query, providersActive: $providersActive, isQuickSearch: $isQuickSearch")
             val currentIndex = currentSearchIndex
             if (query.length <= 1) {
+                android.util.Log.d("SearchFragment", "SearchViewModel: search() returned early because query length <= 1")
                 clearSearch()
                 return@launchSafe
             }
@@ -225,30 +228,51 @@ class SearchViewModel : ViewModel() {
             _searchResponse.postValue(Resource.Loading())
             _currentSearch.postValue(emptyMap())
             expandableSearches.clear()
+            android.util.Log.d("SearchFragment", "SearchViewModel: search() set loading state, cleared expandableSearches")
 
             lastQuery = query
 
             withContext(Dispatchers.IO) { // This interrupts UI otherwise
-                repos.filter { a ->
+                android.util.Log.d("SearchFragment", "SearchViewModel: search() filtering repos: ${repos.size} total, providersActive: $providersActive, ignoreSettings: $ignoreSettings, isQuickSearch: $isQuickSearch")
+                val filteredRepos = repos.filter { a ->
                     (ignoreSettings || (providersActive.isEmpty() || providersActive.contains(a.name))) && (!isQuickSearch || a.hasQuickSearch)
-                }.amap { a -> // Parallel
+                }
+                android.util.Log.d("SearchFragment", "SearchViewModel: search() filtered to ${filteredRepos.size} repos: ${filteredRepos.map { it.name }}")
+                
+                filteredRepos.amap { a -> // Parallel
+                    android.util.Log.d("SearchFragment", "SearchViewModel: search() starting search for provider: ${a.name}")
                     val search = if (isQuickSearch) a.quickSearch(query) else a.search(query, 1)
-                    if (currentSearchIndex != currentIndex) return@amap
+                    android.util.Log.d("SearchFragment", "SearchViewModel: search() completed search for ${a.name}, result: ${search.javaClass.simpleName}")
+                    if (currentSearchIndex != currentIndex) {
+                        android.util.Log.d("SearchFragment", "SearchViewModel: search() ${a.name} cancelled due to index mismatch")
+                        return@amap
+                    }
                     if (search is Resource.Success) {
                         val searchValue = search.value
+                        android.util.Log.d("SearchFragment", "SearchViewModel: search() ${a.name} returned ${searchValue.items.size} items")
                         expandableSearches[a.name] =
                             ExpandableSearchList(searchValue.items, 1, searchValue.hasNext)
+                    } else {
+                        android.util.Log.d("SearchFragment", "SearchViewModel: search() ${a.name} returned non-success: ${search.javaClass.simpleName}")
                     }
 
                     _currentSearch.postValue(expandableSearches)
+                    android.util.Log.d("SearchFragment", "SearchViewModel: search() posted currentSearch for ${a.name}")
                 }
 
-                if (currentSearchIndex != currentIndex) return@withContext // this should prevent rewrite of existing data bug
+                if (currentSearchIndex != currentIndex) {
+                    android.util.Log.d("SearchFragment", "SearchViewModel: search() cancelled due to index mismatch at end")
+                    return@withContext // this should prevent rewrite of existing data bug
+                }
 
+                android.util.Log.d("SearchFragment", "SearchViewModel: search() final expandableSearches: ${expandableSearches.keys}")
+                android.util.Log.d("SearchFragment", "SearchViewModel: search() expandableSearches sizes: ${expandableSearches.map { "${it.key}=${it.value.list.size}" }}")
                 _currentSearch.postValue(expandableSearches)
                 val list = bundleSearch(expandableSearches)
+                android.util.Log.d("SearchFragment", "SearchViewModel: search() bundled search list size: ${list.list.size}")
 
                 _searchResponse.postValue(Resource.Success(list))
+                android.util.Log.d("SearchFragment", "SearchViewModel: search() posted success response")
             }
         }
 }
