@@ -64,6 +64,7 @@ import android.content.Intent
 import com.lagradost.cloudstream3.syncproviders.AccountManager
 import com.lagradost.cloudstream3.syncproviders.AccountManager.Companion.aniListApi
 import com.lagradost.cloudstream3.syncproviders.providers.AniListApi
+import com.lagradost.cloudstream3.ui.AniListFilterUtils
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.AnimeSearchResponse
 import com.lagradost.cloudstream3.TvType
@@ -301,31 +302,12 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
             isShowingAniListResults = true
             currentAniListPage = 1
             
-            // Convert UI values to API types
+            // Convert UI values to API types using shared helpers
             val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
-            val season = if (selectedSeason == "All") null else selectedSeason?.let {
-                when (it) {
-                    "Winter" -> "WINTER"
-                    "Spring" -> "SPRING"
-                    "Summer" -> "SUMMER"
-                    "Fall" -> "FALL"
-                    else -> null
-                }
-            }
-            val format = if (selectedFormat == "All") null else AniListApi.mapFormatToAniListEnum(selectedFormat)
-            val sort = if (selectedSort == "All") null else selectedSort?.let {
-                when (it) {
-                    "Popularity" -> "POPULARITY_DESC"
-                    "Average Score" -> "SCORE_DESC"
-                    "Trending" -> "TRENDING_DESC"
-                    "Favorites" -> "FAVOURITES_DESC"
-                    "Title" -> "TITLE_ROMAJI"
-                    "Date Added" -> "ID_DESC"
-                    "Release Date" -> "START_DATE_DESC"
-                    else -> "POPULARITY_DESC"
-                }
-            }
-            
+            val season = AniListFilterUtils.convertSeasonToApi(selectedSeason)
+            val format = AniListFilterUtils.convertFormatToApi(selectedFormat)
+            val sort = AniListFilterUtils.convertSortToApi(selectedSort)
+
             loadAniListResultsByGenre(selectedGenres.toList(), selectedTags.toList(), 1, seasonYear, season, format, sort, query)
             return true
         }
@@ -367,94 +349,18 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
     }
 
     private fun isAnimeProvider(providerName: String): Boolean {
-        val api = getApiFromNameNull(providerName) ?: return false
-        return api.supportedTypes.any { type ->
-            type == TvType.Anime || type == TvType.OVA || type == TvType.AnimeMovie
-        }
+        return AniListFilterUtils.isAnimeProvider(providerName)
     }
 
     private fun showAniListFilterDialog() {
-        // Combined list of all AniList genres and tags
-        val allGenresAndTags = listOf(
-            "Action", "Adventure", "Comedy", "Drama", "Ecchi", "Fantasy", "Horror", "Mahou Shoujo", "Mecha", "Music",
-            "Mystery", "Psychological", "Romance", "Sci-Fi", "Slice of Life", "Sports", "Supernatural", "Thriller",
-            "4-koma", "Achromatic", "Achronological Order", "Acrobatics", "Acting", "Adoption", "Advertisement",
-            "Afterlife", "Age Gap", "Age Regression", "Agender", "Agriculture", "Airsoft", "Alchemy", "Aliens",
-            "Alternate Universe", "American Football", "Amnesia", "Anachronism", "Ancient China", "Angels", "Animals",
-            "Anthology", "Anthropomorphism", "Anti-Hero", "Archery", "Aromantic", "Arranged Marriage",
-            "Artificial Intelligence", "Asexual", "Assassins", "Astronomy", "Athletics", "Augmented Reality",
-            "Autobiographical", "Aviation", "Badminton", "Ballet", "Band", "Bar", "Baseball", "Basketball",
-            "Battle Royale", "Biographical", "Bisexual", "Blackmail", "Board Game", "Boarding School",
-            "Body Horror", "Body Image", "Body Swapping", "Bowling", "Boxing", "Boys' Love", "Brainwashing",
-            "Bullying", "Butler", "Calligraphy", "Camping", "Cannibalism", "Card Battle", "Cars", "Centaur",
-            "CGI", "Cheerleading", "Chibi", "Chimera", "Chuunibyou", "Circus", "Class Struggle",
-            "Classic Literature", "Classical Music", "Clone", "Coastal", "Cohabitation", "College",
-            "Coming of Age", "Conspiracy", "Cosmic Horror", "Cosplay", "Cowboys", "Creature Taming", "Crime",
-            "Criminal Organization", "Crossdressing", "Crossover", "Cult", "Cultivation", "Curses",
-            "Cute Boys Doing Cute Things", "Cute Girls Doing Cute Things", "Cyberpunk", "Cyborg", "Cycling",
-            "Dancing", "Death Game", "Delinquents", "Demons", "Denpa", "Desert", "Detective", "Dinosaurs",
-            "Disability", "Dissociative Identities", "Dragons", "Drawing", "Drugs", "Dullahan", "Dungeon",
-            "Dystopian", "E-Sports", "Eco-Horror", "Economics", "Educational", "Elderly Protagonist", "Elf",
-            "Ensemble Cast", "Environmental", "Episodic", "Ero Guro", "Espionage", "Estranged Family", "Exorcism",
-            "Fairy", "Fairy Tale", "Fake Relationship", "Family Life", "Fashion", "Female Harem",
-            "Female Protagonist", "Femboy", "Fencing", "Filmmaking", "Firefighters", "Fishing", "Fitness",
-            "Flash", "Food", "Football", "Foreign", "Found Family", "Fugitive", "Full CGI", "Full Color",
-            "Gambling", "Gangs", "Gekiga", "Gender Bending", "Ghost", "Go", "Goblin", "Gods", "Golf", "Gore",
-            "Graduation Project", "Guns", "Gyaru", "Handball", "Henshin", "Heterosexual", "Hikikomori",
-            "Hip-hop Music", "Historical", "Homeless", "Horticulture", "Human Experimentation", "Ice Skating",
-            "Idol", "Indigenous Cultures", "Inn", "Interspecies", "Isekai", "Iyashikei", "Jazz Music",
-            "Josei", "Judo", "Kabuki", "Kaiju", "Karuta", "Kemonomimi", "Kids", "Kingdom Management",
-            "Konbini", "Kuudere", "Lacrosse", "Language Barrier", "LGBTQ+ Themes", "Long Strip",
-            "Lost Civilization", "Love Triangle", "Mafia", "Magic", "Mahjong", "Maids", "Makeup",
-            "Male Harem", "Male Protagonist", "Manzai", "Marriage", "Martial Arts", "Matchmaking",
-            "Matriarchy", "Medicine", "Medieval", "Memory Manipulation", "Mermaid", "Meta", "Metal Music",
-            "Military", "Mixed Gender Harem", "Mixed Media", "Modeling", "Monster Boy", "Monster Girl",
-            "Mopeds", "Motorcycles", "Mountaineering", "Musical Theater", "Mythology", "Natural Disaster",
-            "Necromancy", "Nekomimi", "Ninja", "No Dialogue", "Noir", "Non-fiction", "Nudity", "Nun",
-            "Office", "Office Lady", "Oiran", "Ojou-sama", "Orphan", "Otaku Culture", "Outdoor Activities",
-            "Pandemic", "Parenthood", "Parkour", "Parody", "Philosophy", "Photography", "Pirates", "Poker",
-            "Police", "Politics", "Polyamorous", "Post-Apocalyptic", "POV", "Pregnancy", "Primarily Adult Cast",
-            "Primarily Animal Cast", "Primarily Child Cast", "Primarily Female Cast", "Primarily Male Cast",
-            "Primarily Teen Cast", "Prison", "Proxy Battle", "Psychosexual", "Puppetry", "Rakugo",
-            "Real Robot", "Rehabilitation", "Reincarnation", "Religion", "Rescue", "Restaurant", "Revenge",
-            "Reverse Isekai", "Robots", "Rock Music", "Rotoscoping", "Royal Affairs", "Rugby", "Rural",
-            "Samurai", "Satire", "School", "School Club", "Scuba Diving", "Seinen", "Shapeshifting", "Ships",
-            "Shogi", "Shoujo", "Shounen", "Shrine Maiden", "Single-Page Chapter", "Skateboarding", "Skeleton",
-            "Slapstick", "Slavery", "Snowscape", "Software Development", "Space", "Space Opera", "Spearplay",
-            "Steampunk", "Stop Motion", "Succubus", "Suicide", "Sumo", "Super Power", "Super Robot",
-            "Superhero", "Surfing", "Surreal Comedy", "Survival", "Swimming", "Swordplay", "Table Tennis",
-            "Tanks", "Tanned Skin", "Teacher", "Teens' Love", "Tennis", "Terrorism", "Time Loop",
-            "Time Manipulation", "Time Skip", "Tokusatsu", "Tomboy", "Torture", "Tragedy", "Trains",
-            "Transgender", "Travel", "Triads", "Tsundere", "Twins", "Unrequited Love", "Urban", "Urban Fantasy",
-            "Vampire", "Vertical Video", "Veterinarian", "Video Games", "Vikings", "Villainess",
-            "Virtual World", "Vocal Synth", "Volleyball", "VTuber", "War", "Werewolf", "Wilderness", "Witch",
-            "Work", "Wrestling", "Writing", "Wuxia", "Yakuza", "Yandere", "Youkai", "Yuri", "Zombie"
-        )
-
-        // UI-only separation: genres (first 18 items) vs tags (rest)
-        val genres = allGenresAndTags.take(18)
-        val tags = allGenresAndTags.drop(18)
-        android.util.Log.d("GenreFilter", "UI separation: allGenresAndTags.size=${allGenresAndTags.size}, genres.size=${genres.size}, tags.size=${tags.size}")
-
-        // Hardcoded Years
-        val years = listOf("All") + (1940..2027).reversed().map { it.toString() }
-
-        // Hardcoded Seasons
-        val seasons = listOf("All", "Winter", "Spring", "Summer", "Fall")
-
-        // Hardcoded Formats
-        val formats = listOf("All", "TV Show", "Movie", "TV Short", "Special", "OVA", "ONA", "Music")
-
-        // Hardcoded Sort Options (display name -> API enum value)
-        val sortOptions = listOf("All") + listOf(
-            "Popularity" to "POPULARITY_DESC",
-            "Average Score" to "SCORE_DESC",
-            "Trending" to "TRENDING_DESC",
-            "Favorites" to "FAVOURITES_DESC",
-            "Title" to "TITLE_ROMAJI",
-            "Date Added" to "ID_DESC",
-            "Release Date" to "START_DATE_DESC"
-        ).map { it.first }
+        // Use shared constants from AniListFilterUtils
+        val genres = AniListFilterUtils.GENRES
+        val tags = AniListFilterUtils.TAGS
+        val years = AniListFilterUtils.YEARS
+        val seasons = AniListFilterUtils.SEASONS
+        val formats = AniListFilterUtils.FORMATS
+        val sortOptions = AniListFilterUtils.SORT_OPTIONS
+        android.util.Log.d("GenreFilter", "UI separation: genres.size=${genres.size}, tags.size=${tags.size}")
 
         val dialogGenres = selectedGenres.toMutableSet()
         val dialogTags = selectedTags.toMutableSet()
@@ -475,7 +381,7 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
 
             // Setup genres adapter
             android.util.Log.d("GenreFilter", "Setting up genres adapter with ${genres.size} items")
-            val genresAdapter = AniListCheckboxAdapter(genres, dialogGenres, { item, isChecked ->
+            val genresAdapter = AniListFilterUtils.AniListCheckboxAdapter(genres, dialogGenres, { item, isChecked ->
                 if (isChecked) {
                     dialogGenres.add(item)
                 } else {
@@ -488,7 +394,7 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
 
             // Setup tags adapter
             android.util.Log.d("GenreFilter", "Setting up tags adapter with ${tags.size} items")
-            val tagsAdapter = AniListCheckboxAdapter(tags, dialogTags, { item, isChecked ->
+            val tagsAdapter = AniListFilterUtils.AniListCheckboxAdapter(tags, dialogTags, { item, isChecked ->
                 if (isChecked) {
                     dialogTags.add(item)
                 } else {
@@ -501,8 +407,8 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
 
             // Setup years adapter (radio mode)
             val selectedYearsSet = if (dialogYear != null && dialogYear != "All") setOf(dialogYear) else setOf("All")
-            var yearsAdapter: AniListCheckboxAdapter? = null
-            yearsAdapter = AniListCheckboxAdapter(years, selectedYearsSet, { item, isChecked ->
+            var yearsAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
+            yearsAdapter = AniListFilterUtils.AniListCheckboxAdapter(years, selectedYearsSet, { item, isChecked ->
                 if (isChecked) {
                     dialogYear = item
                 } else {
@@ -518,8 +424,8 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
 
             // Setup seasons adapter (radio mode)
             val selectedSeasonsSet = if (dialogSeason != null && dialogSeason != "All") setOf(dialogSeason) else setOf("All")
-            var seasonsAdapter: AniListCheckboxAdapter? = null
-            seasonsAdapter = AniListCheckboxAdapter(seasons, selectedSeasonsSet, { item, isChecked ->
+            var seasonsAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
+            seasonsAdapter = AniListFilterUtils.AniListCheckboxAdapter(seasons, selectedSeasonsSet, { item, isChecked ->
                 if (isChecked) {
                     dialogSeason = item
                 } else {
@@ -535,8 +441,8 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
 
             // Setup formats adapter (radio mode)
             val selectedFormatsSet = if (dialogFormat != null && dialogFormat != "All") setOf(dialogFormat) else setOf("All")
-            var formatsAdapter: AniListCheckboxAdapter? = null
-            formatsAdapter = AniListCheckboxAdapter(formats, selectedFormatsSet, { item, isChecked ->
+            var formatsAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
+            formatsAdapter = AniListFilterUtils.AniListCheckboxAdapter(formats, selectedFormatsSet, { item, isChecked ->
                 if (isChecked) {
                     dialogFormat = item
                 } else {
@@ -552,8 +458,8 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
 
             // Setup sort adapter (radio mode)
             val selectedSortSet = if (dialogSort != null && dialogSort != "All") setOf(dialogSort) else setOf("All")
-            var sortAdapter: AniListCheckboxAdapter? = null
-            sortAdapter = AniListCheckboxAdapter(sortOptions, selectedSortSet, { item, isChecked ->
+            var sortAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
+            sortAdapter = AniListFilterUtils.AniListCheckboxAdapter(sortOptions, selectedSortSet, { item, isChecked ->
                 if (isChecked) {
                     dialogSort = item
                 } else {
@@ -684,30 +590,11 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                     updateGenreChips()
                     updateTagsChips()
 
-                    // Convert UI values to API types
+                    // Convert UI values to API types using shared helpers
                     val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
-                    val season = if (selectedSeason == "All") null else selectedSeason?.let {
-                        when (it) {
-                            "Winter" -> "WINTER"
-                            "Spring" -> "SPRING"
-                            "Summer" -> "SUMMER"
-                            "Fall" -> "FALL"
-                            else -> null
-                        }
-                    }
-                    val format = if (selectedFormat == "All") null else AniListApi.mapFormatToAniListEnum(selectedFormat)
-                    val sort = if (selectedSort == "All") null else selectedSort?.let {
-                        when (it) {
-                            "Popularity" -> "POPULARITY_DESC"
-                            "Average Score" -> "SCORE_DESC"
-                            "Trending" -> "TRENDING_DESC"
-                            "Favorites" -> "FAVOURITES_DESC"
-                            "Title" -> "TITLE_ROMAJI"
-                            "Date Added" -> "ID_DESC"
-                            "Release Date" -> "START_DATE_DESC"
-                            else -> "POPULARITY_DESC"
-                        }
-                    }
+                    val season = AniListFilterUtils.convertSeasonToApi(selectedSeason)
+                    val format = AniListFilterUtils.convertFormatToApi(selectedFormat)
+                    val sort = AniListFilterUtils.convertSortToApi(selectedSort)
 
                     // Load AniList results with new filters
                     isShowingAniListResults = true
@@ -750,28 +637,9 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                         updateGenreChips()
                         // Reload results without this genre
                         val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
-                        val season = if (selectedSeason == "All") null else selectedSeason?.let {
-                            when (it) {
-                                "Winter" -> "WINTER"
-                                "Spring" -> "SPRING"
-                                "Summer" -> "SUMMER"
-                                "Fall" -> "FALL"
-                                else -> null
-                            }
-                        }
-                        val format = if (selectedFormat == "All") null else AniListApi.mapFormatToAniListEnum(selectedFormat)
-                        val sort = if (selectedSort == "All") null else selectedSort?.let {
-                            when (it) {
-                                "Popularity" -> "POPULARITY_DESC"
-                                "Average Score" -> "SCORE_DESC"
-                                "Trending" -> "TRENDING_DESC"
-                                "Favorites" -> "FAVOURITES_DESC"
-                                "Title" -> "TITLE_ROMAJI"
-                                "Date Added" -> "ID_DESC"
-                                "Release Date" -> "START_DATE_DESC"
-                                else -> "POPULARITY_DESC"
-                            }
-                        }
+                        val season = AniListFilterUtils.convertSeasonToApi(selectedSeason)
+                        val format = AniListFilterUtils.convertFormatToApi(selectedFormat)
+                        val sort = AniListFilterUtils.convertSortToApi(selectedSort)
                         currentAniListPage = 1
                         loadAniListResultsByGenre(selectedGenres.toList(), selectedTags.toList(), 1, seasonYear, season, format, sort, null)
                     }
@@ -798,28 +666,9 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                         updateTagsChips()
                         // Reload results without this tag
                         val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
-                        val season = if (selectedSeason == "All") null else selectedSeason?.let {
-                            when (it) {
-                                "Winter" -> "WINTER"
-                                "Spring" -> "SPRING"
-                                "Summer" -> "SUMMER"
-                                "Fall" -> "FALL"
-                                else -> null
-                            }
-                        }
-                        val format = if (selectedFormat == "All") null else AniListApi.mapFormatToAniListEnum(selectedFormat)
-                        val sort = if (selectedSort == "All") null else selectedSort?.let {
-                            when (it) {
-                                "Popularity" -> "POPULARITY_DESC"
-                                "Average Score" -> "SCORE_DESC"
-                                "Trending" -> "TRENDING_DESC"
-                                "Favorites" -> "FAVOURITES_DESC"
-                                "Title" -> "TITLE_ROMAJI"
-                                "Date Added" -> "ID_DESC"
-                                "Release Date" -> "START_DATE_DESC"
-                                else -> "POPULARITY_DESC"
-                            }
-                        }
+                        val season = AniListFilterUtils.convertSeasonToApi(selectedSeason)
+                        val format = AniListFilterUtils.convertFormatToApi(selectedFormat)
+                        val sort = AniListFilterUtils.convertSortToApi(selectedSort)
                         currentAniListPage = 1
                         loadAniListResultsByGenre(selectedGenres.toList(), selectedTags.toList(), 1, seasonYear, season, format, sort, null)
                     }
@@ -1097,30 +946,11 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
         binding.loadMoreFab.setOnClickListener {
             currentAniListPage++
 
-            // Convert UI values to API types
+            // Convert UI values to API types using shared helpers
             val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
-            val season = if (selectedSeason == "All") null else selectedSeason?.let {
-                when (it) {
-                    "Winter" -> "WINTER"
-                    "Spring" -> "SPRING"
-                    "Summer" -> "SUMMER"
-                    "Fall" -> "FALL"
-                    else -> null
-                }
-            }
-            val format = if (selectedFormat == "All") null else AniListApi.mapFormatToAniListEnum(selectedFormat)
-            val sort = if (selectedSort == "All") null else selectedSort?.let {
-                when (it) {
-                    "Popularity" -> "POPULARITY_DESC"
-                    "Average Score" -> "SCORE_DESC"
-                    "Trending" -> "TRENDING_DESC"
-                    "Favorites" -> "FAVOURITES_DESC"
-                    "Title" -> "TITLE_ROMAJI"
-                    "Date Added" -> "ID_DESC"
-                    "Release Date" -> "START_DATE_DESC"
-                    else -> "POPULARITY_DESC"
-                }
-            }
+            val season = AniListFilterUtils.convertSeasonToApi(selectedSeason)
+            val format = AniListFilterUtils.convertFormatToApi(selectedFormat)
+            val sort = AniListFilterUtils.convertSortToApi(selectedSort)
 
             loadAniListResultsByGenre(selectedGenres.toList(), selectedTags.toList(), currentAniListPage, seasonYear, season, format, sort, null)
         }
@@ -1148,41 +978,11 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
             selectedGenres.addAll(genres ?: emptyList())
             selectedTags.addAll(tags ?: emptyList())
             
-            // Convert API parameters back to UI values for filter labels
+            // Convert API parameters back to UI values for filter labels using shared helpers
             selectedYear = seasonYear?.toString() ?: "All"
-            selectedSeason = season?.let {
-                when (it) {
-                    "WINTER" -> "Winter"
-                    "SPRING" -> "Spring"
-                    "SUMMER" -> "Summer"
-                    "FALL" -> "Fall"
-                    else -> "All"
-                }
-            } ?: "All"
-            selectedFormat = format?.let {
-                when (it) {
-                    "TV" -> "TV Show"
-                    "TV_SHORT" -> "TV Short"
-                    "MOVIE" -> "Movie"
-                    "SPECIAL" -> "Special"
-                    "OVA" -> "OVA"
-                    "ONA" -> "ONA"
-                    "MUSIC" -> "Music"
-                    else -> "All"
-                }
-            } ?: "All"
-            selectedSort = sort?.let {
-                when (it) {
-                    "POPULARITY_DESC" -> "Popularity"
-                    "SCORE_DESC" -> "Average Score"
-                    "TRENDING_DESC" -> "Trending"
-                    "FAVOURITES_DESC" -> "Favorites"
-                    "TITLE_ROMAJI" -> "Title"
-                    "ID_DESC" -> "Date Added"
-                    "START_DATE_DESC" -> "Release Date"
-                    else -> "Popularity"
-                }
-            } ?: "Popularity"
+            selectedSeason = AniListFilterUtils.convertSeasonFromApi(season)
+            selectedFormat = AniListFilterUtils.convertFormatFromApi(format)
+            selectedSort = AniListFilterUtils.convertSortFromApi(sort)
             
             // Update filter labels and genre chips
             updateFilterLabels()
@@ -1272,77 +1072,4 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
         adapter.submitList(newItems)
     }
 
-    internal class AniListCheckboxAdapter(
-        private val items: List<String>,
-        private var selectedItems: Set<String>,
-        private val onCheckedChangeListener: (String, Boolean) -> Unit,
-        private val radioMode: Boolean = false
-    ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-
-        class CheckboxViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-            val checkbox: CheckBox = view.findViewById(R.id.checkbox)
-            val text: TextView = view.findViewById(R.id.text)
-        }
-
-        class RadioViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-            val text: TextView = view.findViewById(R.id.text)
-            val tickMark: ImageView = view.findViewById(R.id.tick_mark)
-            val selectionHighlight: View = view.findViewById(R.id.selection_highlight)
-        }
-
-        fun updateSelectedSet(newSet: Set<String>) {
-            selectedItems = newSet
-            notifyDataSetChanged()
-        }
-
-        override fun getItemViewType(position: Int): Int {
-            return if (radioMode) 1 else 0
-        }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-            return if (viewType == 1) {
-                val view = LayoutInflater.from(parent.context)
-                    .inflate(R.layout.item_anilist_radio_selection, parent, false)
-                RadioViewHolder(view)
-            } else {
-                val view = LayoutInflater.from(parent.context)
-                    .inflate(R.layout.item_anilist_checkbox, parent, false)
-                CheckboxViewHolder(view)
-            }
-        }
-
-        override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-            val item = items[position]
-            val isSelected = selectedItems.contains(item)
-
-            if (holder is CheckboxViewHolder) {
-                holder.text.text = item
-                holder.checkbox.isChecked = isSelected
-
-                holder.itemView.setOnClickListener {
-                    holder.checkbox.isChecked = !holder.checkbox.isChecked
-                }
-
-                holder.checkbox.setOnCheckedChangeListener { _, isChecked ->
-                    onCheckedChangeListener(item, isChecked)
-                }
-            } else if (holder is RadioViewHolder) {
-                holder.text.text = item
-                holder.tickMark.visibility = if (isSelected) View.VISIBLE else View.GONE
-                if (isSelected) {
-                    holder.selectionHighlight.setBackgroundColor(android.graphics.Color.parseColor("#1A000000"))
-                    holder.text.alpha = 1.0f
-                } else {
-                    holder.selectionHighlight.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    holder.text.alpha = 1.0f
-                }
-
-                holder.itemView.setOnClickListener {
-                    onCheckedChangeListener(item, true)
-                }
-            }
-        }
-
-        override fun getItemCount(): Int = items.size
-    }
 }

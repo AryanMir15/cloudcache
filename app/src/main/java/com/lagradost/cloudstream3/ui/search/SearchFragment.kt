@@ -210,199 +210,10 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
     var selectedGenre: String? = null
     var currentSearchResults: Map<String, com.lagradost.cloudstream3.ui.search.ExpandableSearchList>? = null
     var anilistGenreMap: Map<String, List<String>> = emptyMap()
-    
-    // AniList Browse Mode State
-    var isShowingAniListResults: Boolean = false
-    var currentAniListPage: Int = 1
-    var currentSelectedGenre: String? = null
-    var hasMoreAniListResults: Boolean = false
-    var anilistBrowseResults: List<SearchResponse> = emptyList()
-    
-    // Multi-selection state for genres and tags
-    private var selectedGenres: MutableSet<String> = mutableSetOf()
-    private var selectedTags: MutableSet<String> = mutableSetOf()
-    
-    // Cache for AniList genres and tags (separate raw API response from processed strings)
-    private var cachedAniListGenres: List<String>? = null
-    private var cachedRawTags: List<AniListApi.MediaTag>? = null
-
-
-    private fun loadAniListResultsByGenreWithFilters(
-        seasonYear: Int?,
-        season: String?,
-        format: String?,
-        genres: List<String>,
-        tags: List<String>,
-        page: Int = 1
-    ) {
-        ioSafe {
-            main {
-                binding?.searchLoadingBar?.alpha = 1f
-            }
-
-            val response = aniListApi.getMediaByGenre(genres, tags, page, seasonYear, season, format)
-            val mediaItems = response?.data?.page?.media ?: emptyList()
-            val hasNextPage = response?.data?.page?.pageInfo?.hasNextPage ?: false
-
-            val searchResponses = mediaItems.mapNotNull { it.toSearchResponse() }
-
-            main {
-                binding?.searchLoadingBar?.alpha = 0f
-
-                if (page == 1) {
-                    anilistBrowseResults = searchResponses
-                } else {
-                    anilistBrowseResults = anilistBrowseResults + searchResponses
-                }
-
-                hasMoreAniListResults = hasNextPage
-                displayAniListResults()
-            }
-        }
-    }
-
-    private fun AniListApi.MediaByGenreItem.toSearchResponse(): SearchResponse {
-        @Suppress("DEPRECATION_ERROR")
-        return AnimeSearchResponse(
-            name = this.title?.romaji ?: this.title?.english ?: "",
-            url = "https://anilist.co/anime/${this.id}",
-            apiName = "AniList",
-            type = TvType.Anime,
-            id = this.id,
-            posterUrl = this.coverImage?.large ?: this.coverImage?.medium
-        )
-    }
-
-    private fun loadAniListResultsByGenre(genres: List<String>, tags: List<String> = emptyList(), page: Int) {
-        ioSafe {
-            main {
-                binding?.searchLoadingBar?.alpha = 1f
-            }
-
-            val response = aniListApi.getMediaByGenre(genres, tags, page)
-            val mediaItems = response?.data?.page?.media ?: emptyList()
-            val hasNextPage = response?.data?.page?.pageInfo?.hasNextPage ?: false
-
-            val searchResponses = mediaItems.mapNotNull { it.toSearchResponse() }
-
-            main {
-                binding?.searchLoadingBar?.alpha = 0f
-
-                if (page == 1) {
-                    anilistBrowseResults = searchResponses
-                } else {
-                    anilistBrowseResults = anilistBrowseResults + searchResponses
-                }
-
-                hasMoreAniListResults = hasNextPage
-
-                // Display AniList results in the search results view
-                displayAniListResults()
-            }
-        }
-    }
-
-    private fun displayAniListResults() {
-        val adapter = binding?.searchAutofitResults?.adapter as? SearchAdapter ?: return
-        
-        // Add "Load More" button if there are more results
-        val displayList = if (hasMoreAniListResults) {
-            anilistBrowseResults + createLoadMoreItem()
-        } else {
-            anilistBrowseResults
-        }
-
-        adapter.submitList(displayList)
-    }
-
-    private fun createLoadMoreItem(): SearchResponse {
-        @Suppress("DEPRECATION_ERROR")
-        return AnimeSearchResponse(
-            name = getString(R.string.anilist_browse_load_more),
-            url = "",
-            apiName = "AniList",
-            type = TvType.Anime,
-            id = -1,
-            posterUrl = null
-        )
-    }
-
-    private fun isAniListLoggedIn(): Boolean {
-        return AccountManager.accounts(aniListApi.idPrefix).isNotEmpty()
-    }
-
-    private fun showAniListLoginPrompt() {
-        activity?.let { ctx ->
-            val builder = AlertDialog.Builder(ctx)
-            builder.setTitle(getString(R.string.genre_filter_anilist_login_required))
-            builder.setMessage(getString(R.string.genre_filter_anilist_login_message))
-            builder.setPositiveButton(getString(R.string.genre_filter_anilist_login_button)) { dialog, _ ->
-                // Navigate to AniList settings
-                ctx.startActivity(Intent(ctx, com.lagradost.cloudstream3.ui.settings.SettingsAccount::class.java))
-                dialog.dismiss()
-            }
-            builder.setNegativeButton(android.R.string.cancel) { dialog, _ ->
-                dialog.dismiss()
-            }
-            builder.show()
-        }
-    }
 
 
     private fun isAnimeProvider(providerName: String): Boolean {
-        val api = getApiFromNameNull(providerName) ?: return false
-        return api.supportedTypes.any { type ->
-            type == TvType.Anime || type == TvType.OVA || type == TvType.AnimeMovie
-        }
-    }
-
-    private suspend fun loadAniListGenresForAnime(
-        searchResults: List<SearchResponse>
-    ): Map<String, List<String>> {
-        return coroutineScope {
-            val semaphore = Semaphore(5)
-            val genreMap = mutableMapOf<String, List<String>>()
-
-            android.util.Log.d("GenreFilter", "loadAniListGenresForAnime: ${searchResults.size} search results")
-
-            val animeResults = searchResults.filter { result ->
-                result.type == TvType.Anime || result.type == TvType.OVA || result.type == TvType.AnimeMovie
-            }
-
-            android.util.Log.d("GenreFilter", "loadAniListGenresForAnime: ${animeResults.size} anime results")
-
-            val auth = AccountManager.accounts(aniListApi.idPrefix).firstOrNull()
-            android.util.Log.d("GenreFilter", "loadAniListGenresForAnime: auth=${auth != null}")
-
-            animeResults.map { result ->
-                async {
-                    semaphore.acquire()
-                    try {
-                        android.util.Log.d("GenreFilter", "Searching AniList for: ${result.name}")
-                        val anilistSearch = aniListApi.search(auth, result.name)
-                        android.util.Log.d("GenreFilter", "AniList search result: ${anilistSearch?.size} results")
-                        if (anilistSearch != null && anilistSearch.size > 0) {
-                            val anilistId = anilistSearch[0].syncId
-                            android.util.Log.d("GenreFilter", "Loading AniList metadata for id: $anilistId")
-                            val metadata = aniListApi.load(auth, anilistId)
-                            val genres = metadata?.genres
-                            android.util.Log.d("GenreFilter", "AniList genres for ${result.name}: ${genres?.size ?: 0}")
-                            if (genres != null) {
-                                genreMap[result.name] = genres
-                            }
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("GenreFilter", "Error loading AniList metadata for ${result.name}: $e")
-                        logError(e)
-                    } finally {
-                        semaphore.release()
-                    }
-                }
-            }.awaitAll()
-
-            android.util.Log.d("GenreFilter", "loadAniListGenresForAnime: loaded ${genreMap.size} genre mappings")
-            genreMap
-        }
+        return com.lagradost.cloudstream3.ui.AniListFilterUtils.isAnimeProvider(providerName)
     }
 
     /**
@@ -727,18 +538,7 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                             dialog.dismissSafe()
                         }
 
-                        // Genre filter button click listener
-                        genreFilterBtn?.setOnClickListener {
-                            // Check if any selected providers are anime-focused
-                            val hasAnimeProviders = currentSelectedApis.any { isAnimeProvider(it) }
-
-                            if (hasAnimeProviders && !isAniListLoggedIn()) {
-                                showAniListLoginPrompt()
-                                return@setOnClickListener
-                            }
-
-                            // AniList Browse Mode dialog removed - filter UI only on homescreen
-                        }
+                        // Genre filter button removed - filter UI only on homescreen
 
                         applyBtt?.setOnClickListener {
                             //if (currentApiName != selectedApiName) {
@@ -765,21 +565,7 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
             android.util.Log.e("SearchFragment", "Exception in searchFilter setup", e)
         }
 
-        android.util.Log.d("GenreFilter", "Setting up genre filter click listener, button exists=${binding.genreFilter != null}")
-
-        binding.genreFilter.setOnClickListener {
-            android.util.Log.d("GenreFilter", "Genre filter button clicked! isVisible=${binding.genreFilter.isVisible}, isEnabled=${binding.genreFilter.isEnabled}")
-
-            // Check if any selected providers are anime-focused
-            val hasAnimeProviders = selectedApis.any { isAnimeProvider(it) }
-
-            if (hasAnimeProviders && !isAniListLoggedIn()) {
-                showAniListLoginPrompt()
-                return@setOnClickListener
-            }
-
-            // Setup AniList filter dropdowns removed - filter UI only on homescreen
-        }
+        // Genre filter button removed - filter UI only on homescreen
 
         val settingsManager = context?.let { PreferenceManager.getDefaultSharedPreferences(it) }
         val isAdvancedSearch = settingsManager?.getBoolean("advanced_search", true) ?: true
