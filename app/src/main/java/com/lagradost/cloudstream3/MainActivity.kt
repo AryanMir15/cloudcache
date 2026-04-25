@@ -503,6 +503,7 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
 
         val isNavVisible = listOf(
             R.id.navigation_home,
+            R.id.navigation_browse,
             R.id.navigation_search,
             R.id.navigation_library,
             R.id.navigation_downloads,

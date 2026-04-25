@@ -80,131 +80,6 @@
                             -->
                 </androidx.appcompat.widget.SearchView>
             </FrameLayout>
-
-            <ImageView
-                android:id="@+id/quick_genre_filter"
-                android:layout_width="25dp"
-                android:layout_height="25dp"
-                android:layout_gravity="center_vertical"
-                android:layout_margin="10dp"
-                android:background="?selectableItemBackgroundBorderless"
-                android:contentDescription="@string/genre_filter_img_des"
-                android:src="@drawable/ic_baseline_filter_list_24"
-                android:visibility="visible"
-                app:tint="?attr/textColor" />
-        </LinearLayout>
-
-        <!-- Genre and Tags Chips Row -->
-        <HorizontalScrollView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="6dp"
-            android:paddingBottom="6dp"
-            android:scrollbars="none">
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/genre_chips"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:visibility="gone"
-                    app:chipSpacing="6dp" />
-
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/tags_chips"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:visibility="gone"
-                    app:chipSpacing="6dp" />
-            </LinearLayout>
-        </HorizontalScrollView>
-
-        <!-- Filter Labels Row -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:paddingTop="4dp"
-            android:paddingBottom="6dp">
-
-            <TextView
-                android:id="@+id/year_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:background="#4D000000"
-                android:minWidth="65dp"
-                android:paddingStart="10dp"
-                android:paddingTop="6dp"
-                android:paddingEnd="10dp"
-                android:paddingBottom="6dp"
-                android:text="Year: All"
-                android:textColor="?attr/textColor"
-                android:textSize="12sp"
-                app:autoSizeMaxTextSize="14sp"
-                app:autoSizeMinTextSize="10sp"
-                app:autoSizeTextType="uniform" />
-
-            <TextView
-                android:id="@+id/season_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:background="#4D000000"
-                android:minWidth="65dp"
-                android:paddingStart="10dp"
-                android:paddingTop="6dp"
-                android:paddingEnd="10dp"
-                android:paddingBottom="6dp"
-                android:text="Season: All"
-                android:textColor="?attr/textColor"
-                android:textSize="12sp"
-                app:autoSizeMaxTextSize="14sp"
-                app:autoSizeMinTextSize="10sp"
-                app:autoSizeTextType="uniform" />
-
-            <TextView
-                android:id="@+id/format_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="4dp"
-                android:background="#4D000000"
-                android:minWidth="65dp"
-                android:paddingStart="10dp"
-                android:paddingTop="6dp"
-                android:paddingEnd="10dp"
-                android:paddingBottom="6dp"
-                android:text="Format: All"
-                android:textColor="?attr/textColor"
-                android:textSize="12sp"
-                app:autoSizeMaxTextSize="14sp"
-                app:autoSizeMinTextSize="10sp"
-                app:autoSizeTextType="uniform" />
-
-            <TextView
-                android:id="@+id/sort_label"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="#4D000000"
-                android:minWidth="65dp"
-                android:paddingStart="10dp"
-                android:paddingTop="6dp"
-                android:paddingEnd="10dp"
-                android:paddingBottom="6dp"
-                android:text="Sort: Popularity"
-                android:textColor="?attr/textColor"
-                android:textSize="12sp"
-                app:autoSizeMaxTextSize="14sp"
-                app:autoSizeMinTextSize="10sp"
-                app:autoSizeTextType="uniform" />
         </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView
@@ -234,17 +109,34 @@
             android:visibility="gone"
             app:spanCount="3"
             tools:listitem="@layout/search_result_grid" />
+
+        <TextView
+            android:id="@+id/no_results_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:layout_marginTop="100dp"
+            android:text="No results"
+            android:textColor="?attr/textColor"
+            android:textSize="16sp"
+            android:visibility="gone" />
     </LinearLayout>
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/load_more_fab"
-        style="@style/BlackButton"
+    <TextView
+        android:id="@+id/no_more_results_toast"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|center"
         android:layout_margin="16dp"
-        android:paddingStart="24dp"
-        android:paddingEnd="24dp"
-        android:text="Load More"
-        android:visibility="gone" />
+        android:background="#CC000000"
+        android:paddingStart="16dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="8dp"
+        android:text="No more results"
+        android:textColor="@color/white"
+        android:textSize="12sp"
+        android:visibility="gone"
+        android:alpha="0" />
 </FrameLayout>
+
