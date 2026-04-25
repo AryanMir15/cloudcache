@@ -742,7 +742,19 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
     private fun NavDestination.matchDestination(@IdRes destId: Int): Boolean =
         hierarchy.any { it.id == destId }
 
+    private fun isBottomNavDestination(@IdRes destId: Int): Boolean {
+        return destId in listOf(
+            R.id.navigation_home,
+            R.id.navigation_search,
+            R.id.navigation_browse,
+            R.id.navigation_library,
+            R.id.navigation_downloads,
+            R.id.navigation_settings
+        )
+    }
+
     private var lastNavTime = 0L
+    private var previousBottomNavDestination: Int? = null
     private fun onNavDestinationSelected(item: MenuItem, navController: NavController): Boolean {
         val currentTime = System.currentTimeMillis()
         android.util.Log.d("MainActivity", "onNavDestinationSelected: itemId=${item.itemId}, title=${item.title}")
@@ -754,6 +766,12 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
             return false
         }
         lastNavTime = currentTime
+
+        // Track previous bottom nav destination for back stack handling
+        val currentDestinationId = navController.currentDestination?.id
+        if (currentDestinationId != null && isBottomNavDestination(currentDestinationId)) {
+            previousBottomNavDestination = currentDestinationId
+        }
 
         val destinationId = item.itemId
 
@@ -1690,11 +1708,12 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
             android.util.Log.d("MainActivity", "onDestinationChanged: destination=${navDestination.id}, label=${navDestination.label}")
             android.util.Log.d("MainActivity", "onDestinationChanged: nextSearchQuery=$nextSearchQuery")
             android.util.Log.d("MainActivity", "onDestinationChanged: bundle keys=${bundle?.keySet()?.toList()}")
+            android.util.Log.d("MainActivity", "onDestinationChanged: previousBottomNavDestination=$previousBottomNavDestination")
             // Intercept search and add a query
             updateNavBar(navDestination)
             // Removed nextSearchQuery bundle injection - causing repeated redirects
             // SearchFragment handles nextSearchQuery directly in onStart
-            
+
             if (navDestination.matchDestination(R.id.navigation_home)) {
                 android.util.Log.d("MainActivity", "onDestinationChanged: clearing search_query from bundle for home")
                 bundle?.remove(SearchFragment.SEARCH_QUERY)
@@ -1702,9 +1721,23 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
                 attachBackPressedCallback("MainActivity") {
                     showConfirmExitDialog(settingsManager)
                 }
+            } else if (navDestination.matchDestination(R.id.navigation_search)) {
+                android.util.Log.d("MainActivity", "onDestinationChanged: attaching back callback for search with previous=$previousBottomNavDestination")
+                attachBackPressedCallback("MainActivitySearch") {
+                    // If previous destination was Browse, navigate back to it
+                    if (previousBottomNavDestination == R.id.navigation_browse) {
+                        android.util.Log.d("MainActivity", "BackPressed: navigating back to Browse from Search")
+                        navController.navigate(R.id.navigation_browse)
+                        true // Indicate we handled the back press
+                    } else {
+                        android.util.Log.d("MainActivity", "BackPressed: default back behavior from Search")
+                        false // Let system handle it
+                    }
+                }
             } else {
-                android.util.Log.d("MainActivity", "onDestinationChanged: detaching back callback")
+                android.util.Log.d("MainActivity", "onDestinationChanged: detaching back callbacks")
                 detachBackPressedCallback("MainActivity")
+                detachBackPressedCallback("MainActivitySearch")
             }
         }
 

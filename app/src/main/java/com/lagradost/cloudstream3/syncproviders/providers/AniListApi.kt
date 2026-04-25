@@ -1192,12 +1192,15 @@ class AniListApi : SyncAPI() {
     suspend fun getMediaByGenre(
         genres: List<String>,
         tags: List<String> = emptyList(),
+        excludedGenres: List<String> = emptyList(),
+        excludedTags: List<String> = emptyList(),
         page: Int = 1,
         seasonYear: Int? = null,
         season: String? = null,
         format: String? = null,
         sort: String? = null,
-        search: String? = null
+        search: String? = null,
+        isAdult: Boolean? = null
     ): MediaByGenreResponse? {
         // Fetch official genre list to validate/normalize genre names
         val officialGenres = getGenreCollection()
@@ -1211,12 +1214,20 @@ class AniListApi : SyncAPI() {
         }
         android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: normalized genres=$normalizedGenres")
         
-        // Single master query with all possible filter variables including search
+        // Normalize excluded genre names to match official list
+        val normalizedExcludedGenres = excludedGenres.map { genre ->
+            officialGenres?.firstOrNull { it.equals(genre, ignoreCase = true) } ?: genre
+        }
+        android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: excluded genres=$excludedGenres")
+        android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: normalized excluded genres=$normalizedExcludedGenres")
+        android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: excluded tags=$excludedTags")
+        
+        // Single master query with all possible filter variables including search and exclusions
         val query = """
-            query (${'$'}page: Int, ${'$'}perPage: Int, ${'$'}search: String, ${'$'}genres: [String], ${'$'}tags: [String], ${'$'}seasonYear: Int, ${'$'}season: MediaSeason, ${'$'}format: MediaFormat, ${'$'}sort: [MediaSort]) {
+            query (${'$'}page: Int, ${'$'}perPage: Int, ${'$'}search: String, ${'$'}genres: [String], ${'$'}tags: [String], ${'$'}genre_not_in: [String], ${'$'}tag_not_in: [String], ${'$'}seasonYear: Int, ${'$'}season: MediaSeason, ${'$'}format: MediaFormat, ${'$'}sort: [MediaSort], ${'$'}isAdult: Boolean) {
                 Page(page: ${'$'}page, perPage: ${'$'}perPage) {
                     pageInfo { hasNextPage }
-                    media(type: ANIME, search: ${'$'}search, genre_in: ${'$'}genres, tag_in: ${'$'}tags, seasonYear: ${'$'}seasonYear, season: ${'$'}season, format: ${'$'}format, sort: ${'$'}sort) {
+                    media(type: ANIME, search: ${'$'}search, genre_in: ${'$'}genres, tag_in: ${'$'}tags, genre_not_in: ${'$'}genre_not_in, tag_not_in: ${'$'}tag_not_in, seasonYear: ${'$'}seasonYear, season: ${'$'}season, format: ${'$'}format, sort: ${'$'}sort, isAdult: ${'$'}isAdult) {
                         id
                         title { romaji english }
                         coverImage { large }
@@ -1233,10 +1244,13 @@ class AniListApi : SyncAPI() {
         if (search != null) variables["search"] = search
         if (normalizedGenres.isNotEmpty()) variables["genres"] = normalizedGenres
         if (tags.isNotEmpty()) variables["tags"] = tags
+        if (normalizedExcludedGenres.isNotEmpty()) variables["genre_not_in"] = normalizedExcludedGenres
+        if (excludedTags.isNotEmpty()) variables["tag_not_in"] = excludedTags
         if (seasonYear != null) variables["seasonYear"] = seasonYear
         if (season != null) variables["season"] = season
         if (format != null) variables["format"] = format
         if (sort != null) variables["sort"] = listOf(sort)
+        if (isAdult != null) variables["isAdult"] = isAdult
         
         android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: variables=$variables")
         android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: variablesJson=${variables.toJson()}")

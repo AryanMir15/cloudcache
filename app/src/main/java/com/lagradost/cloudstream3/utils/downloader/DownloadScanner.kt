@@ -1,8 +1,8 @@
 package com.lagradost.cloudstream3.utils.downloader
 
 import android.content.Context
-import android.preference.PreferenceManager
 import android.util.Log
+import androidx.preference.PreferenceManager
 import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.utils.DOWNLOAD_EPISODE_CACHE

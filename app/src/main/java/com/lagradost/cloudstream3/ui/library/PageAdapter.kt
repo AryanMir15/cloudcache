@@ -1,8 +1,8 @@
 package com.lagradost.cloudstream3.ui.library
 
 import android.content.Context
-import android.preference.PreferenceManager
 import android.view.LayoutInflater
+import androidx.preference.PreferenceManager
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.core.view.isVisible

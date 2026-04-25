@@ -81,7 +81,7 @@ object AniListFilterUtils {
     val FORMATS = listOf("All", "TV Show", "Movie", "TV Short", "Special", "OVA", "ONA", "Music")
 
     // Hardcoded Sort Options (display name -> API enum value)
-    val SORT_OPTIONS = listOf("All") + listOf(
+    val SORT_OPTIONS = listOf(
         "Popularity" to "POPULARITY_DESC",
         "Average Score" to "SCORE_DESC",
         "Trending" to "TRENDING_DESC",
@@ -132,12 +132,14 @@ object AniListFilterUtils {
     class AniListCheckboxAdapter(
         private val items: List<String>,
         private var selectedItems: Set<String>,
-        private val onCheckedChangeListener: (String, Boolean) -> Unit,
+        private var excludedItems: Set<String> = emptySet(),
+        private val onCheckedChangeListener: (String, Int) -> Unit, // 0 = unchecked, 1 = include, 2 = exclude
         private val radioMode: Boolean = false
     ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
         class CheckboxViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             val checkbox: CheckBox = view.findViewById(R.id.checkbox)
+            val crossIcon: ImageView = view.findViewById(R.id.cross_icon)
             val text: TextView = view.findViewById(R.id.text)
         }
 
@@ -149,6 +151,11 @@ object AniListFilterUtils {
 
         fun updateSelectedSet(newSet: Set<String>) {
             selectedItems = newSet
+            notifyDataSetChanged()
+        }
+
+        fun updateExcludedSet(newSet: Set<String>) {
+            excludedItems = newSet
             notifyDataSetChanged()
         }
 
@@ -173,17 +180,52 @@ object AniListFilterUtils {
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             val item = items[position]
             val isSelected = selectedItems.contains(item)
+            val isExcluded = excludedItems.contains(item)
+
+            android.util.Log.d("CheckboxSizeDebug", "onBindViewHolder: item=$item, isSelected=$isSelected, isExcluded=$isExcluded")
 
             if (holder is CheckboxViewHolder) {
                 holder.text.text = item
-                holder.checkbox.isChecked = isSelected
 
-                holder.itemView.setOnClickListener {
-                    holder.checkbox.isChecked = !holder.checkbox.isChecked
+                // Log dimensions
+                holder.checkbox.post {
+                    android.util.Log.d("CheckboxSizeDebug", "Checkbox: width=${holder.checkbox.width}, height=${holder.checkbox.height}, measuredWidth=${holder.checkbox.measuredWidth}, measuredHeight=${holder.checkbox.measuredHeight}")
+                }
+                holder.crossIcon.post {
+                    android.util.Log.d("CheckboxSizeDebug", "CrossIcon: width=${holder.crossIcon.width}, height=${holder.crossIcon.height}, measuredWidth=${holder.crossIcon.measuredWidth}, measuredHeight=${holder.crossIcon.measuredHeight}")
+                    val drawable = holder.crossIcon.drawable
+                    android.util.Log.d("CheckboxSizeDebug", "CrossIcon drawable: intrinsicWidth=${drawable?.intrinsicWidth}, intrinsicHeight=${drawable?.intrinsicHeight}, bounds=${drawable?.bounds}")
                 }
 
-                holder.checkbox.setOnCheckedChangeListener { _, isChecked ->
-                    onCheckedChangeListener(item, isChecked)
+                // Set checkbox state
+                holder.checkbox.isChecked = isSelected
+
+                // Toggle visibility based on state
+                if (isExcluded) {
+                    holder.checkbox.visibility = View.GONE
+                    holder.crossIcon.visibility = View.VISIBLE
+                    android.util.Log.d("CheckboxSizeDebug", "Show cross icon, hide checkbox for item=$item")
+                } else {
+                    holder.checkbox.visibility = View.VISIBLE
+                    holder.crossIcon.visibility = View.GONE
+                    android.util.Log.d("CheckboxSizeDebug", "Show checkbox, hide cross icon for item=$item, checked=$isSelected")
+                }
+
+                // Remove checkbox's own listener to prevent conflicts
+                holder.checkbox.setOnCheckedChangeListener(null)
+
+                holder.itemView.setOnClickListener {
+                    android.util.Log.d("CheckboxSizeDebug", "onClick: item=$item, isSelected=$isSelected, isExcluded=$isExcluded")
+                    // Cycle through states: 0 -> 1 -> 2 -> 0
+                    val currentState = if (isExcluded) 2 else if (isSelected) 1 else 0
+                    val newState = when (currentState) {
+                        0 -> 1 // unchecked -> include
+                        1 -> 2 // include -> exclude
+                        2 -> 0 // exclude -> unchecked
+                        else -> 1
+                    }
+                    android.util.Log.d("CheckboxSizeDebug", "onClick: currentState=$currentState, newState=$newState")
+                    onCheckedChangeListener(item, newState)
                 }
             } else if (holder is RadioViewHolder) {
                 holder.text.text = item
@@ -197,7 +239,7 @@ object AniListFilterUtils {
                 }
 
                 holder.itemView.setOnClickListener {
-                    onCheckedChangeListener(item, true)
+                    onCheckedChangeListener(item, 1)
                 }
             }
         }

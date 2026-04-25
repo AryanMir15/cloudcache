@@ -289,8 +289,9 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
             return
         }
         selectedGenre = null // Clear genre filter on new search
-        // don't resume state from prev search
+        // Clear all adapters to prevent result pollution
         (binding?.searchMasterRecycler?.adapter as? BaseAdapter<*, *>)?.clearState()
+        (binding?.searchAutofitResults?.adapter as? BaseAdapter<*, *>)?.clearState()
         context?.let { ctx ->
             val default = enumValues<TvType>().sorted().filter { it != TvType.NSFW }
                 .map { it.ordinal.toString() }.toSet()

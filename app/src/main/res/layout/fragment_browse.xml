@@ -6,6 +6,7 @@
     style="@style/DarkFragment"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:layout_marginTop="@dimen/navbar_height"
     android:background="?attr/primaryGrayBackground">
 
     <!-- Results Grid -->
@@ -18,7 +19,6 @@
         android:descendantFocusability="afterDescendants"
         android:orientation="vertical"
         android:paddingStart="8dp"
-        android:paddingTop="120dp"
         android:paddingEnd="8dp"
         android:paddingBottom="70dp"
         tools:listitem="@layout/search_result_grid" />
@@ -47,47 +47,75 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                app:layout_scrollFlags="scroll|enterAlways">
+
+            <ImageView
+                android:id="@+id/voice_search"
+                android:layout_width="25dp"
+                android:layout_height="25dp"
+                android:layout_gravity="end|center_vertical"
+                android:layout_marginStart="10dp"
+                android:background="?selectableItemBackgroundBorderless"
+                android:contentDescription="@string/change_providers_img_des"
+                android:src="@drawable/ic_mic"
+                app:tint="?attr/textColor" />
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
                 android:layout_margin="10dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:background="@drawable/search_background"
+                android:visibility="visible">
 
                 <FrameLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:background="@drawable/search_background">
+                    android:layout_width="match_parent"
+                    android:layout_height="30dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginEnd="30dp">
 
                     <androidx.appcompat.widget.SearchView
                         android:id="@+id/browse_search"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
+                        android:layout_height="match_parent"
+                        android:layout_gravity="center_vertical"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:focusableInTouchMode="true"
                         android:iconifiedByDefault="false"
+                        android:imeOptions="actionSearch"
+                        android:inputType="text"
                         android:queryHint="Search AniList"
-                        app:queryBackground="@null"
-                        app:searchIcon="@drawable/search_icon" />
-                </FrameLayout>
+                        app:iconifiedByDefault="false"
+                        app:queryBackground="@color/transparent"
+                        app:searchIcon="@drawable/search_icon"
+                        app:closeIcon="@drawable/ic_baseline_close_24">
 
-            <androidx.core.widget.ContentLoadingProgressBar
-                android:id="@+id/browse_search_loading_bar"
-                style="@style/Widget.AppCompat.ProgressBar"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_marginStart="8dp"
-                android:layout_marginEnd="8dp"
-                android:clickable="false"
-                android:focusable="false"
-                android:indeterminateTint="?attr/textColor" />
+                        <androidx.core.widget.ContentLoadingProgressBar
+                            android:id="@+id/browse_search_loading_bar"
+                            style="@style/Widget.AppCompat.ProgressBar"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_gravity="center"
+                            android:layout_marginStart="-35dp"
+                            android:indeterminateTint="@color/white">
+
+                        </androidx.core.widget.ContentLoadingProgressBar>
+                    </androidx.appcompat.widget.SearchView>
+                </FrameLayout>
 
             <ImageView
                 android:id="@+id/filter_button"
                 android:layout_width="25dp"
                 android:layout_height="25dp"
-                android:layout_gravity="center_vertical"
+                android:layout_gravity="end|center_vertical"
+                android:layout_margin="10dp"
                 android:background="?selectableItemBackgroundBorderless"
                 android:contentDescription="Filter"
                 android:src="@drawable/ic_baseline_filter_list_24"
                 app:tint="?attr/textColor" />
-            </LinearLayout>
+            </FrameLayout>
+        </LinearLayout>
 
             <!-- Genre and Tags Chips Row -->
             <HorizontalScrollView
