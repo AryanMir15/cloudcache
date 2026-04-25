@@ -390,15 +390,50 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
             return@setOnPreferenceClickListener true
         }
 
+        // Scan for Downloads Info
+        findPreference<androidx.preference.Preference>("scan_downloads_info_key")?.setOnPreferenceClickListener {
+            val builder: AlertDialog.Builder =
+                AlertDialog.Builder(it.context, R.style.AlertDialogCustom)
+            builder.setTitle("Scan for Downloads - How it works")
+            builder.setMessage(
+                "This feature scans your download directory to match existing library entries with downloaded video files.\n\n" +
+                "Requirements:\n" +
+                "• The folder name must match the library entry name exactly\n" +
+                "• Episode files must be in video formats (mp4, mkv, avi, mov, webm, flv, m4v)\n" +
+                "• Episode numbers must be detectable from the filename\n" +
+                "• The library entry must already exist in your library\n\n" +
+                "The scanner will:\n" +
+                "• Look for folders matching library entry names\n" +
+                "• Try direct paths, then Anime/ subfolder, then fuzzy matching\n" +
+                "• Scan subfolders recursively\n" +
+                "• Only update episodes that are already in your library"
+            )
+            builder.setPositiveButton("Got it") { _, _ -> }
+            builder.show()
+            return@setOnPreferenceClickListener true
+        }
+
         // Scan for Downloads
         findPreference<androidx.preference.Preference>("scan_downloads_key")?.setOnPreferenceClickListener {
-            context?.let { ctx ->
-                com.lagradost.cloudstream3.utils.downloader.DownloadScanner.scanDownloads(ctx) { count ->
-                    activity?.runOnUiThread {
-                        showToast("Scan complete: $count entries found")
+            val builder: AlertDialog.Builder =
+                AlertDialog.Builder(it.context, R.style.AlertDialogCustom)
+            builder.setTitle("Start Scan for Downloads?")
+            builder.setMessage(
+                "This process may take some time depending on the number of downloads in your library. " +
+                "The rest of the app will remain functional during the scan.\n\n" +
+                "Are you sure you want to continue?"
+            )
+            builder.setPositiveButton("Start Scan") { _, _ ->
+                context?.let { ctx ->
+                    com.lagradost.cloudstream3.utils.downloader.DownloadScanner.scanDownloads(ctx) { count ->
+                        activity?.runOnUiThread {
+                            showToast("Scan complete: $count entries found")
+                        }
                     }
                 }
             }
+            builder.setNegativeButton("Cancel") { _, _ -> }
+            builder.show()
             return@setOnPreferenceClickListener true
         }
 

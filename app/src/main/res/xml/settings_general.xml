@@ -36,6 +36,11 @@
             android:title="Scan for Downloads" />
 
         <Preference
+            android:icon="@drawable/baseline_help_outline_24"
+            android:key="scan_downloads_info_key"
+            android:title="Scan for Downloads Info" />
+
+        <Preference
             android:icon="@drawable/ic_baseline_storage_24"
             android:key="cache_management_key"
             android:title="Cache Management" />
