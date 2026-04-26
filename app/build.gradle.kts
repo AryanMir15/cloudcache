@@ -168,7 +168,7 @@ android {
 
     kotlin {
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_17)
+            jvmTarget.set(javaTarget)
             jvmDefault.set(JvmDefaultMode.ENABLE)
             freeCompilerArgs.add("-Xannotation-default-target=param-property")
             optIn.addAll(
@@ -297,7 +297,7 @@ tasks.register<Jar>("makeJar") {
 
 tasks.withType<KotlinJvmCompile> {
     compilerOptions {
-        jvmTarget.set(JvmTarget.JVM_17)
+        jvmTarget.set(javaTarget)
         jvmDefault.set(JvmDefaultMode.ENABLE)
         freeCompilerArgs.add("-Xannotation-default-target=param-property")
         optIn.addAll(
