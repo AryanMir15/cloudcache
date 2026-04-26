@@ -8,7 +8,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.dokka)
-    alias(libs.plugins.kotlin.android)
+    id("org.jetbrains.kotlin.android")
     id("kotlin-kapt")
 }
 
