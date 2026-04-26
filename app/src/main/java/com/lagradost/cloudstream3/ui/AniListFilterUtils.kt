@@ -78,7 +78,7 @@ object AniListFilterUtils {
     val SEASONS = listOf("All", "Winter", "Spring", "Summer", "Fall")
 
     // Hardcoded Formats
-    val FORMATS = listOf("All", "TV Show", "Movie", "TV Short", "Special", "OVA", "ONA", "Music")
+    val FORMATS = listOf("All", "TV Show", "Movie", "TV Short", "Special", "OVA", "ONA")
 
     // Hardcoded Sort Options (display name -> API enum value)
     val SORT_OPTIONS = listOf(
@@ -110,7 +110,6 @@ object AniListFilterUtils {
             "Special" -> "SPECIAL"
             "OVA" -> "OVA"
             "ONA" -> "ONA"
-            "Music" -> "MUSIC"
             else -> null
         }
     }

@@ -33,18 +33,7 @@
                 android:id="@+id/set_default_button"
                 android:layout_width="wrap_content"
                 android:layout_height="32dp"
-                android:layout_marginEnd="4dp"
                 android:text="Set Default"
-                android:textSize="11sp"
-                android:paddingStart="8dp"
-                android:paddingEnd="8dp"
-                style="@style/BlackButton" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/reset_default_button"
-                android:layout_width="wrap_content"
-                android:layout_height="32dp"
-                android:text="Reset"
                 android:textSize="11sp"
                 android:paddingStart="8dp"
                 android:paddingEnd="8dp"

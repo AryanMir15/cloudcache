@@ -481,6 +481,8 @@ class ResultViewModel2 : ViewModel() {
     fun clear() {
         currentResponse = null
         originalResponse = null
+        currentMeta = null
+        currentSync = null
         _isMetadataSwapMode.postValue(false)
         _page.postValue(null)
     }
@@ -626,9 +628,11 @@ class ResultViewModel2 : ViewModel() {
     companion object {
         const val TAG = "RVM2"
         var sharedOriginalResponse: LoadResponse? = null
+        var sharedTrueOriginal: LoadResponse? = null // Stores the true original data from the first swap
         var sharedSwappedResponse: LoadResponse? = null
         var sharedFieldsToSwap: Set<MetadataField>? = null
         var isMetadataSwapActive: Boolean = false
+        var selectedProvidersForSwap: Set<String>? = null
         // Feature flag for new swap system - disabled until compilation errors are fixed
         const val USE_NEW_SWAP_SYSTEM = false
         //private const val EPISODE_RANGE_SIZE = 20
@@ -2154,12 +2158,16 @@ class ResultViewModel2 : ViewModel() {
                 // Check for word overlap (at least 2 words match or 50% of words)
                 val resultWords = result.name.lowercase().split(Regex("[^a-zA-Z0-9]")).filter { it.isNotBlank() }
                 val nameWords = name.lowercase().split(Regex("[^a-zA-Z0-9]")).filter { it.isNotBlank() }
-                val wordOverlap = resultWords.intersect(nameWords.toSet()).size
-                val wordMatch = wordOverlap >= 2 || (resultWords.isNotEmpty() && wordOverlap >= resultWords.size * 0.5) || (nameWords.isNotEmpty() && wordOverlap >= nameWords.size * 0.5)
+                // Filter out common words for overlap calculation
+                val commonWords = setOf("no", "the", "of", "to", "in", "a", "an", "and", "or", "for", "with", "at", "by", "from")
+                val significantResultWords = resultWords.filter { it.length > 2 && !commonWords.contains(it) }
+                val significantNameWords = nameWords.filter { it.length > 2 && !commonWords.contains(it) }
+                val wordOverlap = significantResultWords.intersect(significantNameWords.toSet()).size
+                val wordMatch = wordOverlap >= 2 || (significantResultWords.isNotEmpty() && wordOverlap >= significantResultWords.size * 0.5) || (significantNameWords.isNotEmpty() && wordOverlap >= significantNameWords.size * 0.5)
 
                 val nameMatch = exactMatch || containsMatch || wordMatch
                 val typeMatch = type == TvType.Movie || result.type == type
-                android.util.Log.d("MetadataSwap", "Checking match: ${result.name} vs $name (exactMatch: $exactMatch, containsMatch: $containsMatch, wordOverlap: $wordMatch, nameMatch: $nameMatch), type: ${result.type} vs $type (typeMatch: $typeMatch)")
+                android.util.Log.d("MetadataSwap", "Checking match: ${result.name} vs $name (exactMatch: $exactMatch, containsMatch: $containsMatch, wordOverlap: $wordOverlap, nameMatch: $nameMatch), type: ${result.type} vs $type (typeMatch: $typeMatch)")
                 Log.i(TAG, "Checking match: ${result.name} vs $name (exactMatch: $exactMatch, containsMatch: $containsMatch, wordOverlap: $wordMatch, nameMatch: $nameMatch), type: ${result.type} vs $type (typeMatch: $typeMatch)")
                 nameMatch && typeMatch
             }
@@ -3836,6 +3844,7 @@ class ResultViewModel2 : ViewModel() {
         dubStatus: DubStatus,
         autostart: AutoResume?,
         loadTrailers: Boolean = true,
+        forceRefresh: Boolean = false,
     ) =
         ioSafe {
             _page.postValue(Resource.Loading(url))
@@ -3899,7 +3908,7 @@ class ResultViewModel2 : ViewModel() {
             
             android.util.Log.d("LocalLibraryTest", "Matched cached header: ${cachedHeader?.name} (url: ${cachedHeader?.url}, id: ${cachedHeader?.id})")
 
-            if (cachedHeader != null) {
+            if (cachedHeader != null && !forceRefresh) {
                 android.util.Log.d("CacheFlow", "MAIN LOAD - Using DOWNLOAD_HEADER_CACHE for: ${cachedHeader.name} (url: $url)")
                 android.util.Log.d("CacheFlow", "Cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
                 

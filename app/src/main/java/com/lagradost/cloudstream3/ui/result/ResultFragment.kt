@@ -155,7 +155,8 @@ object ResultFragment {
     const val METADATA_SWAP_BUNDLE = "metadataSwap"
 
     fun newInstance(
-        card: SearchResponse, startAction: Int = 0, startValue: Int? = null, metadataSwap: Boolean = false
+        card: SearchResponse, startAction: Int = 0, startValue: Int? = null, metadataSwap: Boolean = false,
+        originalResponseName: String? = null, originalResponseUrl: String? = null
     ): Bundle {
         return Bundle().apply {
             putString(URL_BUNDLE, card.url)
@@ -170,10 +171,11 @@ object ResultFragment {
             putInt(START_ACTION_BUNDLE, startAction)
             if (startValue != null)
                 putInt(START_VALUE_BUNDLE, startValue)
-
-
-            putBoolean(RESTART_BUNDLE, true)
             putBoolean(METADATA_SWAP_BUNDLE, metadataSwap)
+            if (originalResponseName != null)
+                putString("original_response_name", originalResponseName)
+            if (originalResponseUrl != null)
+                putString("original_response_url", originalResponseUrl)
         }
     }
 

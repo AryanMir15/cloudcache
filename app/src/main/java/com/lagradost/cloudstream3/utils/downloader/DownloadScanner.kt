@@ -223,18 +223,64 @@ object DownloadScanner {
                             val animeFolderFiles = DownloadFileManagement.getFolder(context, "Anime", basePath)
                             
                             if (animeFolderFiles != null) {
+                                Log.d(TAG, "=== Anime folder contents ===")
+                                animeFolderFiles.forEach { (name, uri) ->
+                                    Log.d(TAG, "Found in Anime: '$name' (uri: $uri)")
+                                }
+                                Log.d(TAG, "=== End Anime folder contents ===")
+                                
                                 val matchedFolder = animeFolderFiles.firstOrNull { (name, _) ->
-                                    name.equals(folderName, ignoreCase = true) || 
-                                    folderName.equals(name, ignoreCase = true) ||
-                                    name.contains(folderName, ignoreCase = true) ||
-                                    folderName.contains(name, ignoreCase = true)
+                                    // Normalize both names for robust comparison
+                                    fun normalize(input: String): String {
+                                        return input
+                                            .lowercase()
+                                            .replace(Regex("[:\\-–—_|/\\\\]"), " ") // Replace various separators with space
+                                            .replace(Regex("\\s+"), " ") // Collapse multiple spaces
+                                            .trim()
+                                    }
+                                    
+                                    val normalizedName = normalize(folderName)
+                                    val normalizedFolder = normalize(name)
+                                    
+                                    Log.d(TAG, "Comparing: '$normalizedName' vs '$normalizedFolder'")
+                                    
+                                    // Try exact match first
+                                    if (normalizedName == normalizedFolder) {
+                                        Log.d(TAG, "Exact match found")
+                                        return@firstOrNull true
+                                    }
+                                    
+                                    // Try containment (one contains the other)
+                                    if (normalizedFolder.contains(normalizedName) && normalizedName.length > 5) {
+                                        Log.d(TAG, "Containment match (folder contains name)")
+                                        return@firstOrNull true
+                                    }
+                                    if (normalizedName.contains(normalizedFolder) && normalizedFolder.length > 5) {
+                                        Log.d(TAG, "Containment match (name contains folder)")
+                                        return@firstOrNull true
+                                    }
+                                    
+                                    // Try word-by-word matching (at least 3 words match)
+                                    val nameWords = normalizedName.split(" ").filter { it.isNotEmpty() }
+                                    val folderWords = normalizedFolder.split(" ").filter { it.isNotEmpty() }
+                                    val matchingWords = nameWords.intersect(folderWords.toSet()).size
+                                    if (matchingWords >= 3 && matchingWords >= minOf(nameWords.size, folderWords.size) * 0.6) {
+                                        Log.d(TAG, "Word match: $matchingWords words match")
+                                        return@firstOrNull true
+                                    }
+                                    
+                                    false
                                 }
                                 
                                 if (matchedFolder != null) {
-                                    Log.d(TAG, "Fuzzy matched: ${matchedFolder.first} to $folderName")
+                                    Log.d(TAG, "Fuzzy matched: '${matchedFolder.first}' to '$folderName'")
                                     folderPath = "Anime/${matchedFolder.first}"
                                     files = DownloadFileManagement.getFolder(context, folderPath, basePath)
+                                } else {
+                                    Log.d(TAG, "No fuzzy match found for '$folderName' in Anime folder")
                                 }
+                            } else {
+                                Log.d(TAG, "Anime folder is null or empty")
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Error accessing Anime folder for fuzzy matching: ${e.message}", e)

@@ -214,8 +214,9 @@ object VideoDownloadManager {
      */
     fun setDownloadStatus(id: Int, status: DownloadType, context: Context) {
         downloadStatus[id] = status
-        // Persist immediately to avoid stale state
-        com.lagradost.cloudstream3.CloudStreamApp.setKey(KEY_DOWNLOAD_STATUS, id.toString(), status.name)
+        // Persist immediately to avoid stale state - use raw string storage instead of JSON
+        val prefs = context.getSharedPreferences("rebuild_preference", Context.MODE_PRIVATE)
+        prefs.edit().putString("${KEY_DOWNLOAD_STATUS}/${id}", status.name).apply()
         downloadStatusEvent(Pair(id, status))
     }
     
@@ -225,7 +226,9 @@ object VideoDownloadManager {
      */
     fun removeDownloadStatus(id: Int, context: Context) {
         downloadStatus.remove(id)
-        com.lagradost.cloudstream3.CloudStreamApp.removeKey(KEY_DOWNLOAD_STATUS, id.toString())
+        // Use raw string storage to match setDownloadStatus
+        val prefs = context.getSharedPreferences("rebuild_preference", Context.MODE_PRIVATE)
+        prefs.edit().remove("${KEY_DOWNLOAD_STATUS}/${id}").apply()
     }
     
     fun loadPersistedDownloadStatus(context: Context) {
@@ -246,7 +249,9 @@ object VideoDownloadManager {
                     android.util.Log.d("VideoDownloadManager", "Failed to parse ID from key: $key")
                     return@forEach
                 }
-                val statusStr = context.getKey<String>(KEY_DOWNLOAD_STATUS, idStr)
+                // Read raw string directly from SharedPreferences
+                val prefs = context.getSharedPreferences("rebuild_preference", Context.MODE_PRIVATE)
+                val statusStr = prefs.getString(key, null)
                 if (statusStr == null) {
                     android.util.Log.d("VideoDownloadManager", "No status string found for episode $id")
                     return@forEach

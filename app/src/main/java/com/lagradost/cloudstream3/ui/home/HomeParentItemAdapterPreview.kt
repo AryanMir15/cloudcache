@@ -201,8 +201,27 @@ class HomeParentItemAdapterPreview(
                 }
             },
             clickCallback = { callback ->
+                android.util.Log.d("ContinueWatching", "ResumeItemAdapter clickCallback - action: ${callback.action}, card: ${callback.card.name}")
                 if (callback.action != SEARCH_ACTION_SHOW_METADATA) {
-                    viewModel.click(callback)
+                    // If the item is from a download and action is LOAD, change to PLAY_FILE
+                    // to use local file playback instead of fetching new links
+                    val card = callback.card
+                    val isFromDownload = card is DataStoreHelper.ResumeWatchingResult && card.isFromDownload
+                    android.util.Log.d("ContinueWatching", "isFromDownload: $isFromDownload, card type: ${card::class.simpleName}")
+                    val actionToUse = if (isFromDownload && callback.action == SEARCH_ACTION_LOAD) {
+                        android.util.Log.d("ContinueWatching", "Changing action from LOAD to PLAY_FILE for downloaded item")
+                        com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_PLAY_FILE
+                    } else {
+                        callback.action
+                    }
+                    viewModel.click(
+                        SearchClickCallback(
+                            actionToUse,
+                            callback.view,
+                            -1,
+                            callback.card
+                        )
+                    )
                     return@ResumeItemAdapter
                 }
                 callback.view.context?.getActivity()?.showOptionSelectStringRes(
@@ -221,9 +240,17 @@ class HomeParentItemAdapterPreview(
                     when (actionId + if (isTv) 0 else 1) {
                         // play
                         0 -> {
+                            val card = callback.card
+                            // If the item is from a download, use PLAY_FILE action to play local file
+                            // Otherwise use START_ACTION_RESUME_LATEST to fetch links
+                            val action = if (card is DataStoreHelper.ResumeWatchingResult && card.isFromDownload) {
+                                com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_PLAY_FILE
+                            } else {
+                                START_ACTION_RESUME_LATEST
+                            }
                             viewModel.click(
                                 SearchClickCallback(
-                                    START_ACTION_RESUME_LATEST,
+                                    action,
                                     callback.view,
                                     -1,
                                     callback.card

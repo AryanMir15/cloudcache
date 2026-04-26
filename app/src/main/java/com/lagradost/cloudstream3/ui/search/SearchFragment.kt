@@ -171,12 +171,13 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
 
     override fun onResume() {
         super.onResume()
-        android.util.Log.d("SearchFragment", "========== onResume called ==========")
-        android.util.Log.d("SearchFragment", "onResume: MainActivity.nextSearchQuery = ${MainActivity.nextSearchQuery}")
-        android.util.Log.d("SearchFragment", "onResume: sq = $sq")
-        android.util.Log.d("SearchFragment", "onResume: mainSearch.query = ${binding?.mainSearch?.query}")
-        android.util.Log.d("SearchFragment", "onResume: mainSearch.isIconified = ${binding?.mainSearch?.isIconified}")
-        android.util.Log.d("SearchFragment", "onResume: mainSearch.hasFocus = ${binding?.mainSearch?.hasFocus()}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== SearchFragment.onResume called ==========")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: MainActivity.nextSearchQuery = ${MainActivity.nextSearchQuery}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: sq = $sq")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: mainSearch.query = ${binding?.mainSearch?.query}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: mainSearch.isIconified = ${binding?.mainSearch?.isIconified}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: mainSearch.hasFocus = ${binding?.mainSearch?.hasFocus()}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: mainSearch.isFocused = ${binding?.mainSearch?.isFocused}")
         
         afterPluginsLoadedEvent += ::reloadRepos
         
@@ -184,70 +185,153 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
         // This handles tab switching via bottom navigation
         if (MainActivity.nextSearchQuery != null) {
             val query = MainActivity.nextSearchQuery
-            android.util.Log.d("SearchFragment", "onResume: MainActivity.nextSearchQuery is not null, query: $query")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: MainActivity.nextSearchQuery is not null, query: '$query'")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: query length = ${query?.length}")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: query isBlank = ${query?.isBlank()}")
             if (query?.isNotBlank() == true) {
-                android.util.Log.d("SearchFragment", "onResume: setting sq and triggering search with query: $query")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: setting sq and triggering search with query: '$query'")
                 // Update the class-level sq variable
                 sq = query
-                android.util.Log.d("SearchFragment", "onResume: sq updated to: $sq")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: sq updated to: '$sq'")
                 
                 // Force clear and set the search bar text completely
                 binding?.mainSearch?.let { searchView ->
-                    android.util.Log.d("SearchFragment", "onResume: before clear - searchView.query = ${searchView.query}")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: before clear - searchView.query = '${searchView.query}'")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: before clear - searchView.hasFocus = ${searchView.hasFocus()}")
                     searchView.setQuery("", false)
-                    android.util.Log.d("SearchFragment", "onResume: after setQuery('') - searchView.query = ${searchView.query}")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after setQuery('') - searchView.query = '${searchView.query}'")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after setQuery('') - searchView.hasFocus = ${searchView.hasFocus()}")
                     
                     // Clear the EditText directly
                     val editText = searchView.findViewById<android.widget.EditText>(androidx.appcompat.R.id.search_src_text)
-                    android.util.Log.d("SearchFragment", "onResume: editText.text before clear = ${editText?.text}")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: editText.text before clear = '${editText?.text}'")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: editText.hasFocus before clear = ${editText?.hasFocus()}")
                     editText?.text?.clear()
-                    android.util.Log.d("SearchFragment", "onResume: editText.text after clear = ${editText?.text}")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: editText.text after clear = '${editText?.text}'")
                     editText?.text?.append(query)
-                    android.util.Log.d("SearchFragment", "onResume: editText.text after append = ${editText?.text}")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: editText.text after append = '${editText?.text}'")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: editText.hasFocus after append = ${editText?.hasFocus()}")
                     
                     searchView.setQuery(query, true)
-                    android.util.Log.d("SearchFragment", "onResume: after setQuery('$query', true) - searchView.query = ${searchView.query}")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after setQuery('$query', true) - searchView.query = '${searchView.query}'")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after setQuery('$query', true) - searchView.hasFocus = ${searchView.hasFocus()}")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after setQuery('$query', true) - editText.hasFocus = ${editText?.hasFocus()}")
+                    
+                    // FIX: Clear focus from searchView to prevent keyboard from showing and autocomplete from triggering
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: ATTEMPTING FIX - clearing focus from searchView")
+                    searchView.clearFocus()
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after clearFocus() - searchView.hasFocus = ${searchView.hasFocus()}")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after clearFocus() - editText.hasFocus = ${editText?.hasFocus()}")
+                    
+                    // Also hide keyboard explicitly
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: hiding keyboard")
+                    hideKeyboard(searchView)
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: keyboard hidden")
                 }
                 
                 // Trigger the search
-                android.util.Log.d("SearchFragment", "onResume: calling search($query)")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: calling search('$query')")
                 search(query)
                 MainActivity.nextSearchQuery = null
-                android.util.Log.d("SearchFragment", "onResume: cleared nextSearchQuery after triggering search")
-                android.util.Log.d("SearchFragment", "onResume: MainActivity.nextSearchQuery is now ${MainActivity.nextSearchQuery}")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: cleared nextSearchQuery after triggering search")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: MainActivity.nextSearchQuery is now ${MainActivity.nextSearchQuery}")
             } else {
                 // Clear nextSearchQuery even if we don't use it to prevent future redirects
-                android.util.Log.d("SearchFragment", "onResume: clearing nextSearchQuery without triggering search (query is blank)")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: clearing nextSearchQuery without triggering search (query is blank)")
                 MainActivity.nextSearchQuery = null
             }
         } else {
-            android.util.Log.d("SearchFragment", "onResume: MainActivity.nextSearchQuery is null, nothing to do")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: MainActivity.nextSearchQuery is null, nothing to do")
         }
         
-        android.util.Log.d("SearchFragment", "onResume: final state - sq = $sq, mainSearch.query = ${binding?.mainSearch?.query}")
-        android.util.Log.d("SearchFragment", "========== onResume completed ==========")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: final state - sq = '$sq', mainSearch.query = '${binding?.mainSearch?.query}'")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: final state - mainSearch.hasFocus = ${binding?.mainSearch?.hasFocus()}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== SearchFragment.onResume completed ==========")
     }
 
     override fun onStart() {
         super.onStart()
-        android.util.Log.d("SearchFragment", "========== onStart called ==========")
-        android.util.Log.d("SearchFragment", "onStart: MainActivity.nextSearchQuery: ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
-        android.util.Log.d("SearchFragment", "onStart: mainSearch query: ${binding?.mainSearch?.query}")
-        android.util.Log.d("SearchFragment", "onStart: sq = $sq")
-        android.util.Log.d("SearchFragment", "onStart: arguments SEARCH_QUERY: ${arguments?.getString(SEARCH_QUERY)}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== SearchFragment.onStart called ==========")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: MainActivity.nextSearchQuery: ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: mainSearch query: ${binding?.mainSearch?.query}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: sq = $sq")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: arguments SEARCH_QUERY: ${arguments?.getString(SEARCH_QUERY)}")
         
         // Force the SearchView to use the current sq value (from onBindingCreated)
         // This prevents SearchView state restoration from reverting to an old query
         if (sq != null && sq != binding?.mainSearch?.query) {
-            android.util.Log.d("SearchFragment", "onStart: forcing SearchView to use sq: $sq (current query: ${binding?.mainSearch?.query})")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: forcing SearchView to use sq: $sq (current query: ${binding?.mainSearch?.query})")
             binding?.mainSearch?.setQuery(sq, false)
+        }
+        
+        // Check for search query from MainActivity.nextSearchQuery when fragment starts
+        // This handles tab switching via bottom navigation when fragment is already in backstack
+        if (MainActivity.nextSearchQuery != null) {
+            val query = MainActivity.nextSearchQuery
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: MainActivity.nextSearchQuery is not null, query: '$query'")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: query length = ${query?.length}")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: query isBlank = ${query?.isBlank()}")
+            if (query?.isNotBlank() == true) {
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: setting sq and triggering search with query: '$query'")
+                // Update the class-level sq variable
+                sq = query
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: sq updated to: '$sq'")
+                
+                // Force clear and set the search bar text completely
+                binding?.mainSearch?.let { searchView ->
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: before clear - searchView.query = '${searchView.query}'")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: before clear - searchView.hasFocus = ${searchView.hasFocus()}")
+                    searchView.setQuery("", false)
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after setQuery('') - searchView.query = '${searchView.query}'")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after setQuery('') - searchView.hasFocus = ${searchView.hasFocus()}")
+                    
+                    // Clear the EditText directly
+                    val editText = searchView.findViewById<android.widget.EditText>(androidx.appcompat.R.id.search_src_text)
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: editText.text before clear = '${editText?.text}'")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: editText.hasFocus before clear = ${editText?.hasFocus()}")
+                    editText?.text?.clear()
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: editText.text after clear = '${editText?.text}'")
+                    editText?.text?.append(query)
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: editText.text after append = '${editText?.text}'")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: editText.hasFocus after append = ${editText?.hasFocus()}")
+                    
+                    searchView.setQuery(query, true)
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after setQuery('$query', true) - searchView.query = '${searchView.query}'")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after setQuery('$query', true) - searchView.hasFocus = ${searchView.hasFocus()}")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after setQuery('$query', true) - editText.hasFocus = ${editText?.hasFocus()}")
+                    
+                    // FIX: Clear focus from searchView to prevent keyboard from showing and autocomplete from triggering
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: ATTEMPTING FIX - clearing focus from searchView")
+                    searchView.clearFocus()
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after clearFocus() - searchView.hasFocus = ${searchView.hasFocus()}")
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after clearFocus() - editText.hasFocus = ${editText?.hasFocus()}")
+                    
+                    // Also hide keyboard explicitly
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: hiding keyboard")
+                    hideKeyboard(searchView)
+                    android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: keyboard hidden")
+                }
+                
+                // Trigger the search
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: calling search('$query')")
+                search(query)
+                MainActivity.nextSearchQuery = null
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: cleared nextSearchQuery after triggering search")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: MainActivity.nextSearchQuery is now ${MainActivity.nextSearchQuery}")
+            } else {
+                // Clear nextSearchQuery even if we don't use it to prevent future redirects
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: clearing nextSearchQuery without triggering search (query is blank)")
+                MainActivity.nextSearchQuery = null
+            }
+        } else {
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: MainActivity.nextSearchQuery is null, nothing to do")
         }
         
         // Check for search query from navigation arguments (from BrowseFragment)
         // This takes priority over nextSearchQuery
         val bundleQuery = arguments?.getString("search_query")
         if (bundleQuery != null && bundleQuery.isNotBlank()) {
-            android.util.Log.d("SearchFragment", "onStart: got query from bundle: $bundleQuery")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: got query from bundle: $bundleQuery")
             // Clear the argument to prevent it from being used again
             arguments?.remove("search_query")
             
@@ -261,13 +345,19 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                 searchView.setQuery(bundleQuery, true)
             }
             search(bundleQuery)
-            android.util.Log.d("SearchFragment", "onStart: triggered search from bundle query")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: triggered search from bundle query")
         }
-        android.util.Log.d("SearchFragment", "========== onStart completed ==========")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: final state - sq = '$sq', mainSearch.query = '${binding?.mainSearch?.query}'")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: final state - mainSearch.hasFocus = ${binding?.mainSearch?.hasFocus()}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== SearchFragment.onStart completed ==========")
     }
 
     override fun onStop() {
         super.onStop()
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== SearchFragment.onStop called ==========")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onStop: MainActivity.nextSearchQuery = ${MainActivity.nextSearchQuery}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onStop: sq = $sq")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onStop: mainSearch.query = ${binding?.mainSearch?.query}")
         afterPluginsLoadedEvent -= ::reloadRepos
     }
 

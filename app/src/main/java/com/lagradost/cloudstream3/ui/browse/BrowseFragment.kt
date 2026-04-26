@@ -151,21 +151,54 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onResume called ==========")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "BrowseFragment.onResume: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "BrowseFragment.onResume: searchQuery = $searchQuery")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onResume completed ==========")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onPause called ==========")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "BrowseFragment.onPause: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onPause completed ==========")
+    }
+
+    override fun onStop() {
+        super.onStop()
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onStop called ==========")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "BrowseFragment.onStop: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onStop completed ==========")
+    }
+
     private fun navigateToSearch(query: String) {
-        android.util.Log.d("BrowseFragment", "========== navigateToSearch called ==========")
-        android.util.Log.d("BrowseFragment", "navigateToSearch: query = $query")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== navigateToSearch called ==========")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: query = '$query'")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: query length = ${query.length}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: query isBlank = ${query.isBlank()}")
         val activity = requireActivity()
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: activity = $activity")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: activity is MainActivity = ${activity is com.lagradost.cloudstream3.MainActivity}")
         // Set the search query in MainActivity
         if (activity is com.lagradost.cloudstream3.MainActivity) {
-            android.util.Log.d("BrowseFragment", "navigateToSearch: setting MainActivity.nextSearchQuery = $query")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: setting MainActivity.nextSearchQuery = '$query'")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: MainActivity.nextSearchQuery before = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
             com.lagradost.cloudstream3.MainActivity.nextSearchQuery = query
-            android.util.Log.d("BrowseFragment", "navigateToSearch: MainActivity.nextSearchQuery is now ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: MainActivity.nextSearchQuery after = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        } else {
+            android.util.Log.e("GENRE_FILTER_REDIRECT", "navigateToSearch: ERROR - activity is not MainActivity!")
         }
         // Navigate to Search tab using bottom navigation only
-        android.util.Log.d("BrowseFragment", "navigateToSearch: selecting Search tab in bottom navigation")
-        activity.findViewById<BottomNavigationView>(R.id.nav_view)?.selectedItemId = R.id.navigation_search
-        activity.findViewById<NavigationRailView>(R.id.nav_rail_view)?.selectedItemId = R.id.navigation_search
-        android.util.Log.d("BrowseFragment", "========== navigateToSearch completed ==========")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: selecting Search tab in bottom navigation")
+        val bottomNav = activity.findViewById<BottomNavigationView>(R.id.nav_view)
+        val navRail = activity.findViewById<NavigationRailView>(R.id.nav_rail_view)
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: bottomNav = $bottomNav, navRail = $navRail")
+        bottomNav?.selectedItemId = R.id.navigation_search
+        navRail?.selectedItemId = R.id.navigation_search
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: tab selection completed")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== navigateToSearch completed ==========")
     }
 
     private fun updateResultsPadding() {
@@ -255,7 +288,10 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             ) { callback ->
                 // Navigate to Search tab with title as query
                 val title = callback.card.name
-                android.util.Log.d("BrowseFragment", "SearchAdapter callback: title=$title")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "SearchAdapter callback triggered")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "SearchAdapter callback: title = '$title'")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "SearchAdapter callback: callback.action = ${callback.action}")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "SearchAdapter callback: callback.card = ${callback.card}")
                 navigateToSearch(title)
             }
 
@@ -719,53 +755,62 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 toggleAccordion(dialogBinding.sortRecycler, dialogBinding.sortExpandIcon)
             }
 
-            // Set Default button
+            // Set Default button with confirmation dialog
             dialogBinding.setDefaultButton.setOnClickListener {
-                val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
-                prefs.edit().apply {
-                    putStringSet("default_genres", dialogGenres)
-                    putStringSet("default_excluded_genres", dialogExcludedGenres)
-                    putStringSet("default_tags", dialogTags)
-                    putStringSet("default_excluded_tags", dialogExcludedTags)
-                    putString("default_year", dialogYear)
-                    putString("default_season", dialogSeason)
-                    putString("default_format", dialogFormat)
-                    putString("default_sort", dialogSort)
-                    putBoolean("default_nsfw", dialogNsfw)
-                    apply()
+                val dialogView = layoutInflater.inflate(R.layout.dialog_confirm_default, null)
+                val confirmDialog = android.app.AlertDialog.Builder(requireContext(), R.style.AlertDialogCustom)
+                    .setView(dialogView)
+                    .create()
+                
+                dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.cancel_button).setOnClickListener {
+                    confirmDialog.dismiss()
                 }
-                Toast.makeText(requireContext(), "Default settings saved", Toast.LENGTH_SHORT).show()
-            }
-
-            // Reset Default button - reset to app defaults (no filters)
-            dialogBinding.resetDefaultButton.setOnClickListener {
-                dialogGenres.clear()
-                dialogExcludedGenres.clear()
-                dialogTags.clear()
-                dialogExcludedTags.clear()
-                dialogYear = "All"
-                dialogSeason = "All"
-                dialogFormat = "All"
-                dialogSort = "Popularity"
-                dialogNsfw = false
-
-                dialogBinding.nsfwToggle.isChecked = false
-                genresAdapter.notifyDataSetChanged()
-                genresAdapter.updateExcludedSet(emptySet())
-                tagsAdapter.notifyDataSetChanged()
-                tagsAdapter.updateExcludedSet(emptySet())
-                yearsAdapter.updateSelectedSet(setOf("All"))
-                seasonsAdapter.updateSelectedSet(setOf("All"))
-                formatsAdapter.updateSelectedSet(setOf("All"))
-                sortAdapter.updateSelectedSet(setOf("Popularity"))
-                dialogBinding.genresCount.text = "0 / 0"
-                dialogBinding.tagsCount.text = "0 / 0"
-                dialogBinding.yearCount.text = "All"
-                dialogBinding.seasonCount.text = "All"
-                dialogBinding.formatCount.text = "All"
-                dialogBinding.sortCount.text = "Popularity"
-
-                Toast.makeText(requireContext(), "Reset to defaults", Toast.LENGTH_SHORT).show()
+                
+                dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.confirm_button).setOnClickListener {
+                    // Save to SharedPreferences for persistence
+                    val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+                    prefs.edit().apply {
+                        putStringSet("default_genres", dialogGenres)
+                        putStringSet("default_excluded_genres", dialogExcludedGenres)
+                        putStringSet("default_tags", dialogTags)
+                        putStringSet("default_excluded_tags", dialogExcludedTags)
+                        putString("default_year", dialogYear)
+                        putString("default_season", dialogSeason)
+                        putString("default_format", dialogFormat)
+                        putString("default_sort", dialogSort)
+                        putBoolean("default_nsfw", dialogNsfw)
+                        apply()
+                    }
+                    
+                    // Apply immediately to class-level variables
+                    selectedGenres.clear()
+                    selectedGenres.addAll(dialogGenres)
+                    excludedGenres.clear()
+                    excludedGenres.addAll(dialogExcludedGenres)
+                    selectedTags.clear()
+                    selectedTags.addAll(dialogTags)
+                    excludedTags.clear()
+                    excludedTags.addAll(dialogExcludedTags)
+                    selectedYear = dialogYear
+                    selectedSeason = dialogSeason
+                    selectedFormat = dialogFormat
+                    selectedSort = dialogSort
+                    selectedNsfw = dialogNsfw
+                    
+                    // Reset ViewModel page and reload results
+                    viewModel.resetPage()
+                    currentAniListPage = 1
+                    loadAniListResults()
+                    
+                    // Scroll to top to prevent hollow space when topbar height changes
+                    binding?.browseResults?.scrollToPosition(0)
+                    
+                    Toast.makeText(requireContext(), "Defaults saved and applied", Toast.LENGTH_SHORT).show()
+                    confirmDialog.dismiss()
+                    dialog.dismiss()
+                }
+                
+                confirmDialog.show()
             }
 
             // Clear button
@@ -788,8 +833,8 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 seasonsAdapter.updateSelectedSet(setOf("All"))
                 formatsAdapter.updateSelectedSet(setOf("All"))
                 sortAdapter.updateSelectedSet(setOf("Popularity"))
-                dialogBinding.genresCount.text = "0 / 0"
-                dialogBinding.tagsCount.text = "0 / 0"
+                dialogBinding.genresCount.text = "0"
+                dialogBinding.tagsCount.text = "0"
             }
 
             // Apply button

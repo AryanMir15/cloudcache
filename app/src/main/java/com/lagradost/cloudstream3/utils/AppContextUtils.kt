@@ -763,8 +763,10 @@ object AppContextUtils {
         startAction: Int = 0,
         startValue: Int? = null,
         metadataSwap: Boolean = false,
+        originalResponseName: String? = null,
+        originalResponseUrl: String? = null,
     ) {
-        activity?.loadSearchResult(card, startAction, startValue, metadataSwap)
+        activity?.loadSearchResult(card, startAction, startValue, metadataSwap, originalResponseName, originalResponseUrl)
     }
 
     fun Activity?.loadSearchResult(
@@ -772,12 +774,14 @@ object AppContextUtils {
         startAction: Int = 0,
         startValue: Int? = null,
         metadataSwap: Boolean = false,
+        originalResponseName: String? = null,
+        originalResponseUrl: String? = null,
     ) {
         this?.runOnUiThread {
             // viewModelStore.clear()
             this.navigate(
                 getResultsId(),
-                ResultFragment.newInstance(card, startAction, startValue, metadataSwap)
+                ResultFragment.newInstance(card, startAction, startValue, metadataSwap, originalResponseName, originalResponseUrl)
             )
         }
     }

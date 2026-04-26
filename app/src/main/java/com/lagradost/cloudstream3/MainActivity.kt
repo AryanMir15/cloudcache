@@ -757,36 +757,49 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
     private var previousBottomNavDestination: Int? = null
     private fun onNavDestinationSelected(item: MenuItem, navController: NavController): Boolean {
         val currentTime = System.currentTimeMillis()
-        android.util.Log.d("MainActivity", "onNavDestinationSelected: itemId=${item.itemId}, title=${item.title}")
-        android.util.Log.d("MainActivity", "onNavDestinationSelected: currentDestination=${navController.currentDestination?.id}")
-        android.util.Log.d("MainActivity", "onNavDestinationSelected: nextSearchQuery=$nextSearchQuery")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== onNavDestinationSelected called ==========")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: itemId=${item.itemId}, title=${item.title}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: currentDestination=${navController.currentDestination?.id}")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: nextSearchQuery=$nextSearchQuery")
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: currentTime=$currentTime, lastNavTime=$lastNavTime")
         // safeDebounce: Check if a previous tap happened within the last 400ms
         if (currentTime - lastNavTime < 400) {
-            android.util.Log.d("MainActivity", "onNavDestinationSelected: DEBOUNCED (within 400ms)")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: DEBOUNCED (within 400ms)")
             return false
         }
         lastNavTime = currentTime
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: debounce check passed")
 
         // Track previous bottom nav destination for back stack handling
         val currentDestinationId = navController.currentDestination?.id
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: currentDestinationId=$currentDestinationId")
         if (currentDestinationId != null && isBottomNavDestination(currentDestinationId)) {
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: currentDestination is bottom nav, setting previousBottomNavDestination=$currentDestinationId")
             previousBottomNavDestination = currentDestinationId
+        } else {
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: currentDestination is NOT bottom nav")
         }
 
         val destinationId = item.itemId
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: destinationId=$destinationId")
 
         // Check if we are already at the selected destination
         if (navController.currentDestination?.id == destinationId) {
-            android.util.Log.d("MainActivity", "onNavDestinationSelected: already at destination, returning false")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: already at destination, returning false")
             return false
         }
 
         // Clear nextSearchQuery and saved state when navigating to home to prevent redirect
         if (destinationId == R.id.navigation_home) {
-            android.util.Log.d("MainActivity", "onNavDestinationSelected: clearing nextSearchQuery before navigating to home")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: clearing nextSearchQuery before navigating to home")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: nextSearchQuery before clear = $nextSearchQuery")
             nextSearchQuery = null
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: nextSearchQuery after clear = $nextSearchQuery")
             // Clear saved state for SearchFragment to prevent search_query from being restored
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: clearing SearchFragment backstack")
             navController.clearBackStack(R.id.navigation_search)
+        } else {
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: NOT navigating to home, not clearing nextSearchQuery")
         }
 
         // Make all nav buttons focus on this specific view when nextFocusRightId
@@ -824,22 +837,22 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
             .setExitAnim(R.anim.exit_anim)
             .setPopEnterAnim(R.anim.pop_enter)
             .setPopExitAnim(R.anim.pop_exit)
+        android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: building NavOptions for destinationId=$destinationId")
         // Don't restore state when navigating to home to prevent search_query bundle from being restored
         if (destinationId != R.id.navigation_home) {
             builder.setRestoreState(true)
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: setRestoreState=true")
+        } else {
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: setRestoreState=false (home)")
         }
-        if (item.order and Menu.CATEGORY_SECONDARY == 0) {
-            // Don't save state when navigating to home to prevent SearchFragment state from being restored
-            builder.setPopUpTo(
-                navController.graph.findStartDestination().id,
-                inclusive = false,
-                saveState = destinationId != R.id.navigation_home
-            )
-        }
+        // REMOVED: popUpTo logic was causing back button to go to Home instead of Browse
+        // Let Navigation Component handle back stack naturally for bottom nav
         return try {
             // Pass null bundle when navigating to home to prevent search_query from being restored
             val navBundle = if (destinationId == R.id.navigation_home) null else null
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: calling navigate with destinationId=$destinationId")
             navController.navigate(destinationId, navBundle, builder.build())
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onNavDestinationSelected: navigate completed")
             navController.currentDestination?.matchDestination(destinationId) == true
         } catch (e: IllegalArgumentException) {
             Log.e("NavigationError", "Failed to navigate: ${e.message}")
@@ -1705,10 +1718,11 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
         val navController = navHostFragment.navController
 
         navController.addOnDestinationChangedListener { _: NavController, navDestination: NavDestination, bundle: Bundle? ->
-            android.util.Log.d("MainActivity", "onDestinationChanged: destination=${navDestination.id}, label=${navDestination.label}")
-            android.util.Log.d("MainActivity", "onDestinationChanged: nextSearchQuery=$nextSearchQuery")
-            android.util.Log.d("MainActivity", "onDestinationChanged: bundle keys=${bundle?.keySet()?.toList()}")
-            android.util.Log.d("MainActivity", "onDestinationChanged: previousBottomNavDestination=$previousBottomNavDestination")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "========== onDestinationChanged called ==========")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onDestinationChanged: destination=${navDestination.id}, label=${navDestination.label}")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onDestinationChanged: nextSearchQuery=$nextSearchQuery")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onDestinationChanged: bundle keys=${bundle?.keySet()?.toList()}")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onDestinationChanged: previousBottomNavDestination=$previousBottomNavDestination")
             // Intercept search and add a query
             updateNavBar(navDestination)
             // Removed nextSearchQuery bundle injection - causing repeated redirects
@@ -1722,18 +1736,11 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
                     showConfirmExitDialog(settingsManager)
                 }
             } else if (navDestination.matchDestination(R.id.navigation_search)) {
-                android.util.Log.d("MainActivity", "onDestinationChanged: attaching back callback for search with previous=$previousBottomNavDestination")
-                attachBackPressedCallback("MainActivitySearch") {
-                    // If previous destination was Browse, navigate back to it
-                    if (previousBottomNavDestination == R.id.navigation_browse) {
-                        android.util.Log.d("MainActivity", "BackPressed: navigating back to Browse from Search")
-                        navController.navigate(R.id.navigation_browse)
-                        true // Indicate we handled the back press
-                    } else {
-                        android.util.Log.d("MainActivity", "BackPressed: default back behavior from Search")
-                        false // Let system handle it
-                    }
-                }
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onDestinationChanged: Search destination - detaching any existing back callbacks")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onDestinationChanged: letting system handle back press normally")
+                detachBackPressedCallback("MainActivitySearch")
+                detachBackPressedCallback("MainActivity")
+                // NO custom back callback for Search - let system handle it completely
             } else {
                 android.util.Log.d("MainActivity", "onDestinationChanged: detaching back callbacks")
                 detachBackPressedCallback("MainActivity")

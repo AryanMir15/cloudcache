@@ -88,10 +88,53 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
         fun pushSearch(
             activity: Activity?,
             autoSearch: String? = null,
-            providers: Array<String>? = null
+            providers: Array<String>? = null,
+            isMetadataSwap: Boolean = false,
+            originalResponseName: String? = null,
+            originalResponseUrl: String? = null
+        ) {
+            android.util.Log.d("MetadataSwap", "QuickSearchFragment.pushSearch called - autoSearch: $autoSearch, providers: ${providers?.toList()}, isMetadataSwap: $isMetadataSwap, originalResponseName: $originalResponseName")
+            activity?.let { ctx ->
+                // Navigate to QuickSearchFragment with query as argument
+                ctx.navigate(R.id.navigation_quick_search, Bundle().apply {
+                    if (autoSearch != null) {
+                        putString(AUTOSEARCH_KEY, autoSearch.trim()
+                            .removeSuffix("(DUB)")
+                            .removeSuffix("(SUB)")
+                            .removeSuffix("(Dub)")
+                            .removeSuffix("(Sub)").trim())
+                    }
+                    if (providers != null) {
+                        putStringArray(PROVIDER_KEY, providers)
+                    }
+                    putBoolean("is_metadata_swap", isMetadataSwap)
+                    putString("original_response_name", originalResponseName)
+                    putString("original_response_url", originalResponseUrl)
+                    android.util.Log.d("MetadataSwap", "QuickSearchFragment.pushSearch - bundle created with keys: ${keySet().toList()}")
+                })
+            }
+        }
+
+        fun showAsBottomSheet(
+            activity: Activity?,
+            autoSearch: String? = null,
+            providers: Array<String>? = null,
+            isMetadataSwap: Boolean = false,
+            originalResponseName: String? = null,
+            originalResponseUrl: String? = null,
+            onResultSelected: ((SearchResponse) -> Unit)? = null
         ) {
             activity?.let { ctx ->
-                // Navigate to search tab with query as argument
+                val fragmentManager = (ctx as androidx.fragment.app.FragmentActivity).supportFragmentManager
+                
+                // Set callback for result selection
+                clickCallback = { callback ->
+                    if (callback.action == com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_LOAD) {
+                        onResultSelected?.invoke(callback.card)
+                    }
+                }
+                
+                // Navigate to search tab with metadata swap context
                 ctx.navigate(R.id.navigation_search, Bundle().apply {
                     if (autoSearch != null) {
                         putString(
@@ -102,6 +145,12 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                                 .removeSuffix("(Dub)")
                                 .removeSuffix("(Sub)").trim()
                         )
+                    }
+                    putBoolean("is_metadata_swap", isMetadataSwap)
+                    putString("original_response_name", originalResponseName)
+                    putString("original_response_url", originalResponseUrl)
+                    if (providers != null) {
+                        putStringArray("selected_providers", providers)
                     }
                 })
             }
@@ -129,22 +178,16 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
         HomeFragment.configEvent.invoke()
     }
 
-    override fun onCreateView(
-        inflater: LayoutInflater,
-        container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
-        activity?.window?.setSoftInputMode(
-            WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
-        )
-        searchViewModel = ViewModelProvider(this)[SearchViewModel::class.java]
-        bottomSheetDialog?.ownShow()
-        return super.onCreateView(inflater, container, savedInstanceState)
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         clickCallback = null
+        // Clear metadata swap mode if user backs out of QuickSearchFragment without completing swap
+        if (com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive) {
+            android.util.Log.d("MetadataSwap", "QuickSearchFragment destroyed - clearing metadata swap mode")
+            com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive = false
+            com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse = null
+            com.lagradost.cloudstream3.ui.result.ResultViewModel2.selectedProvidersForSwap = null
+        }
     }
 
     fun search(context: Context?, query: String, isQuickSearch: Boolean): Boolean {
@@ -162,6 +205,17 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
     }
 
     override fun onBindingCreated(binding: QuickSearchBinding) {
+        android.util.Log.d("MetadataSwap", "QuickSearchFragment.onBindingCreated called")
+        android.util.Log.d("MetadataSwap", "QuickSearchFragment - arguments keys: ${arguments?.keySet()?.toList()}")
+        android.util.Log.d("MetadataSwap", "QuickSearchFragment - is_metadata_swap: ${arguments?.getBoolean("is_metadata_swap")}")
+        android.util.Log.d("MetadataSwap", "QuickSearchFragment - original_response_name: ${arguments?.getString("original_response_name")}")
+        android.util.Log.d("MetadataSwap", "QuickSearchFragment - original_response_url: ${arguments?.getString("original_response_url")}")
+        android.util.Log.d("MetadataSwap", "QuickSearchFragment - selected_providers: ${arguments?.getStringArray("selected_providers")?.toList()}")
+        android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback is null: ${clickCallback == null}")
+
+        // Initialize searchViewModel
+        searchViewModel = ViewModelProvider(this)[SearchViewModel::class.java]
+
         android.util.Log.d("GenreFilter", "QuickSearchFragment: onBindingCreated called")
         android.util.Log.d("GenreFilter", "QuickSearchFragment: arguments=$arguments")
         android.util.Log.d("GenreFilter", "QuickSearchFragment: arguments keys=${arguments?.keySet()}")
@@ -176,13 +230,17 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
         } else false
 
         val firstProvider = providers?.firstOrNull()
+        android.util.Log.d("MetadataSwap", "QuickSearchFragment setup - isSingleProvider: $isSingleProvider, firstProvider: $firstProvider, providers: $providers")
         if (isSingleProvider && firstProvider != null) {
             binding.quickSearchAutofitResults.apply {
                 setRecycledViewPool(SearchAdapter.sharedPool)
                 adapter = SearchAdapter(
                     this,
                 ) { callback ->
+                    android.util.Log.d("MetadataSwap", "QuickSearchFragment single-provider click - action: ${callback.action}, card: ${callback.card.name}")
+                    android.util.Log.d("MetadataSwap", "QuickSearchFragment - invoking clickCallback, is null: ${clickCallback == null}")
                     clickCallback?.invoke(callback)
+                    android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked")
                 }
             }
 
@@ -198,13 +256,13 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                 ParentItemAdapter(
                     id = "quickSearchMasterRecycler".hashCode(),
                     { callback ->
+                        android.util.Log.d("MetadataSwap", "QuickSearchFragment multi-provider click - action: ${callback.action}, card: ${callback.card.name}")
+                        // Invoke clickCallback first for metadata swap handling
+                        android.util.Log.d("MetadataSwap", "QuickSearchFragment - invoking clickCallback, is null: ${clickCallback == null}")
+                        clickCallback?.invoke(callback)
+                        android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked, now calling SearchHelper.handleSearchClickCallback")
+                        // Then handle normally
                         SearchHelper.handleSearchClickCallback(callback)
-                        //when (callback.action) {
-                        //SEARCH_ACTION_LOAD -> {
-                        //    clickCallback?.invoke(callback)
-                        //}
-                        //    else -> SearchHelper.handleSearchClickCallback(activity, callback)
-                        //}
                     },
                     { item ->
                         bottomSheetDialog = activity?.loadHomepageList(item, dismissCallback = {
