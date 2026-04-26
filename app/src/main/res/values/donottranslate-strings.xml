@@ -103,6 +103,7 @@
     <string name="subdl_key">subdl_key</string>
     <string name="auto_metadata_fetch_key">auto_metadata_fetch_key</string>
     <string name="metadata_provider_key">metadata_provider_key</string>
+    <string name="animeskip_key">animeskip_key</string>
 
     <string name="pref_category_security_key">pref_category_security_key</string>
     <string name="pref_category_gestures_key">pref_category_gestures_key</string>

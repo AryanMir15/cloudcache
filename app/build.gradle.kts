@@ -14,18 +14,50 @@ plugins {
 
 val javaTarget = JvmTarget.fromTarget(libs.versions.jvmTarget.get())
 
-fun getGitCommitHash(): String {
-    return try {
-        val headFile = file("${project.rootDir}/.git/HEAD")
-        if (headFile.exists()) {
-            val headContent = headFile.readText().trim()
-            if (headContent.startsWith("ref:")) {
-                val refPath = headContent.substring(5)
-                val commitFile = file("${project.rootDir}/.git/$refPath")
-                if (commitFile.exists()) commitFile.readText().trim() else ""
-            } else headContent
-        } else ""
-    } catch (_: Throwable) { "" }.take(7)
+abstract class GenerateGitHashTask : DefaultTask() {
+
+    @get:InputFile
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val headFile: RegularFileProperty
+
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val headsDir: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val head = headFile.get().asFile
+
+        val hash = try {
+            if (head.exists()) {
+                // Read the commit hash from .git/HEAD
+                val headContent = head.readText().trim()
+                if (headContent.startsWith("ref:")) {
+                    val refPath = headContent.substring(5) // e.g., refs/heads/main
+                    val commitFile = File(head.parentFile, refPath)
+                    if (commitFile.exists()) commitFile.readText().trim() else ""
+                } else headContent // If it's a detached HEAD (commit hash directly)
+            } else "" // If .git/HEAD doesn't exist
+        } catch (_: Throwable) {
+            "" // Just set to an empty string if any exception occurs
+        }.take(7) // Get the short commit hash
+
+        val outFile = outputDir.file("git-hash.txt").get().asFile
+        outFile.parentFile.mkdirs()
+        outFile.writeText(hash)
+    }
+}
+
+val generateGitHash = tasks.register<GenerateGitHashTask>("generateGitHash") {
+    val gitDir = layout.projectDirectory.dir("../.git")
+
+    headFile.set(gitDir.file("HEAD"))
+    headsDir.set(gitDir.dir("refs/heads"))
+
+    outputDir.set(layout.buildDirectory.dir("generated/git"))
 }
 
 android {
@@ -43,6 +75,32 @@ android {
     }
 
     namespace = "com.lagradost.cloudstream3"
+
+    androidComponents {
+        onVariants { variant ->
+            variant.sources.assets?.addGeneratedSourceDirectory(
+                generateGitHash,
+                GenerateGitHashTask::outputDir
+            )
+        }
+    }
+
+    signingConfigs {
+        // We just use SIGNING_KEY_ALIAS here since it won't change
+        // so won't kill the configuration cache.
+        if (System.getenv("SIGNING_KEY_ALIAS") != null) {
+            create("prerelease") {
+                val tmpFilePath = System.getProperty("user.home") + "/work/_temp/keystore/"
+                val prereleaseStoreFile: File? = File(tmpFilePath).listFiles()?.first()
+
+                storeFile = prereleaseStoreFile?.let { file(it) }
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
+        }
+    }
+
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
@@ -52,7 +110,6 @@ android {
         versionCode = 68
         versionName = "4.7.0"
 
-        resValue("string", "commit_hash", getGitCommitHash())
         manifestPlaceholders["target_sdk_version"] = libs.versions.targetSdk.get()
 
         val localProperties = gradleLocalProperties(rootDir, project.providers)
@@ -93,12 +150,19 @@ android {
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.toVersion(javaTarget.target)
+        targetCompatibility = JavaVersion.toVersion(javaTarget.target)
+    }
+
+    java {
+        // Use Java 17 toolchain even if a higher JDK runs the build.
+        // We still use Java 8 for now which higher JDKs have deprecated.
+        toolchain {
+            languageVersion.set(JavaLanguageVersion.of(libs.versions.jdkToolchain.get()))
+        }
     }
 
     lint {
-        abortOnError = false
         checkReleaseBuilds = false
     }
 
@@ -116,7 +180,6 @@ android {
 
     buildFeatures {
         buildConfig = true
-        resValues = true
         viewBinding = true
     }
 
@@ -136,13 +199,6 @@ android {
                 val outputFileName = "CloudCache-${variant.versionName}-${variant.buildType.name}.apk"
                 output.outputFileName = outputFileName
             }
-    }
-
-    java {
-        // Use Java 17 toolchain even if a higher JDK runs the build.
-        toolchain {
-            languageVersion.set(JavaLanguageVersion.of(libs.versions.jdkToolchain.get()))
-        }
     }
 }
 
@@ -178,12 +234,17 @@ dependencies {
     implementation(libs.video)
     implementation(libs.bundles.nextlib)
 
-    // Libs
-    implementation(libs.colorpicker)
-    implementation(libs.newpipeextractor)
-    implementation(libs.juniversalchardet)
-    implementation(libs.shimmer)
-    implementation(libs.palette.ktx)
+    // Anime-db for filler
+    implementation(libs.anime.db)
+
+    // PlayBack
+    implementation(libs.colorpicker) // Subtitle Color Picker
+    implementation(libs.newpipeextractor) // For Trailers
+    implementation(libs.juniversalchardet) // Subtitle Decoding
+
+    // UI Stuff
+    implementation(libs.shimmer) // Shimmering Effect (Loading Skeleton)
+    implementation(libs.palette.ktx) // Palette for Images -> Colors
     implementation(libs.tvprovider)
     implementation(libs.overlappingpanels)
     implementation(libs.biometric)
@@ -243,5 +304,26 @@ tasks.withType<KotlinJvmCompile> {
             "com.lagradost.cloudstream3.InternalAPI",
             "com.lagradost.cloudstream3.Prerelease",
         )
+    }
+}
+
+dokka {
+    moduleName = "App"
+    dokkaSourceSets {
+        configureEach {
+            suppress = name != "prereleaseDebug"
+            analysisPlatform = KotlinPlatform.JVM
+            displayName = "JVM"
+            documentedVisibilities(
+                VisibilityModifier.Public,
+                VisibilityModifier.Protected
+            )
+
+            sourceLink {
+                localDirectory = file("..")
+                remoteUrl("https://github.com/recloudstream/cloudstream/tree/master")
+                remoteLineSuffix = "#L"
+            }
+        }
     }
 }
