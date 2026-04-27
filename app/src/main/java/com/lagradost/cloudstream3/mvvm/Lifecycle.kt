@@ -9,7 +9,13 @@ fun <T> LifecycleOwner.observe(liveData: LiveData<T>, action: (t: T) -> Unit) {
     liveData.removeObservers(this)
     android.util.Log.d("Lifecycle", "Removed previous observers, now adding new observer")
     liveData.observe(this) { 
-        android.util.Log.d("Lifecycle", "Observer triggered with value: $it")
+        android.util.Log.d("Lifecycle", "Observer triggered - thread: ${Thread.currentThread().name}, value class: ${it?.javaClass?.simpleName}, value is Map: ${it is Map<*, *>}")
+        try {
+            android.util.Log.d("Lifecycle", "Observer triggered with value: $it")
+        } catch (e: Exception) {
+            android.util.Log.e("Lifecycle", "ERROR logging value in observer: ${e.javaClass.simpleName}: ${e.message}", e)
+            android.util.Log.e("Lifecycle", "Value that caused error: class=${it?.javaClass?.simpleName}, toString available=${it != null}")
+        }
         it?.let { t -> action(t) } 
     }
 }

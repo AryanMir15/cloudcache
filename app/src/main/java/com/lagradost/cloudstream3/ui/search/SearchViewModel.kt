@@ -157,7 +157,7 @@ class SearchViewModel : ViewModel() {
             }
 
             _searchResponse.postValue(Resource.Success(bundleSearch(expandableSearches)))
-            _currentSearch.postValue(expandableSearches)
+            _currentSearch.postValue(expandableSearches.toMap())
         }
 
         lock -= name
@@ -256,7 +256,7 @@ class SearchViewModel : ViewModel() {
                         android.util.Log.d("SearchFragment", "SearchViewModel: search() ${a.name} returned non-success: ${search.javaClass.simpleName}")
                     }
 
-                    _currentSearch.postValue(expandableSearches)
+                    _currentSearch.postValue(expandableSearches.toMap())
                     android.util.Log.d("SearchFragment", "SearchViewModel: search() posted currentSearch for ${a.name}")
                 }
 
@@ -267,7 +267,7 @@ class SearchViewModel : ViewModel() {
 
                 android.util.Log.d("SearchFragment", "SearchViewModel: search() final expandableSearches: ${expandableSearches.keys}")
                 android.util.Log.d("SearchFragment", "SearchViewModel: search() expandableSearches sizes: ${expandableSearches.map { "${it.key}=${it.value.list.size}" }}")
-                _currentSearch.postValue(expandableSearches)
+                _currentSearch.postValue(expandableSearches.toMap())
                 val list = bundleSearch(expandableSearches)
                 android.util.Log.d("SearchFragment", "SearchViewModel: search() bundled search list size: ${list.list.size}")
 

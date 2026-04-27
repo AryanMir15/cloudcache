@@ -936,7 +936,15 @@ class ResultFragmentTv : BaseFragment<FragmentResultTvBinding>(
                         }
 
                         resultSearchButton.setOnClickListener {
-                            QuickSearchFragment.pushSearch(activity, d.title)
+                            android.util.Log.d("RESULT_SEARCH_REDIRECT", "resultSearchButton clicked (TV) - navigating to main search with query: '${d.title}'")
+                            val activity = activity
+                            if (activity is com.lagradost.cloudstream3.MainActivity) {
+                                com.lagradost.cloudstream3.MainActivity.nextSearchQuery = d.title
+                                val bottomNav = activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.nav_view)
+                                val navRail = activity.findViewById<com.google.android.material.navigationrail.NavigationRailView>(R.id.nav_rail_view)
+                                bottomNav?.selectedItemId = R.id.navigation_search
+                                navRail?.selectedItemId = R.id.navigation_search
+                            }
                         }
                     }
 

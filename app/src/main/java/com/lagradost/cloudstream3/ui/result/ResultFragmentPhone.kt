@@ -1109,7 +1109,15 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
         binding?.resultSearch?.isGone = storedData.name.isBlank()
         binding?.resultSearch?.setOnClickListener {
-            QuickSearchFragment.pushSearch(activity, storedData.name)
+            android.util.Log.d("RESULT_SEARCH_REDIRECT", "resultSearch clicked - navigating to main search with query: '${storedData.name}'")
+            val activity = activity
+            if (activity is com.lagradost.cloudstream3.MainActivity) {
+                com.lagradost.cloudstream3.MainActivity.nextSearchQuery = storedData.name
+                val bottomNav = activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.nav_view)
+                val navRail = activity.findViewById<com.google.android.material.navigationrail.NavigationRailView>(R.id.nav_rail_view)
+                bottomNav?.selectedItemId = R.id.navigation_search
+                navRail?.selectedItemId = R.id.navigation_search
+            }
         }
 
         resultBinding?.apply {
@@ -1658,7 +1666,15 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     binding?.apply {
                         resultSearch.isGone = d.title.isBlank()
                         resultSearch.setOnClickListener {
-                            QuickSearchFragment.pushSearch(activity, d.title)
+                            android.util.Log.d("RESULT_SEARCH_REDIRECT", "resultSearch clicked (recommendation) - navigating to main search with query: '${d.title}'")
+                            val activity = activity
+                            if (activity is com.lagradost.cloudstream3.MainActivity) {
+                                com.lagradost.cloudstream3.MainActivity.nextSearchQuery = d.title
+                                val bottomNav = activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.nav_view)
+                                val navRail = activity.findViewById<com.google.android.material.navigationrail.NavigationRailView>(R.id.nav_rail_view)
+                                bottomNav?.selectedItemId = R.id.navigation_search
+                                navRail?.selectedItemId = R.id.navigation_search
+                            }
                         }
 
                         resultShare.setOnClickListener {

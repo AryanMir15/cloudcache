@@ -236,6 +236,9 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                 MainActivity.nextSearchQuery = null
                 android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: cleared nextSearchQuery after triggering search")
                 android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: MainActivity.nextSearchQuery is now ${MainActivity.nextSearchQuery}")
+                // Clear suggestions to hide overlay when returning from entry
+                searchViewModel.clearSuggestions()
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: cleared suggestions")
             } else {
                 // Clear nextSearchQuery even if we don't use it to prevent future redirects
                 android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: clearing nextSearchQuery without triggering search (query is blank)")
@@ -243,6 +246,13 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
             }
         } else {
             android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: MainActivity.nextSearchQuery is null, nothing to do")
+        }
+        
+        // Clear suggestions when returning from entry (back navigation)
+        // This handles the case where nextSearchQuery is null but search bar has text
+        if (binding?.mainSearch?.query?.isNotBlank() == true) {
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: search bar has text, clearing suggestions for back navigation")
+            searchViewModel.clearSuggestions()
         }
         
         android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: final state - sq = '$sq', mainSearch.query = '${binding?.mainSearch?.query}'")
@@ -319,6 +329,9 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                 MainActivity.nextSearchQuery = null
                 android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: cleared nextSearchQuery after triggering search")
                 android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: MainActivity.nextSearchQuery is now ${MainActivity.nextSearchQuery}")
+                // Clear suggestions to hide overlay when returning from entry
+                searchViewModel.clearSuggestions()
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: cleared suggestions")
             } else {
                 // Clear nextSearchQuery even if we don't use it to prevent future redirects
                 android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: clearing nextSearchQuery without triggering search (query is blank)")
