@@ -8,6 +8,8 @@ import com.lagradost.cloudstream3.SearchResponse
 data class BrowseFilterState(
     val genres: Set<String> = emptySet(),
     val tags: Set<String> = emptySet(),
+    val excludedGenres: Set<String> = emptySet(),
+    val excludedTags: Set<String> = emptySet(),
     val year: String = "All",
     val season: String = "All",
     val format: String = "All",

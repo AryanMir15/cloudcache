@@ -136,6 +136,12 @@ object AniListFilterUtils {
         private val radioMode: Boolean = false
     ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
+        // Track previous states to detect actual changes for animation
+        private val previousStates = mutableMapOf<String, Int>() // item -> state (0=unchecked, 1=include, 2=exclude)
+        
+        // Track ongoing animations to cancel them when new state changes occur
+        private val ongoingAnimations = mutableMapOf<String, Boolean>() // item -> isAnimating
+
         class CheckboxViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             val checkbox: CheckBox = view.findViewById(R.id.checkbox)
             val crossIcon: ImageView = view.findViewById(R.id.cross_icon)
@@ -149,13 +155,26 @@ object AniListFilterUtils {
         }
 
         fun updateSelectedSet(newSet: Set<String>) {
+            android.util.Log.d("MEMORY_LEAK_FIX", "updateSelectedSet: previousStates size=${previousStates.size}, newSet size=${newSet.size}")
             selectedItems = newSet
             notifyDataSetChanged()
         }
 
         fun updateExcludedSet(newSet: Set<String>) {
+            android.util.Log.d("MEMORY_LEAK_FIX", "updateExcludedSet: previousStates size=${previousStates.size}, newSet size=${newSet.size}")
             excludedItems = newSet
             notifyDataSetChanged()
+        }
+
+        fun updateSingleItem(item: String, state: Int) {
+            android.util.Log.d("SINGLE_ITEM_UPDATE", "updateSingleItem: item=$item, state=$state")
+            // Don't update previousStates here - let onBindViewHolder handle it naturally
+            // This ensures animations trigger correctly when state actually changes
+            val position = items.indexOf(item)
+            if (position >= 0) {
+                android.util.Log.d("SINGLE_ITEM_UPDATE", "Notifying item changed at position=$position")
+                notifyItemChanged(position)
+            }
         }
 
         override fun getItemViewType(position: Int): Int {
@@ -181,34 +200,195 @@ object AniListFilterUtils {
             val isSelected = selectedItems.contains(item)
             val isExcluded = excludedItems.contains(item)
 
-            android.util.Log.d("CheckboxSizeDebug", "onBindViewHolder: item=$item, isSelected=$isSelected, isExcluded=$isExcluded")
+            // Determine current state
+            val currentState = when {
+                isExcluded -> 2
+                isSelected -> 1
+                else -> 0
+            }
+
+            // Get previous state (default to -1 if not set)
+            val previousState = previousStates[item] ?: -1
+
+            android.util.Log.d("CHECKBOX_ANIMATION_DEBUG", "onBindViewHolder: item=$item, currentState=$currentState, previousState=$previousState, stateChanged=${currentState != previousState}")
 
             if (holder is CheckboxViewHolder) {
                 holder.text.text = item
 
-                // Log dimensions
-                holder.checkbox.post {
-                    android.util.Log.d("CheckboxSizeDebug", "Checkbox: width=${holder.checkbox.width}, height=${holder.checkbox.height}, measuredWidth=${holder.checkbox.measuredWidth}, measuredHeight=${holder.checkbox.measuredHeight}")
-                }
-                holder.crossIcon.post {
-                    android.util.Log.d("CheckboxSizeDebug", "CrossIcon: width=${holder.crossIcon.width}, height=${holder.crossIcon.height}, measuredWidth=${holder.crossIcon.measuredWidth}, measuredHeight=${holder.crossIcon.measuredHeight}")
-                    val drawable = holder.crossIcon.drawable
-                    android.util.Log.d("CheckboxSizeDebug", "CrossIcon drawable: intrinsicWidth=${drawable?.intrinsicWidth}, intrinsicHeight=${drawable?.intrinsicHeight}, bounds=${drawable?.bounds}")
-                }
-
                 // Set checkbox state
                 holder.checkbox.isChecked = isSelected
 
-                // Toggle visibility based on state
+                // Only animate if state actually changed
+                val shouldAnimate = currentState != previousState
+
+                // Toggle visibility based on state with smooth fade animation
                 if (isExcluded) {
-                    holder.checkbox.visibility = View.GONE
-                    holder.crossIcon.visibility = View.VISIBLE
-                    android.util.Log.d("CheckboxSizeDebug", "Show cross icon, hide checkbox for item=$item")
+                    if (shouldAnimate) {
+                        android.util.Log.d("CHECKBOX_ANIMATION_DEBUG", "Animating to cross icon for item=$item")
+                        // Cancel any ongoing animations for this item
+                        if (ongoingAnimations[item] == true) {
+                            android.util.Log.d("ANIMATION_RACE_FIX", "Cancelling ongoing animation for item=$item")
+                            holder.checkbox.animate().cancel()
+                            holder.crossIcon.animate().cancel()
+                        }
+                        ongoingAnimations[item] = true
+                        
+                        // Fade out checkbox, fade in cross icon with scale
+                        holder.checkbox.animate()
+                            .alpha(0f)
+                            .setDuration(240)
+                            .withEndAction {
+                                holder.checkbox.visibility = View.GONE
+                                holder.checkbox.alpha = 1f
+                            }
+                            .start()
+                        holder.crossIcon.alpha = 0f
+                        holder.crossIcon.scaleX = 0.5f
+                        holder.crossIcon.scaleY = 0.5f
+                        holder.crossIcon.visibility = View.VISIBLE
+                        holder.crossIcon.animate()
+                            .alpha(1f)
+                            .scaleX(1f)
+                            .scaleY(1f)
+                            .setDuration(240)
+                            .withEndAction {
+                                ongoingAnimations[item] = false
+                                android.util.Log.d("ANIMATION_RACE_FIX", "Animation completed for item=$item")
+                            }
+                            .start()
+                    } else {
+                        // No animation, just set visibility
+                        holder.checkbox.visibility = View.GONE
+                        holder.crossIcon.visibility = View.VISIBLE
+                        holder.checkbox.alpha = 1f
+                        holder.crossIcon.alpha = 1f
+                        holder.crossIcon.scaleX = 1f
+                        holder.crossIcon.scaleY = 1f
+                        ongoingAnimations[item] = false
+                    }
+                } else if (isSelected) {
+                    if (shouldAnimate) {
+                        android.util.Log.d("CHECKBOX_ANIMATION_DEBUG", "Animating to checked checkbox for item=$item")
+                        // Cancel any ongoing animations for this item
+                        if (ongoingAnimations[item] == true) {
+                            android.util.Log.d("ANIMATION_RACE_FIX", "Cancelling ongoing animation for item=$item")
+                            holder.checkbox.animate().cancel()
+                            holder.crossIcon.animate().cancel()
+                        }
+                        ongoingAnimations[item] = true
+                        
+                        // Fade out cross icon with scale, fade in checkbox with scale
+                        holder.crossIcon.animate()
+                            .alpha(0f)
+                            .scaleX(0.5f)
+                            .scaleY(0.5f)
+                            .setDuration(240)
+                            .withEndAction {
+                                holder.crossIcon.visibility = View.GONE
+                                holder.crossIcon.alpha = 1f
+                                holder.crossIcon.scaleX = 1f
+                                holder.crossIcon.scaleY = 1f
+                            }
+                            .start()
+                        holder.checkbox.alpha = 0f
+                        holder.checkbox.scaleX = 0.8f
+                        holder.checkbox.scaleY = 0.8f
+                        holder.checkbox.visibility = View.VISIBLE
+                        holder.checkbox.animate()
+                            .alpha(1f)
+                            .scaleX(1f)
+                            .scaleY(1f)
+                            .setDuration(240)
+                            .withEndAction {
+                                ongoingAnimations[item] = false
+                                android.util.Log.d("ANIMATION_RACE_FIX", "Animation completed for item=$item")
+                            }
+                            .start()
+                    } else {
+                        // No animation, just set visibility
+                        holder.crossIcon.visibility = View.GONE
+                        holder.checkbox.visibility = View.VISIBLE
+                        holder.checkbox.alpha = 1f
+                        holder.crossIcon.alpha = 1f
+                        holder.crossIcon.scaleX = 1f
+                        holder.crossIcon.scaleY = 1f
+                        ongoingAnimations[item] = false
+                    }
                 } else {
-                    holder.checkbox.visibility = View.VISIBLE
-                    holder.crossIcon.visibility = View.GONE
-                    android.util.Log.d("CheckboxSizeDebug", "Show checkbox, hide cross icon for item=$item, checked=$isSelected")
+                    // Unchecked state - animate checkbox with bounce effect
+                    if (shouldAnimate) {
+                        android.util.Log.d("CHECKBOX_ANIMATION_DEBUG", "Animating to unchecked for item=$item, starting animation")
+                        // Cancel any ongoing animations for this item
+                        if (ongoingAnimations[item] == true) {
+                            android.util.Log.d("ANIMATION_RACE_FIX", "Cancelling ongoing animation for item=$item")
+                            holder.checkbox.animate().cancel()
+                            holder.crossIcon.animate().cancel()
+                        }
+                        ongoingAnimations[item] = true
+                        
+                        // Fade out cross icon if visible, animate checkbox with bounce
+                        holder.crossIcon.animate()
+                            .alpha(0f)
+                            .scaleX(0.5f)
+                            .scaleY(0.5f)
+                            .setDuration(240)
+                            .withEndAction {
+                                holder.crossIcon.visibility = View.GONE
+                                holder.crossIcon.alpha = 1f
+                                holder.crossIcon.scaleX = 1f
+                                holder.crossIcon.scaleY = 1f
+                            }
+                            .start()
+                        
+                        // Start checkbox at normal state, then bounce
+                        holder.checkbox.scaleX = 1f
+                        holder.checkbox.scaleY = 1f
+                        holder.checkbox.alpha = 1f
+                        holder.checkbox.visibility = View.VISIBLE
+                        
+                        // Bounce animation: scale down dramatically then back up
+                        holder.checkbox.animate()
+                            .scaleX(0.5f)
+                            .scaleY(0.5f)
+                            .alpha(0.3f)
+                            .setDuration(160)
+                            .withEndAction {
+                                android.util.Log.d("CHECKBOX_ANIMATION_DEBUG", "Bounce down complete for item=$item")
+                                holder.checkbox.animate()
+                                    .scaleX(1.1f)
+                                    .scaleY(1.1f)
+                                    .alpha(1f)
+                                    .setDuration(120)
+                                    .withEndAction {
+                                        android.util.Log.d("CHECKBOX_ANIMATION_DEBUG", "Bounce up complete for item=$item")
+                                        holder.checkbox.animate()
+                                            .scaleX(1f)
+                                            .scaleY(1f)
+                                            .setDuration(80)
+                                            .withEndAction {
+                                                ongoingAnimations[item] = false
+                                                android.util.Log.d("ANIMATION_RACE_FIX", "Animation completed for item=$item")
+                                            }
+                                            .start()
+                                    }
+                                    .start()
+                            }
+                            .start()
+                    } else {
+                        // No animation, just set visibility
+                        android.util.Log.d("CHECKBOX_ANIMATION_DEBUG", "No animation for unchecked item=$item")
+                        holder.crossIcon.visibility = View.GONE
+                        holder.checkbox.visibility = View.VISIBLE
+                        holder.checkbox.alpha = 1f
+                        holder.crossIcon.alpha = 1f
+                        holder.crossIcon.scaleX = 1f
+                        holder.crossIcon.scaleY = 1f
+                        ongoingAnimations[item] = false
+                    }
                 }
+
+                // Update previous state
+                previousStates[item] = currentState
 
                 // Remove checkbox's own listener to prevent conflicts
                 holder.checkbox.setOnCheckedChangeListener(null)
@@ -216,14 +396,14 @@ object AniListFilterUtils {
                 holder.itemView.setOnClickListener {
                     android.util.Log.d("CheckboxSizeDebug", "onClick: item=$item, isSelected=$isSelected, isExcluded=$isExcluded")
                     // Cycle through states: 0 -> 1 -> 2 -> 0
-                    val currentState = if (isExcluded) 2 else if (isSelected) 1 else 0
-                    val newState = when (currentState) {
+                    val clickCurrentState = if (isExcluded) 2 else if (isSelected) 1 else 0
+                    val newState = when (clickCurrentState) {
                         0 -> 1 // unchecked -> include
                         1 -> 2 // include -> exclude
                         2 -> 0 // exclude -> unchecked
                         else -> 1
                     }
-                    android.util.Log.d("CheckboxSizeDebug", "onClick: currentState=$currentState, newState=$newState")
+                    android.util.Log.d("CheckboxSizeDebug", "onClick: currentState=$clickCurrentState, newState=$newState")
                     onCheckedChangeListener(item, newState)
                 }
             } else if (holder is RadioViewHolder) {

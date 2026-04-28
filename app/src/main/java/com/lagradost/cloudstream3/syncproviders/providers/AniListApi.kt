@@ -1155,21 +1155,33 @@ class AniListApi : SyncAPI() {
 
     // Genre Browse Feature
     suspend fun getGenreCollection(): List<String>? {
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getGenreCollection called")
         val query = """
             query {
                 GenreCollection
             }
         """
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getGenreCollection: Query = $query")
         val data = app.post(
             "https://graphql.anilist.co/",
             data = mapOf("query" to query),
             timeout = 5000
         ).text
-        val response = tryParseJson<GenreCollectionResponse>(data) ?: return null
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getGenreCollection: Raw response = $data")
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getGenreCollection: Attempting to parse JSON")
+        val response = tryParseJson<GenreCollectionResponse>(data)
+        if (response == null) {
+            android.util.Log.e("API_PARSE_LOGGING", "API_PARSE_LOGGING: getGenreCollection: FAILED to parse JSON response")
+            android.util.Log.e("API_PARSE_LOGGING", "API_PARSE_LOGGING: getGenreCollection: Response data = $data")
+            return null
+        }
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getGenreCollection: Successfully parsed JSON")
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getGenreCollection: genreCollection = ${response.data?.genreCollection}")
         return response.data?.genreCollection
     }
 
     suspend fun getMediaTagCollection(): List<MediaTag>? {
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaTagCollection called")
         val query = """
             query {
                 MediaTagCollection {
@@ -1180,12 +1192,22 @@ class AniListApi : SyncAPI() {
                 }
             }
         """
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaTagCollection: Query = $query")
         val data = app.post(
             "https://graphql.anilist.co/",
             data = mapOf("query" to query),
             timeout = 5000
         ).text
-        val response = tryParseJson<MediaTagCollectionResponse>(data) ?: return null
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaTagCollection: Raw response = $data")
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaTagCollection: Attempting to parse JSON")
+        val response = tryParseJson<MediaTagCollectionResponse>(data)
+        if (response == null) {
+            android.util.Log.e("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaTagCollection: FAILED to parse JSON response")
+            android.util.Log.e("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaTagCollection: Response data = $data")
+            return null
+        }
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaTagCollection: Successfully parsed JSON")
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaTagCollection: mediaTagCollection size = ${response.data?.mediaTagCollection?.size}")
         return response.data?.mediaTagCollection
     }
 
@@ -1267,7 +1289,16 @@ class AniListApi : SyncAPI() {
         
         android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: raw response=$data")
         
-        return tryParseJson<MediaByGenreResponse>(data)
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaByGenre: Attempting to parse JSON response")
+        val response = tryParseJson<MediaByGenreResponse>(data)
+        if (response == null) {
+            android.util.Log.e("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaByGenre: FAILED to parse JSON response")
+            android.util.Log.e("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaByGenre: Response data = $data")
+            return null
+        }
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaByGenre: Successfully parsed JSON")
+        android.util.Log.d("API_PARSE_LOGGING", "API_PARSE_LOGGING: getMediaByGenre: media items count = ${response.data?.page?.media?.size}")
+        return response
     }
 
     data class GenreCollectionResponse(

@@ -16,6 +16,8 @@ import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.activityViewModels
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.lifecycleScope
+import androidx.navigation.NavController
+import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomnavigation.BottomNavigationView
@@ -64,6 +66,12 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
 
     // Track chip visibility to only update margin when it actually changes
     private var wereChipsVisible = false
+    
+    // Track last known top bar height to prevent redundant padding updates
+    private var lastKnownTopBarHeight = -1
+    
+    // Track ongoing padding animation to prevent conflicts
+    private var isAnimatingPadding = false
 
     private var resultsList = emptyList<SearchResponse>()
     private var currentAniListPage = 1
@@ -124,6 +132,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             loadAniListResults()
         } else {
             android.util.Log.d("BrowseFragment", "onBindingCreated: ViewModel has data, restoring state")
+            android.util.Log.d("STATE_SYNC_FIX", "========== Starting filter state restoration from ViewModel ==========")
             // Restore filter state from ViewModel
             resultsList = viewModel.uiState.value?.results ?: emptyList()
             currentAniListPage = viewModel.uiState.value?.currentPage ?: 1
@@ -131,12 +140,26 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
 
             // Restore filter selections
             val filters = viewModel.uiState.value?.filters
+            android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: ViewModel filters = $filters")
+            android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: ViewModel filters.genres = ${filters?.genres}")
+            android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: ViewModel filters.tags = ${filters?.tags}")
+            android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: ViewModel filters.excludedGenres = ${filters?.excludedGenres}")
+            android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: ViewModel filters.excludedTags = ${filters?.excludedTags}")
+            
             selectedGenres = filters?.genres?.toMutableSet() ?: mutableSetOf()
             selectedTags = filters?.tags?.toMutableSet() ?: mutableSetOf()
+            excludedGenres = filters?.excludedGenres?.toMutableSet() ?: mutableSetOf()
+            excludedTags = filters?.excludedTags?.toMutableSet() ?: mutableSetOf()
             selectedYear = filters?.year ?: "All"
             selectedSeason = filters?.season ?: "All"
             selectedFormat = filters?.format ?: "All"
             selectedSort = filters?.sort ?: "Popularity"
+            
+            android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: Restored local selectedGenres = $selectedGenres")
+            android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: Restored local selectedTags = $selectedTags")
+            android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: Restored local excludedGenres = $excludedGenres")
+            android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: Restored local excludedTags = $excludedTags")
+            android.util.Log.d("STATE_SYNC_FIX", "========== Filter state restoration completed ==========")
 
             updateUI()
         }
@@ -153,10 +176,25 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
 
     override fun onResume() {
         super.onResume()
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onResume called ==========")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "BrowseFragment.onResume: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "BrowseFragment.onResume: searchQuery = $searchQuery")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onResume completed ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onResume called ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "BrowseFragment.onResume: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "BrowseFragment.onResume: searchQuery = $searchQuery")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "BrowseFragment.onResume: local genres=$selectedGenres, excludedGenres=$excludedGenres")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "BrowseFragment.onResume: ViewModel filters=${viewModel.uiState.value?.filters}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onResume completed ==========")
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onDestroy called ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onDestroy completed ==========")
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onCreate called ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "BrowseFragment.onCreate: savedInstanceState=$savedInstanceState")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onCreate completed ==========")
     }
 
     override fun onPause() {
@@ -174,53 +212,143 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
     }
 
     private fun navigateToSearch(query: String) {
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== navigateToSearch called ==========")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: query = '$query'")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: query length = ${query.length}")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: query isBlank = ${query.isBlank()}")
+        android.util.Log.d("NAV_STATE_LOSS_FIX", "========== navigateToSearch called ==========")
+        android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: query = '$query'")
+        android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: query length = ${query.length}")
+        android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: query isBlank = ${query.isBlank()}")
         val activity = requireActivity()
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: activity = $activity")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: activity is MainActivity = ${activity is com.lagradost.cloudstream3.MainActivity}")
+        android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: activity = $activity")
+        android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: activity is MainActivity = ${activity is com.lagradost.cloudstream3.MainActivity}")
+        android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: Attempting to use navigation arguments instead of static variable")
+        
+        // Try to use NavController to navigate with arguments
+        val navController = findNavController()
+        android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: navController = $navController")
+        android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: currentDestination = ${navController.currentDestination?.id}")
+        android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: search destination id = ${R.id.navigation_search}")
+        
+        if (navController.currentDestination?.id != R.id.navigation_search) {
+            // We're not currently on SearchFragment, so we can navigate with arguments
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: Not on SearchFragment, attempting navigation with arguments")
+            try {
+                val bundle = android.os.Bundle()
+                bundle.putString("search_query", query)
+                android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: Created bundle with search_query = '$query'")
+                
+                // Navigate using NavController
+                navController.navigate(R.id.navigation_search, bundle)
+                android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: Successfully navigated with bundle = $bundle")
+                android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: Navigation with arguments completed")
+                return
+            } catch (e: Exception) {
+                android.util.Log.e("NAV_ARGS_FIX", "NAV_ARGS_FIX: Navigation with arguments failed, falling back to static variable", e)
+                android.util.Log.e("NAV_ARGS_FIX", "NAV_ARGS_FIX: Exception: ${e.message}")
+            }
+        } else {
+            android.util.Log.w("NAV_ARGS_FIX", "NAV_ARGS_FIX: Already on SearchFragment, cannot navigate with arguments, using static variable fallback")
+        }
+        
+        // Fallback to static variable (existing behavior)
+        android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: Using static variable fallback")
         // Set the search query in MainActivity
         if (activity is com.lagradost.cloudstream3.MainActivity) {
-            android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: setting MainActivity.nextSearchQuery = '$query'")
-            android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: MainActivity.nextSearchQuery before = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+            android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: MainActivity.nextSearchQuery before = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+            
+            // Safety check: warn if overwriting an existing query
+            if (com.lagradost.cloudstream3.MainActivity.nextSearchQuery != null) {
+                android.util.Log.w("NAV_STATE_LOSS_FIX", "navigateToSearch: WARNING - overwriting existing nextSearchQuery: ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+            }
+            
+            android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: setting MainActivity.nextSearchQuery = '$query'")
             com.lagradost.cloudstream3.MainActivity.nextSearchQuery = query
-            android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: MainActivity.nextSearchQuery after = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+            android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: MainActivity.nextSearchQuery after = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
         } else {
-            android.util.Log.e("GENRE_FILTER_REDIRECT", "navigateToSearch: ERROR - activity is not MainActivity!")
+            android.util.Log.e("NAV_STATE_LOSS_FIX", "navigateToSearch: ERROR - activity is not MainActivity!")
         }
+        
         // Navigate to Search tab using bottom navigation only
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: selecting Search tab in bottom navigation")
+        android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: selecting Search tab in bottom navigation")
         val bottomNav = activity.findViewById<BottomNavigationView>(R.id.nav_view)
         val navRail = activity.findViewById<NavigationRailView>(R.id.nav_rail_view)
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: bottomNav = $bottomNav, navRail = $navRail")
+        android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: bottomNav = $bottomNav, navRail = $navRail")
         bottomNav?.selectedItemId = R.id.navigation_search
         navRail?.selectedItemId = R.id.navigation_search
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "navigateToSearch: tab selection completed")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== navigateToSearch completed ==========")
+        android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: tab selection completed")
+        android.util.Log.d("NAV_STATE_LOSS_FIX", "========== navigateToSearch completed ==========")
     }
 
-    private fun updateResultsPadding() {
+    private fun updateResultsPadding(estimatedHeight: Int? = null) {
         binding?.apply {
             // The topbar height already includes chips when they're visible
             // Just use the topbar height as the padding
-            val topBarHeight = topBarContainer.height
+            val topBarHeight = if (estimatedHeight != null) estimatedHeight else topBarContainer.height
+            
+            // Guard: skip if top bar height hasn't changed since last call (only for actual measurements)
+            if (estimatedHeight == null && topBarHeight == lastKnownTopBarHeight && lastKnownTopBarHeight != -1) {
+                android.util.Log.d("PADDING_DEBUG", "updateResultsPadding: SKIPPING - height unchanged ($topBarHeight)")
+                return@apply
+            }
+            
             val targetPadding = topBarHeight
             val currentPadding = browseResults.paddingTop
             
-            android.util.Log.d("BrowseFragment", "updateResultsPadding: topBarHeight=$topBarHeight, currentPadding=$currentPadding, targetPadding=$targetPadding")
+            // Cancel ongoing animation only if it's also an estimated update
+            // Don't cancel actual measurement animations
+            if (isAnimatingPadding && estimatedHeight != null) {
+                android.util.Log.d("PADDING_DEBUG", "updateResultsPadding: Cancelling ongoing estimated animation")
+                browseResults.clearAnimation()
+                isAnimatingPadding = false
+            }
             
-            // Set padding immediately when topbar height changes
+            // Skip if animation is already running for actual measurement
+            if (isAnimatingPadding && estimatedHeight == null) {
+                android.util.Log.d("PADDING_DEBUG", "updateResultsPadding: SKIPPING - actual measurement animation already running")
+                return@apply
+            }
+            
+            // Animate top bar height and RecyclerView padding together
             if (currentPadding != targetPadding) {
-                browseResults.setPadding(
-                    browseResults.paddingLeft,
-                    targetPadding,
-                    browseResults.paddingRight,
-                    browseResults.paddingBottom
-                )
-                // Scroll to top to prevent hollow space
-                browseResults.scrollToPosition(0)
+                android.util.Log.d("PADDING_DEBUG", "ANIMATING padding from $currentPadding to $targetPadding (estimated=${estimatedHeight != null})")
+                isAnimatingPadding = true
+                
+                val animator = android.animation.ValueAnimator.ofInt(currentPadding, targetPadding)
+                animator.duration = 200 // 200ms smooth animation
+                animator.interpolator = android.view.animation.DecelerateInterpolator()
+                animator.addUpdateListener { animation ->
+                    val animatedValue = animation.animatedValue as Int
+                    // Animate RecyclerView padding
+                    browseResults.setPadding(
+                        browseResults.paddingLeft,
+                        animatedValue,
+                        browseResults.paddingRight,
+                        browseResults.paddingBottom
+                    )
+                    // Animate top bar height if this is an estimated update (we control the height)
+                    if (estimatedHeight != null) {
+                        topBarContainer.layoutParams.height = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                        topBarContainer.minimumHeight = animatedValue
+                    }
+                }
+                animator.addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                        isAnimatingPadding = false
+                        android.util.Log.d("PADDING_DEBUG", "Animation completed")
+                        // Reset minimum height after animation
+                        if (estimatedHeight != null) {
+                            topBarContainer.minimumHeight = 0
+                        }
+                        // Scroll to top after animation completes
+                        browseResults.scrollToPosition(0)
+                    }
+                })
+                animator.start()
+            } else {
+                android.util.Log.d("PADDING_DEBUG", "SKIPPING - padding already correct")
+            }
+            
+            // Update last known height only if this is the actual height (not estimated)
+            if (estimatedHeight == null) {
+                lastKnownTopBarHeight = topBarHeight
             }
         }
     }
@@ -395,7 +523,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         binding?.topBarContainer?.let { topBar ->
                             topBar.animate()
                                 .translationY(-topBar.height.toFloat())
-                                .setDuration(200)
+                                .setDuration(300)
                                 .withEndAction { isAnimatingTopBar = false }
                                 .start()
                         }
@@ -409,7 +537,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         binding?.topBarContainer?.let { topBar ->
                             topBar.animate()
                                 .translationY(0f)
-                                .setDuration(200)
+                                .setDuration(300)
                                 .withEndAction { isAnimatingTopBar = false }
                                 .start()
                         }
@@ -510,12 +638,20 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 }
                 chipGroup.addView(chip)
             }
-            // Wait for layout to complete before updating padding
-            chipGroup.post { updateResultsPadding() }
+            // Calculate estimate based on chip visibility
+            val tagsVisible = selectedTags.isNotEmpty()
+            val chipRowHeight = if (tagsVisible) 240 else 120 // 240 for both rows, 120 for single row
+            val baseHeight = 272 // Base height of top bar without chips
+            val estimatedHeight = baseHeight + chipRowHeight
+            updateResultsPadding(estimatedHeight)
         } else {
             chipGroup.visibility = View.GONE
-            // Update padding after chip visibility changes
-            updateResultsPadding()
+            // Calculate estimate based on chip visibility
+            val tagsVisible = selectedTags.isNotEmpty()
+            val chipRowHeight = if (tagsVisible) 120 else 0 // 120 if tags still visible, 0 if both gone
+            val baseHeight = 272 // Base height of top bar without chips
+            val estimatedHeight = baseHeight + chipRowHeight
+            updateResultsPadding(estimatedHeight)
         }
     }
 
@@ -540,12 +676,20 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 }
                 chipGroup.addView(chip)
             }
-            // Wait for layout to complete before updating padding
-            chipGroup.post { updateResultsPadding() }
+            // Calculate estimate based on chip visibility
+            val genresVisible = selectedGenres.isNotEmpty()
+            val chipRowHeight = if (genresVisible) 240 else 120 // 240 for both rows, 120 for single row
+            val baseHeight = 272 // Base height of top bar without chips
+            val estimatedHeight = baseHeight + chipRowHeight
+            updateResultsPadding(estimatedHeight)
         } else {
             chipGroup.visibility = View.GONE
-            // Update padding after chip visibility changes
-            updateResultsPadding()
+            // Calculate estimate based on chip visibility
+            val genresVisible = selectedGenres.isNotEmpty()
+            val chipRowHeight = if (genresVisible) 120 else 0 // 120 if genres still visible, 0 if both gone
+            val baseHeight = 272 // Base height of top bar without chips
+            val estimatedHeight = baseHeight + chipRowHeight
+            updateResultsPadding(estimatedHeight)
         }
     }
 
@@ -580,6 +724,8 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             dialogBinding.nsfwToggle.isChecked = dialogNsfw
             dialogBinding.nsfwToggle.setOnCheckedChangeListener { _, isChecked ->
                 dialogNsfw = isChecked
+                // Update Load Defaults button visibility
+                updateLoadDefaultsButtonVisibility(dialogBinding, dialogGenres, dialogExcludedGenres, dialogTags, dialogExcludedTags, dialogYear, dialogSeason, dialogFormat, dialogSort, dialogNsfw)
             }
 
             // Setup genres adapter with 3-state support
@@ -603,12 +749,14 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 val totalCount = dialogGenres.size + dialogExcludedGenres.size
                 dialogBinding.genresCount.text = if (totalCount > 0) totalCount.toString() else "0"
                 android.util.Log.d("BrowseFragment", "Genres count updated: included=${dialogGenres.size}, excluded=${dialogExcludedGenres.size}, total=$totalCount")
-                // Update adapter's internal sets
-                genresAdapter?.updateSelectedSet(dialogGenres)
-                genresAdapter?.updateExcludedSet(dialogExcludedGenres)
+                // Update only the single item that was clicked to avoid animating all checkboxes
+                genresAdapter?.updateSingleItem(item, state)
+                // Update Load Defaults button visibility
+                updateLoadDefaultsButtonVisibility(dialogBinding, dialogGenres, dialogExcludedGenres, dialogTags, dialogExcludedTags, dialogYear, dialogSeason, dialogFormat, dialogSort, dialogNsfw)
             })
             dialogBinding.genresRecycler.adapter = genresAdapter
             dialogBinding.genresRecycler.layoutManager = LinearLayoutManager(ctx)
+            dialogBinding.genresRecycler.itemAnimator = null
 
             // Setup tags adapter with 3-state support
             var tagsAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
@@ -631,84 +779,106 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 val totalCount = dialogTags.size + dialogExcludedTags.size
                 dialogBinding.tagsCount.text = if (totalCount > 0) totalCount.toString() else "0"
                 android.util.Log.d("BrowseFragment", "Tags count updated: included=${dialogTags.size}, excluded=${dialogExcludedTags.size}, total=$totalCount")
-                // Update adapter's internal sets
-                tagsAdapter?.updateSelectedSet(dialogTags)
-                tagsAdapter?.updateExcludedSet(dialogExcludedTags)
+                // Update only the single item that was clicked to avoid animating all checkboxes
+                tagsAdapter?.updateSingleItem(item, state)
+                // Update Load Defaults button visibility
+                updateLoadDefaultsButtonVisibility(dialogBinding, dialogGenres, dialogExcludedGenres, dialogTags, dialogExcludedTags, dialogYear, dialogSeason, dialogFormat, dialogSort, dialogNsfw)
             })
             dialogBinding.tagsRecycler.adapter = tagsAdapter
             dialogBinding.tagsRecycler.layoutManager = LinearLayoutManager(ctx)
+            dialogBinding.tagsRecycler.itemAnimator = null
 
             // Setup years adapter (radio mode)
             val selectedYearsSet = if (dialogYear != "All") setOf(dialogYear) else setOf("All")
             var yearsAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
             yearsAdapter = AniListFilterUtils.AniListCheckboxAdapter(years, selectedYearsSet, emptySet(), { item, state ->
+                android.util.Log.d("ADAPTER_UPDATE_DEBUG", "Years callback: item=$item, state=$state")
                 if (state == 1) {
                     dialogYear = item
                 } else {
                     dialogYear = "All"
                 }
                 val newSelectedSet = setOf(dialogYear).filterNotNull().toSet()
+                android.util.Log.d("ADAPTER_UPDATE_DEBUG", "Years: calling updateSelectedSet with set=$newSelectedSet")
                 dialogBinding.yearRecycler.post {
                     yearsAdapter?.updateSelectedSet(newSelectedSet)
                 }
                 dialogBinding.yearCount.text = dialogYear
+                // Update Load Defaults button visibility
+                updateLoadDefaultsButtonVisibility(dialogBinding, dialogGenres, dialogExcludedGenres, dialogTags, dialogExcludedTags, dialogYear, dialogSeason, dialogFormat, dialogSort, dialogNsfw)
             }, radioMode = true)
             dialogBinding.yearRecycler.adapter = yearsAdapter
             dialogBinding.yearRecycler.layoutManager = LinearLayoutManager(ctx)
+            dialogBinding.yearRecycler.itemAnimator = null
 
             // Setup seasons adapter (radio mode)
             val selectedSeasonsSet = if (dialogSeason != "All") setOf(dialogSeason) else setOf("All")
             var seasonsAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
             seasonsAdapter = AniListFilterUtils.AniListCheckboxAdapter(seasons, selectedSeasonsSet, emptySet(), { item, state ->
+                android.util.Log.d("ADAPTER_UPDATE_DEBUG", "Seasons callback: item=$item, state=$state")
                 if (state == 1) {
                     dialogSeason = item
                 } else {
                     dialogSeason = "All"
                 }
                 val newSelectedSet = setOf(dialogSeason).filterNotNull().toSet()
+                android.util.Log.d("ADAPTER_UPDATE_DEBUG", "Seasons: calling updateSelectedSet with set=$newSelectedSet")
                 dialogBinding.seasonRecycler.post {
                     seasonsAdapter?.updateSelectedSet(newSelectedSet)
                 }
                 dialogBinding.seasonCount.text = dialogSeason
+                // Update Load Defaults button visibility
+                updateLoadDefaultsButtonVisibility(dialogBinding, dialogGenres, dialogExcludedGenres, dialogTags, dialogExcludedTags, dialogYear, dialogSeason, dialogFormat, dialogSort, dialogNsfw)
             }, radioMode = true)
             dialogBinding.seasonRecycler.adapter = seasonsAdapter
             dialogBinding.seasonRecycler.layoutManager = LinearLayoutManager(ctx)
+            dialogBinding.seasonRecycler.itemAnimator = null
 
             // Setup formats adapter (radio mode)
             val selectedFormatsSet = if (dialogFormat != "All") setOf(dialogFormat) else setOf("All")
             var formatsAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
             formatsAdapter = AniListFilterUtils.AniListCheckboxAdapter(formats, selectedFormatsSet, emptySet(), { item, state ->
+                android.util.Log.d("ADAPTER_UPDATE_DEBUG", "Formats callback: item=$item, state=$state")
                 if (state == 1) {
                     dialogFormat = item
                 } else {
                     dialogFormat = "All"
                 }
                 val newSelectedSet = setOf(dialogFormat).filterNotNull().toSet()
+                android.util.Log.d("ADAPTER_UPDATE_DEBUG", "Formats: calling updateSelectedSet with set=$newSelectedSet")
                 dialogBinding.formatRecycler.post {
                     formatsAdapter?.updateSelectedSet(newSelectedSet)
                 }
                 dialogBinding.formatCount.text = dialogFormat
+                // Update Load Defaults button visibility
+                updateLoadDefaultsButtonVisibility(dialogBinding, dialogGenres, dialogExcludedGenres, dialogTags, dialogExcludedTags, dialogYear, dialogSeason, dialogFormat, dialogSort, dialogNsfw)
             }, radioMode = true)
             dialogBinding.formatRecycler.adapter = formatsAdapter
             dialogBinding.formatRecycler.layoutManager = LinearLayoutManager(ctx)
+            dialogBinding.formatRecycler.itemAnimator = null
 
             // Setup sort adapter (radio mode)
             val selectedSortSet = if (dialogSort != "All") setOf(dialogSort) else setOf("All")
             var sortAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
             sortAdapter = AniListFilterUtils.AniListCheckboxAdapter(sortOptions, selectedSortSet, emptySet(), { item, state ->
+                android.util.Log.d("ADAPTER_UPDATE_DEBUG", "Sort callback: item=$item, state=$state")
                 if (state == 1) {
                     dialogSort = item
                 } else {
                     dialogSort = "All"
                 }
                 val newSelectedSet = setOf(dialogSort).filterNotNull().toSet()
+                android.util.Log.d("ADAPTER_UPDATE_DEBUG", "Sort: calling updateSelectedSet with set=$newSelectedSet")
                 dialogBinding.sortRecycler.post {
                     sortAdapter?.updateSelectedSet(newSelectedSet)
                 }
                 dialogBinding.sortCount.text = dialogSort
+                // Update Load Defaults button visibility
+                updateLoadDefaultsButtonVisibility(dialogBinding, dialogGenres, dialogExcludedGenres, dialogTags, dialogExcludedTags, dialogYear, dialogSeason, dialogFormat, dialogSort, dialogNsfw)
             }, radioMode = true)
             dialogBinding.sortRecycler.adapter = sortAdapter
             dialogBinding.sortRecycler.layoutManager = LinearLayoutManager(ctx)
+            dialogBinding.sortRecycler.itemAnimator = null
 
             // Update initial counts and subtext
             val initialGenresTotal = dialogGenres.size + dialogExcludedGenres.size
@@ -724,6 +894,9 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             dialogBinding.formatCount.text = dialogFormat
             dialogBinding.sortCount.visibility = View.VISIBLE
             dialogBinding.sortCount.text = dialogSort
+
+            // Set initial Load Defaults button visibility
+            updateLoadDefaultsButtonVisibility(dialogBinding, dialogGenres, dialogExcludedGenres, dialogTags, dialogExcludedTags, dialogYear, dialogSeason, dialogFormat, dialogSort, dialogNsfw)
 
             // Accordion toggle for genres
             dialogBinding.genresHeader.setOnClickListener {
@@ -755,17 +928,78 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 toggleAccordion(dialogBinding.sortRecycler, dialogBinding.sortExpandIcon)
             }
 
+            // Load Defaults button
+            dialogBinding.loadDefaultButton.setOnClickListener {
+                android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: Load Defaults button clicked")
+                val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+                val defaultGenres = prefs.getStringSet("default_genres", null) ?: emptySet()
+                val defaultExcludedGenres = prefs.getStringSet("default_excluded_genres", null) ?: emptySet()
+                val defaultTags = prefs.getStringSet("default_tags", null) ?: emptySet()
+                val defaultExcludedTags = prefs.getStringSet("default_excluded_tags", null) ?: emptySet()
+                val defaultYear = prefs.getString("default_year", "All") ?: "All"
+                val defaultSeason = prefs.getString("default_season", "All") ?: "All"
+                val defaultFormat = prefs.getString("default_format", "All") ?: "All"
+                val defaultSort = prefs.getString("default_sort", "Popularity") ?: "Popularity"
+                val defaultNsfw = prefs.getBoolean("default_nsfw", false)
+
+                android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: Loading defaults into dialog state")
+                android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: defaultGenres=$defaultGenres, defaultExcludedGenres=$defaultExcludedGenres")
+                android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: defaultTags=$defaultTags, defaultExcludedTags=$defaultExcludedTags")
+                android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: defaultYear=$defaultYear, defaultSeason=$defaultSeason, defaultFormat=$defaultFormat, defaultSort=$defaultSort, defaultNsfw=$defaultNsfw")
+
+                // Update dialog state with defaults
+                dialogGenres.clear()
+                dialogGenres.addAll(defaultGenres)
+                dialogExcludedGenres.clear()
+                dialogExcludedGenres.addAll(defaultExcludedGenres)
+                dialogTags.clear()
+                dialogTags.addAll(defaultTags)
+                dialogExcludedTags.clear()
+                dialogExcludedTags.addAll(defaultExcludedTags)
+                dialogYear = defaultYear
+                dialogSeason = defaultSeason
+                dialogFormat = defaultFormat
+                dialogSort = defaultSort
+                dialogNsfw = defaultNsfw
+                dialogBinding.nsfwToggle.isChecked = defaultNsfw
+
+                // Update adapters
+                genresAdapter?.updateSelectedSet(dialogGenres)
+                genresAdapter?.updateExcludedSet(dialogExcludedGenres)
+                tagsAdapter?.updateSelectedSet(dialogTags)
+                tagsAdapter?.updateExcludedSet(dialogExcludedTags)
+                yearsAdapter?.updateSelectedSet(setOf(dialogYear))
+                seasonsAdapter?.updateSelectedSet(setOf(dialogSeason))
+                formatsAdapter?.updateSelectedSet(setOf(dialogFormat))
+                sortAdapter?.updateSelectedSet(setOf(dialogSort))
+
+                // Update counts
+                val genresTotal = dialogGenres.size + dialogExcludedGenres.size
+                val tagsTotal = dialogTags.size + dialogExcludedTags.size
+                dialogBinding.genresCount.text = if (genresTotal > 0) genresTotal.toString() else "0"
+                dialogBinding.tagsCount.text = if (tagsTotal > 0) tagsTotal.toString() else "0"
+                dialogBinding.yearCount.text = dialogYear
+                dialogBinding.seasonCount.text = dialogSeason
+                dialogBinding.formatCount.text = dialogFormat
+                dialogBinding.sortCount.text = dialogSort
+
+                // Update Load Defaults button visibility
+                updateLoadDefaultsButtonVisibility(dialogBinding, dialogGenres, dialogExcludedGenres, dialogTags, dialogExcludedTags, dialogYear, dialogSeason, dialogFormat, dialogSort, dialogNsfw)
+
+                Toast.makeText(requireContext(), "Defaults loaded", Toast.LENGTH_SHORT).show()
+            }
+
             // Set Default button with confirmation dialog
             dialogBinding.setDefaultButton.setOnClickListener {
                 val dialogView = layoutInflater.inflate(R.layout.dialog_confirm_default, null)
                 val confirmDialog = android.app.AlertDialog.Builder(requireContext(), R.style.AlertDialogCustom)
                     .setView(dialogView)
                     .create()
-                
+
                 dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.cancel_button).setOnClickListener {
                     confirmDialog.dismiss()
                 }
-                
+
                 dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.confirm_button).setOnClickListener {
                     // Save to SharedPreferences for persistence
                     val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
@@ -781,7 +1015,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         putBoolean("default_nsfw", dialogNsfw)
                         apply()
                     }
-                    
+
                     // Apply immediately to class-level variables
                     selectedGenres.clear()
                     selectedGenres.addAll(dialogGenres)
@@ -796,20 +1030,20 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     selectedFormat = dialogFormat
                     selectedSort = dialogSort
                     selectedNsfw = dialogNsfw
-                    
+
                     // Reset ViewModel page and reload results
                     viewModel.resetPage()
                     currentAniListPage = 1
                     loadAniListResults()
-                    
+
                     // Scroll to top to prevent hollow space when topbar height changes
                     binding?.browseResults?.scrollToPosition(0)
-                    
+
                     Toast.makeText(requireContext(), "Defaults saved and applied", Toast.LENGTH_SHORT).show()
                     confirmDialog.dismiss()
                     dialog.dismiss()
                 }
-                
+
                 confirmDialog.show()
             }
 
@@ -835,10 +1069,16 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 sortAdapter.updateSelectedSet(setOf("Popularity"))
                 dialogBinding.genresCount.text = "0"
                 dialogBinding.tagsCount.text = "0"
+                // Update Load Defaults button visibility
+                updateLoadDefaultsButtonVisibility(dialogBinding, dialogGenres, dialogExcludedGenres, dialogTags, dialogExcludedTags, dialogYear, dialogSeason, dialogFormat, dialogSort, dialogNsfw)
             }
 
             // Apply button
             dialogBinding.applyButton.setOnClickListener {
+                android.util.Log.d("STATE_SYNC_DEBUG", "========== Apply button clicked ==========")
+                android.util.Log.d("STATE_SYNC_DEBUG", "STATE_SYNC_DEBUG: Before update - local genres=$selectedGenres, excludedGenres=$excludedGenres, tags=$selectedTags, excludedTags=$excludedTags")
+                android.util.Log.d("STATE_SYNC_DEBUG", "STATE_SYNC_DEBUG: Before update - ViewModel filters=${viewModel.uiState.value?.filters}")
+                
                 // Update class-level variables
                 selectedGenres.clear()
                 selectedGenres.addAll(dialogGenres)
@@ -853,6 +1093,27 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 selectedFormat = dialogFormat
                 selectedSort = dialogSort
                 selectedNsfw = dialogNsfw
+
+                android.util.Log.d("STATE_SYNC_DEBUG", "STATE_SYNC_DEBUG: After local update - genres=$selectedGenres, excludedGenres=$excludedGenres, tags=$selectedTags, excludedTags=$excludedTags")
+                
+                // Update ViewModel filter state to keep in sync
+                android.util.Log.d("STATE_SYNC_FIX", "========== Syncing filter state to ViewModel ==========")
+                android.util.Log.d("STATE_SYNC_FIX", "Creating filterState with: genres=$selectedGenres, excludedGenres=$excludedGenres, tags=$selectedTags, excludedTags=$excludedTags")
+                val filterState = BrowseFilterState(
+                    genres = selectedGenres,
+                    tags = selectedTags,
+                    excludedGenres = excludedGenres,
+                    excludedTags = excludedTags,
+                    year = selectedYear,
+                    season = selectedSeason,
+                    format = selectedFormat,
+                    sort = selectedSort
+                )
+                android.util.Log.d("STATE_SYNC_FIX", "Calling viewModel.updateFilters with filterState=$filterState")
+                viewModel.updateFilters(filterState)
+                
+                android.util.Log.d("STATE_SYNC_DEBUG", "STATE_SYNC_DEBUG: After ViewModel update - ViewModel filters=${viewModel.uiState.value?.filters}")
+                android.util.Log.d("STATE_SYNC_FIX", "========== Filter state sync completed ==========")
 
                 // Reset ViewModel page to 1 when filters change
                 viewModel.resetPage()
@@ -870,10 +1131,16 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
     private fun toggleAccordion(recyclerView: RecyclerView, expandIcon: ImageView) {
         if (recyclerView.visibility == View.VISIBLE) {
             recyclerView.visibility = View.GONE
-            expandIcon.rotation = 0f
+            expandIcon.animate()
+                .rotation(0f)
+                .setDuration(250)
+                .start()
         } else {
             recyclerView.visibility = View.VISIBLE
-            expandIcon.rotation = 90f
+            expandIcon.animate()
+                .rotation(90f)
+                .setDuration(250)
+                .start()
         }
     }
 
@@ -914,6 +1181,100 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         android.util.Log.d("BrowseFragment", "loadDefaultFilters: loaded genres=$selectedGenres, excludedGenres=$excludedGenres, tags=$selectedTags, excludedTags=$excludedTags, year=$selectedYear, season=$selectedSeason, format=$selectedFormat, sort=$selectedSort, nsfw=$selectedNsfw")
     }
 
+    private fun hasCustomDefaults(): Boolean {
+        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+        val defaultGenres = prefs.getStringSet("default_genres", null)
+        val defaultExcludedGenres = prefs.getStringSet("default_excluded_genres", null)
+        val defaultTags = prefs.getStringSet("default_tags", null)
+        val defaultExcludedTags = prefs.getStringSet("default_excluded_tags", null)
+        val defaultYear = prefs.getString("default_year", "All")
+        val defaultSeason = prefs.getString("default_season", "All")
+        val defaultFormat = prefs.getString("default_format", "All")
+        val defaultSort = prefs.getString("default_sort", "Popularity")
+        val defaultNsfw = prefs.getBoolean("default_nsfw", false)
+
+        // Check if any default has been set to non-default values
+        return (defaultGenres != null && defaultGenres.isNotEmpty()) ||
+               (defaultExcludedGenres != null && defaultExcludedGenres.isNotEmpty()) ||
+               (defaultTags != null && defaultTags.isNotEmpty()) ||
+               (defaultExcludedTags != null && defaultExcludedTags.isNotEmpty()) ||
+               (defaultYear != "All") ||
+               (defaultSeason != "All") ||
+               (defaultFormat != "All") ||
+               (defaultSort != "Popularity") ||
+               defaultNsfw
+    }
+
+    private fun currentSettingsDifferFromDefaults(
+        currentGenres: Set<String>,
+        currentExcludedGenres: Set<String>,
+        currentTags: Set<String>,
+        currentExcludedTags: Set<String>,
+        currentYear: String,
+        currentSeason: String,
+        currentFormat: String,
+        currentSort: String,
+        currentNsfw: Boolean
+    ): Boolean {
+        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+        val defaultGenres = prefs.getStringSet("default_genres", emptySet())
+        val defaultExcludedGenres = prefs.getStringSet("default_excluded_genres", emptySet())
+        val defaultTags = prefs.getStringSet("default_tags", emptySet())
+        val defaultExcludedTags = prefs.getStringSet("default_excluded_tags", emptySet())
+        val defaultYear = prefs.getString("default_year", "All")
+        val defaultSeason = prefs.getString("default_season", "All")
+        val defaultFormat = prefs.getString("default_format", "All")
+        val defaultSort = prefs.getString("default_sort", "Popularity")
+        val defaultNsfw = prefs.getBoolean("default_nsfw", false)
+
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: Comparing current to defaults")
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: currentGenres=$currentGenres, defaultGenres=$defaultGenres")
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: currentExcludedGenres=$currentExcludedGenres, defaultExcludedGenres=$defaultExcludedGenres")
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: currentTags=$currentTags, defaultTags=$defaultTags")
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: currentExcludedTags=$currentExcludedTags, defaultExcludedTags=$defaultExcludedTags")
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: currentYear=$currentYear, defaultYear=$defaultYear")
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: currentSeason=$currentSeason, defaultSeason=$defaultSeason")
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: currentFormat=$currentFormat, defaultFormat=$defaultFormat")
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: currentSort=$currentSort, defaultSort=$defaultSort")
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: currentNsfw=$currentNsfw, defaultNsfw=$defaultNsfw")
+
+        val differs = currentGenres != defaultGenres ||
+                     currentExcludedGenres != defaultExcludedGenres ||
+                     currentTags != defaultTags ||
+                     currentExcludedTags != defaultExcludedTags ||
+                     currentYear != defaultYear ||
+                     currentSeason != defaultSeason ||
+                     currentFormat != defaultFormat ||
+                     currentSort != defaultSort ||
+                     currentNsfw != defaultNsfw
+
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: Settings differ from defaults: $differs")
+        return differs
+    }
+
+    private fun updateLoadDefaultsButtonVisibility(
+        dialogBinding: com.lagradost.cloudstream3.databinding.BottomAnilistGenreTagSelectorBinding,
+        currentGenres: Set<String>,
+        currentExcludedGenres: Set<String>,
+        currentTags: Set<String>,
+        currentExcludedTags: Set<String>,
+        currentYear: String,
+        currentSeason: String,
+        currentFormat: String,
+        currentSort: String,
+        currentNsfw: Boolean
+    ) {
+        val hasDefaults = hasCustomDefaults()
+        val differs = currentSettingsDifferFromDefaults(
+            currentGenres, currentExcludedGenres, currentTags, currentExcludedTags,
+            currentYear, currentSeason, currentFormat, currentSort, currentNsfw
+        )
+        val shouldShow = hasDefaults && differs
+
+        android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: updateLoadDefaultsButtonVisibility: hasDefaults=$hasDefaults, differs=$differs, shouldShow=$shouldShow")
+        dialogBinding.loadDefaultButton.visibility = if (shouldShow) View.VISIBLE else View.GONE
+    }
+
     private fun loadAniListResults() {
         android.util.Log.d("BrowseFragment", "========== loadAniListResults called ==========")
         android.util.Log.d("BrowseFragment", "loadAniListResults: isLoadingMoreResults=$isLoadingMoreResults, currentAniListPage=$currentAniListPage, hasMoreResults=$hasMoreResults")
@@ -923,71 +1284,107 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
 
         // Save current filter state to ViewModel only on first page load
         if (currentAniListPage == 1) {
+            android.util.Log.d("STATE_SYNC_FIX", "loadAniListResults: Syncing filter state to ViewModel on first page load")
+            android.util.Log.d("STATE_SYNC_FIX", "loadAniListResults: Creating currentFilters with: genres=$selectedGenres, excludedGenres=$excludedGenres, tags=$selectedTags, excludedTags=$excludedTags")
             val currentFilters = BrowseFilterState(
                 genres = selectedGenres,
                 tags = selectedTags,
+                excludedGenres = excludedGenres,
+                excludedTags = excludedTags,
                 year = selectedYear,
                 season = selectedSeason,
                 format = selectedFormat,
                 sort = selectedSort
             )
+            android.util.Log.d("STATE_SYNC_FIX", "loadAniListResults: Calling viewModel.updateFilters with currentFilters=$currentFilters")
             viewModel.updateFilters(currentFilters)
-            android.util.Log.d("BrowseFragment", "loadAniListResults: Updated filters: genres=$selectedGenres, year=$selectedYear, season=$selectedSeason, format=$selectedFormat, sort=$selectedSort")
+            android.util.Log.d("BrowseFragment", "loadAniListResults: Updated filters: genres=$selectedGenres, excludedGenres=$excludedGenres, tags=$selectedTags, excludedTags=$excludedTags, year=$selectedYear, season=$selectedSeason, format=$selectedFormat, sort=$selectedSort")
         } else {
             android.util.Log.d("BrowseFragment", "loadAniListResults: Skipping filter update (loading more results, page=$currentAniListPage)")
         }
 
         ioSafe {
-            main {
-                // Only use search bar spinner now, no center loader
-                android.util.Log.d("BrowseFragment", "loadAniListResults: Using search bar spinner only")
-            }
-
-            val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
-            val season = AniListFilterUtils.convertSeasonToApi(selectedSeason)
-            val format = AniListFilterUtils.convertFormatToApi(selectedFormat)
-            val sort = AniListFilterUtils.convertSortToApi(selectedSort)
-
-            android.util.Log.d("BrowseFragment", "loadAniListResults: Calling aniListApi.getMediaByGenre with page=$currentAniListPage, seasonYear=$seasonYear, season=$season, format=$format, sort=$sort, searchQuery=$searchQuery, isAdult=$selectedNsfw, excludedGenres=$excludedGenres, excludedTags=$excludedTags")
-
-            val response: AniListApi.MediaByGenreResponse? = aniListApi.getMediaByGenre(
-                selectedGenres.toList(),
-                selectedTags.toList(),
-                excludedGenres.toList(),
-                excludedTags.toList(),
-                currentAniListPage,
-                seasonYear,
-                season,
-                format,
-                sort,
-                searchQuery,
-                selectedNsfw
-            )
-
-            val mediaItems = response?.data?.page?.media ?: emptyList()
-            val hasNextPage = response?.data?.page?.pageInfo?.hasNextPage ?: false
-
-            android.util.Log.d("BrowseFragment", "loadAniListResults: Received ${mediaItems.size} media items, hasNextPage=$hasNextPage")
-
-            val searchResponses = mediaItems.mapNotNull { it.toSearchResponse() }
-            android.util.Log.d("BrowseFragment", "loadAniListResults: Converted to ${searchResponses.size} SearchResponse items")
-
-            main {
-                binding?.browseLoadingBar?.visibility = View.GONE
-                android.util.Log.d("BrowseFragment", "loadAniListResults: Set browseLoadingBar visibility to GONE")
-
-                if (currentAniListPage == 1) {
-                    android.util.Log.d("BrowseFragment", "loadAniListResults: Calling viewModel.updateResults with ${searchResponses.size} items")
-                    viewModel.updateResults(searchResponses, hasNextPage)
-                } else {
-                    android.util.Log.d("BrowseFragment", "loadAniListResults: Calling viewModel.appendResults with ${searchResponses.size} items")
-                    viewModel.appendResults(searchResponses, hasNextPage)
+            try {
+                android.util.Log.d("API_ERROR_HANDLING", "API_ERROR_HANDLING: Starting API call with error handling")
+                main {
+                    // Only use search bar spinner now, no center loader
+                    android.util.Log.d("BrowseFragment", "loadAniListResults: Using search bar spinner only")
                 }
 
-                isLoadingMoreResults = false
-                hasMoreResults = hasNextPage
-                viewModel.setLoading(false)
-                android.util.Log.d("BrowseFragment", "loadAniListResults: Set isLoadingMoreResults to false, hasMoreResults to $hasNextPage, viewModel loading to false")
+                val seasonYear = if (selectedYear == "All") null else selectedYear?.toIntOrNull()
+                val season = AniListFilterUtils.convertSeasonToApi(selectedSeason)
+                val format = AniListFilterUtils.convertFormatToApi(selectedFormat)
+                val sort = AniListFilterUtils.convertSortToApi(selectedSort)
+
+                android.util.Log.d("BrowseFragment", "loadAniListResults: Calling aniListApi.getMediaByGenre with page=$currentAniListPage, seasonYear=$seasonYear, season=$season, format=$format, sort=$sort, searchQuery=$searchQuery, isAdult=$selectedNsfw, excludedGenres=$excludedGenres, excludedTags=$excludedTags")
+                android.util.Log.d("API_ERROR_HANDLING", "API_ERROR_HANDLING: API call parameters - genres=${selectedGenres.toList()}, tags=${selectedTags.toList()}, excludedGenres=${excludedGenres.toList()}, excludedTags=${excludedTags.toList()}, page=$currentAniListPage")
+
+                val response: AniListApi.MediaByGenreResponse? = aniListApi.getMediaByGenre(
+                    selectedGenres.toList(),
+                    selectedTags.toList(),
+                    excludedGenres.toList(),
+                    excludedTags.toList(),
+                    currentAniListPage,
+                    seasonYear,
+                    season,
+                    format,
+                    sort,
+                    searchQuery,
+                    selectedNsfw
+                )
+
+                android.util.Log.d("API_ERROR_HANDLING", "API_ERROR_HANDLING: API call completed, response = $response")
+                
+                if (response == null) {
+                    android.util.Log.e("API_ERROR_HANDLING", "API_ERROR_HANDLING: API response is null")
+                    throw Exception("API response is null - possible network error or API failure")
+                }
+
+                val mediaItems = response?.data?.page?.media ?: emptyList()
+                val hasNextPage = response?.data?.page?.pageInfo?.hasNextPage ?: false
+
+                android.util.Log.d("BrowseFragment", "loadAniListResults: Received ${mediaItems.size} media items, hasNextPage=$hasNextPage")
+                android.util.Log.d("API_ERROR_HANDLING", "API_ERROR_HANDLING: Successfully parsed response with ${mediaItems.size} items")
+
+                val searchResponses = mediaItems.mapNotNull { it.toSearchResponse() }
+                android.util.Log.d("BrowseFragment", "loadAniListResults: Converted to ${searchResponses.size} SearchResponse items")
+
+                main {
+                    binding?.browseLoadingBar?.visibility = View.GONE
+                    android.util.Log.d("BrowseFragment", "loadAniListResults: Set browseLoadingBar visibility to GONE")
+
+                    if (currentAniListPage == 1) {
+                        android.util.Log.d("BrowseFragment", "loadAniListResults: Calling viewModel.updateResults with ${searchResponses.size} items")
+                        viewModel.updateResults(searchResponses, hasNextPage)
+                    } else {
+                        android.util.Log.d("BrowseFragment", "loadAniListResults: Calling viewModel.appendResults with ${searchResponses.size} items")
+                        viewModel.appendResults(searchResponses, hasNextPage)
+                    }
+
+                    isLoadingMoreResults = false
+                    hasMoreResults = hasNextPage
+                    viewModel.setLoading(false)
+                    android.util.Log.d("BrowseFragment", "loadAniListResults: Set isLoadingMoreResults to false, hasMoreResults to $hasNextPage, viewModel loading to false")
+                    android.util.Log.d("API_ERROR_HANDLING", "API_ERROR_HANDLING: Successfully updated UI with results")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("API_ERROR_HANDLING", "API_ERROR_HANDLING: ERROR in loadAniListResults", e)
+                android.util.Log.e("API_ERROR_HANDLING", "API_ERROR_HANDLING: Exception message: ${e.message}")
+                android.util.Log.e("API_ERROR_HANDLING", "API_ERROR_HANDLING: Exception type: ${e.javaClass.simpleName}")
+                android.util.Log.e("API_ERROR_HANDLING", "API_ERROR_HANDLING: Stack trace: ${e.stackTraceToString()}")
+                
+                main {
+                    binding?.browseLoadingBar?.visibility = View.GONE
+                    android.util.Log.d("API_ERROR_HANDLING", "API_ERROR_HANDLING: Hid loading bar due to error")
+                    
+                    isLoadingMoreResults = false
+                    viewModel.setLoading(false)
+                    android.util.Log.d("API_ERROR_HANDLING", "API_ERROR_HANDLING: Reset loading flags due to error")
+                    
+                    // Show error message to user
+                    android.util.Log.e("API_ERROR_HANDLING", "API_ERROR_HANDLING: Showing error toast to user")
+                    com.lagradost.cloudstream3.CommonActivity.showToast("Failed to load results: ${e.message}")
+                }
             }
         }
         android.util.Log.d("BrowseFragment", "========== loadAniListResults completed ==========")

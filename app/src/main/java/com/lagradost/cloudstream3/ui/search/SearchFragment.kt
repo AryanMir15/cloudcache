@@ -182,10 +182,75 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
         
         afterPluginsLoadedEvent += ::reloadRepos
         
-        // Check for search query from MainActivity.nextSearchQuery when resuming
+        android.util.Log.d("NAV_ARGS_FIX", "========== SearchFragment.onResume: Checking for search query ==========")
+        android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: Checking navigation arguments first")
+        val navQuery = arguments?.getString("search_query")
+        android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: Navigation argument search_query = '$navQuery'")
+        android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: Static variable MainActivity.nextSearchQuery = ${MainActivity.nextSearchQuery}")
+        
+        // Check for search query from navigation arguments first (preferred method)
+        // This handles navigation via NavController with arguments
+        if (navQuery != null && navQuery.isNotBlank()) {
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: Using navigation argument query: '$navQuery'")
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: query length = ${navQuery.length}")
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: query isBlank = ${navQuery.isBlank()}")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: setting sq and triggering search with query from nav args: '$navQuery'")
+            // Update the class-level sq variable
+            sq = navQuery
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: sq updated to: '$sq'")
+            
+            // Clear the argument to prevent re-triggering on resume
+            arguments?.remove("search_query")
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: Cleared navigation argument to prevent re-trigger")
+            
+            // Force clear and set the search bar text completely
+            binding?.mainSearch?.let { searchView ->
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: before clear - searchView.query = '${searchView.query}'")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: before clear - searchView.hasFocus = ${searchView.hasFocus()}")
+                searchView.setQuery("", false)
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after setQuery('') - searchView.query = '${searchView.query}'")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after setQuery('') - searchView.hasFocus = ${searchView.hasFocus()}")
+                
+                // Clear the EditText directly
+                val editText = searchView.findViewById<android.widget.EditText>(androidx.appcompat.R.id.search_src_text)
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: editText.text before clear = '${editText?.text}'")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: editText.hasFocus before clear = ${editText?.hasFocus()}")
+                editText?.text?.clear()
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: editText.text after clear = '${editText?.text}'")
+                editText?.text?.append(navQuery)
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: editText.text after append = '${editText?.text}'")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: editText.hasFocus after append = ${editText?.hasFocus()}")
+                
+                searchView.setQuery(navQuery, true)
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after setQuery('$navQuery', true) - searchView.query = '${searchView.query}'")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after setQuery('$navQuery', true) - searchView.hasFocus = ${searchView.hasFocus()}")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after setQuery('$navQuery', true) - editText.hasFocus = ${editText?.hasFocus()}")
+                
+                // FIX: Clear focus from searchView to prevent keyboard from showing and autocomplete from triggering
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: ATTEMPTING FIX - clearing focus from searchView")
+                searchView.clearFocus()
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after clearFocus() - searchView.hasFocus = ${searchView.hasFocus()}")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: after clearFocus() - editText.hasFocus = ${editText?.hasFocus()}")
+                
+                // Also hide keyboard explicitly
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: hiding keyboard")
+                hideKeyboard(searchView)
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: keyboard hidden")
+            }
+            
+            // Trigger the search
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: calling search('$navQuery')")
+            search(navQuery)
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: Search triggered with navigation argument query")
+            // Clear suggestions to hide overlay when returning from entry
+            searchViewModel.clearSuggestions()
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: cleared suggestions")
+        } 
+        // Check for search query from MainActivity.nextSearchQuery when resuming (fallback)
         // This handles tab switching via bottom navigation
-        if (MainActivity.nextSearchQuery != null) {
+        else if (MainActivity.nextSearchQuery != null) {
             val query = MainActivity.nextSearchQuery
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: No navigation argument, using static variable fallback")
             android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: MainActivity.nextSearchQuery is not null, query: '$query'")
             android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: query length = ${query?.length}")
             android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: query isBlank = ${query?.isBlank()}")
@@ -263,10 +328,12 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
     override fun onStart() {
         super.onStart()
         android.util.Log.d("GENRE_FILTER_REDIRECT", "========== SearchFragment.onStart called ==========")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: MainActivity.nextSearchQuery: ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: onStart: Checking navigation arguments first")
+        val navQuery = arguments?.getString("search_query")
+        android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: onStart: Navigation argument search_query = '$navQuery'")
+        android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: onStart: Static variable MainActivity.nextSearchQuery = ${MainActivity.nextSearchQuery}")
         android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: mainSearch query: ${binding?.mainSearch?.query}")
         android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: sq = $sq")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: arguments SEARCH_QUERY: ${arguments?.getString(SEARCH_QUERY)}")
         
         // Force the SearchView to use the current sq value (from onBindingCreated)
         // This prevents SearchView state restoration from reverting to an old query
@@ -275,10 +342,69 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
             binding?.mainSearch?.setQuery(sq, false)
         }
         
-        // Check for search query from MainActivity.nextSearchQuery when fragment starts
+        android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: onStart: Checking for search query from navigation arguments first")
+        // Check for search query from navigation arguments first (preferred method)
+        if (navQuery != null && navQuery.isNotBlank()) {
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: onStart: Using navigation argument query: '$navQuery'")
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: onStart: query length = ${navQuery.length}")
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: onStart: query isBlank = ${navQuery.isBlank()}")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: setting sq and triggering search with query from nav args: '$navQuery'")
+            // Update the class-level sq variable
+            sq = navQuery
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: onStart: sq updated to: '$sq'")
+            
+            // Clear the argument to prevent re-triggering
+            arguments?.remove("search_query")
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: onStart: Cleared navigation argument to prevent re-trigger")
+            
+            // Force clear and set the search bar text completely
+            binding?.mainSearch?.let { searchView ->
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: before clear - searchView.query = '${searchView.query}'")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: before clear - searchView.hasFocus = ${searchView.hasFocus()}")
+                searchView.setQuery("", false)
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after setQuery('') - searchView.query = '${searchView.query}'")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after setQuery('') - searchView.hasFocus = ${searchView.hasFocus()}")
+                
+                // Clear the EditText directly
+                val editText = searchView.findViewById<android.widget.EditText>(androidx.appcompat.R.id.search_src_text)
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: editText.text before clear = '${editText?.text}'")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: editText.hasFocus before clear = ${editText?.hasFocus()}")
+                editText?.text?.clear()
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: editText.text after clear = '${editText?.text}'")
+                editText?.text?.append(navQuery)
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: editText.text after append = '${editText?.text}'")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: editText.hasFocus after append = ${editText?.hasFocus()}")
+                
+                searchView.setQuery(navQuery, true)
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after setQuery('$navQuery', true) - searchView.query = '${searchView.query}'")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after setQuery('$navQuery', true) - searchView.hasFocus = ${searchView.hasFocus()}")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after setQuery('$navQuery', true) - editText.hasFocus = ${editText?.hasFocus()}")
+                
+                // FIX: Clear focus from searchView to prevent keyboard from showing and autocomplete from triggering
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: ATTEMPTING FIX - clearing focus from searchView")
+                searchView.clearFocus()
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after clearFocus() - searchView.hasFocus = ${searchView.hasFocus()}")
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: after clearFocus() - editText.hasFocus = ${editText?.hasFocus()}")
+                
+                // Also hide keyboard explicitly
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: hiding keyboard")
+                hideKeyboard(searchView)
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: keyboard hidden")
+            }
+            
+            // Trigger the search
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: calling search('$navQuery')")
+            search(navQuery)
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: onStart: Search triggered with navigation argument query")
+            // Clear suggestions to hide overlay when returning from entry
+            searchViewModel.clearSuggestions()
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: cleared suggestions")
+        }
+        // Check for search query from MainActivity.nextSearchQuery when fragment starts (fallback)
         // This handles tab switching via bottom navigation when fragment is already in backstack
-        if (MainActivity.nextSearchQuery != null) {
+        else if (MainActivity.nextSearchQuery != null) {
             val query = MainActivity.nextSearchQuery
+            android.util.Log.d("NAV_ARGS_FIX", "NAV_ARGS_FIX: onStart: No navigation argument, using static variable fallback")
             android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: MainActivity.nextSearchQuery is not null, query: '$query'")
             android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: query length = ${query?.length}")
             android.util.Log.d("GENRE_FILTER_REDIRECT", "onStart: query isBlank = ${query?.isBlank()}")
