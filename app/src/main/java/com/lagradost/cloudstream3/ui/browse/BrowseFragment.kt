@@ -79,6 +79,12 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
     private var isLoadingMoreResults = false
     private var searchQuery: String? = null
 
+    // RecyclerView layout state preservation
+    private var recyclerViewLayoutState: android.os.Parcelable? = null
+    private companion object {
+        private const val RECYCLER_LAYOUT_STATE_KEY = "recycler_layout_state"
+    }
+
     // Top bar hide/show on scroll
     private var isTopBarVisible = true
     private var isAnimatingTopBar = false
@@ -177,40 +183,152 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
     override fun onResume() {
         super.onResume()
         android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onResume called ==========")
-        android.util.Log.d("CONFIG_CHANGE_FIX", "BrowseFragment.onResume: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
-        android.util.Log.d("CONFIG_CHANGE_FIX", "BrowseFragment.onResume: searchQuery = $searchQuery")
-        android.util.Log.d("CONFIG_CHANGE_FIX", "BrowseFragment.onResume: local genres=$selectedGenres, excludedGenres=$excludedGenres")
-        android.util.Log.d("CONFIG_CHANGE_FIX", "BrowseFragment.onResume: ViewModel filters=${viewModel.uiState.value?.filters}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Fragment instance = ${this.hashCode()}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: searchQuery = $searchQuery")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: local genres=$selectedGenres, excludedGenres=$excludedGenres")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: ViewModel filters=${viewModel.uiState.value?.filters}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: resultsList size = ${resultsList.size}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: currentAniListPage = $currentAniListPage")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: hasMoreResults = $hasMoreResults")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isLoading = ${viewModel.uiState.value?.isLoading}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isLoadingMoreResults = $isLoadingMoreResults")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isAdded = ${isAdded}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isDetached = ${isDetached}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: view != null = ${view != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: activity != null = ${activity != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: context != null = ${context != null}")
+        
+        // Force RecyclerView to recalculate layout after configuration change
+        // Since fragment is retained, we need to manually trigger layout recalculation
+        binding?.browseResults?.let { recyclerView ->
+            android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Scheduling RecyclerView layout recalculation")
+            recyclerView.post {
+                android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Forcing RecyclerView layout recalculation")
+                android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: RecyclerView width = ${recyclerView.width}, height = ${recyclerView.height}")
+                recyclerView.layoutManager?.requestLayout()
+                recyclerView.adapter?.notifyDataSetChanged()
+            }
+        }
+        
         android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onResume completed ==========")
     }
 
     override fun onDestroy() {
         super.onDestroy()
         android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onDestroy called ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Fragment instance = ${this.hashCode()}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isAdded = ${isAdded}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isDetached = ${isDetached}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: view != null = ${view != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: activity != null = ${activity != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: context != null = ${context != null}")
         android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onDestroy completed ==========")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onCreate called ==========")
-        android.util.Log.d("CONFIG_CHANGE_FIX", "BrowseFragment.onCreate: savedInstanceState=$savedInstanceState")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Fragment instance = ${this.hashCode()}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: savedInstanceState=$savedInstanceState")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isAdded = ${isAdded}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isDetached = ${isDetached}")
+        
+        // Restore RecyclerView layout state
+        savedInstanceState?.let { bundle ->
+            recyclerViewLayoutState = bundle.getParcelable<android.os.Parcelable>(RECYCLER_LAYOUT_STATE_KEY)
+            android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Restored RecyclerView layout state")
+        }
+        
         android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onCreate completed ==========")
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onConfigurationChanged called ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Fragment instance = ${this.hashCode()}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: New orientation = ${newConfig.orientation}")
+        
+        // Force RecyclerView to recalculate layout after configuration change
+        binding?.browseResults?.let { recyclerView ->
+            android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Scheduling RecyclerView layout recalculation")
+            recyclerView.post {
+                android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Forcing RecyclerView layout recalculation")
+                android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: RecyclerView width = ${recyclerView.width}, height = ${recyclerView.height}")
+                recyclerView.layoutManager?.requestLayout()
+                recyclerView.adapter?.notifyDataSetChanged()
+            }
+        }
+        
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onConfigurationChanged completed ==========")
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onSaveInstanceState called ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Fragment instance = ${this.hashCode()}")
+        
+        // Save RecyclerView layout state
+        binding?.browseResults?.layoutManager?.onSaveInstanceState()?.let { layoutState ->
+            outState.putParcelable(RECYCLER_LAYOUT_STATE_KEY, layoutState)
+            android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Saved RecyclerView layout state")
+        } ?: android.util.Log.w("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: RecyclerView layout state is null, cannot save")
+        
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onSaveInstanceState completed ==========")
     }
 
     override fun onPause() {
         super.onPause()
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onPause called ==========")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "BrowseFragment.onPause: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onPause completed ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onPause called ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Fragment instance = ${this.hashCode()}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isAdded = ${isAdded}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isDetached = ${isDetached}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: view != null = ${view != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: activity != null = ${activity != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: context != null = ${context != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onPause completed ==========")
     }
 
     override fun onStop() {
         super.onStop()
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onStop called ==========")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "BrowseFragment.onStop: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
-        android.util.Log.d("GENRE_FILTER_REDIRECT", "========== BrowseFragment.onStop completed ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onStop called ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Fragment instance = ${this.hashCode()}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isAdded = ${isAdded}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isDetached = ${isDetached}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: view != null = ${view != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: activity != null = ${activity != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: context != null = ${context != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onStop completed ==========")
     }
 
+    override fun onStart() {
+        super.onStart()
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onStart called ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Fragment instance = ${this.hashCode()}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isAdded = ${isAdded}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isDetached = ${isDetached}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: view != null = ${view != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: activity != null = ${activity != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: context != null = ${context != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onStart completed ==========")
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onDestroyView called ==========")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Fragment instance = ${this.hashCode()}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isAdded = ${isAdded}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isDetached = ${isDetached}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: view != null = ${view != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: activity != null = ${activity != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: context != null = ${context != null}")
+        android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onDestroyView completed ==========")
+    }
+
+    
     private fun navigateToSearch(query: String) {
         android.util.Log.d("NAV_STATE_LOSS_FIX", "========== navigateToSearch called ==========")
         android.util.Log.d("NAV_STATE_LOSS_FIX", "navigateToSearch: query = '$query'")
@@ -426,6 +544,17 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             browseResults.setRecycledViewPool(SearchAdapter.sharedPool)
             browseResults.adapter = adapter
             android.util.Log.d("BrowseFragment", "setupUI: Set adapter to browseResults")
+
+            // Restore RecyclerView layout state if available
+            recyclerViewLayoutState?.let { state ->
+                try {
+                    browseResults.layoutManager?.onRestoreInstanceState(state)
+                    android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Restored RecyclerView layout state to layoutManager")
+                } catch (e: Exception) {
+                    android.util.Log.e("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Failed to restore RecyclerView layout state", e)
+                }
+                recyclerViewLayoutState = null // Clear after restoration
+            }
 
             // Debug: Log top bar container and children
             topBarContainer.post {
@@ -1340,13 +1469,81 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     throw Exception("API response is null - possible network error or API failure")
                 }
 
-                val mediaItems = response?.data?.page?.media ?: emptyList()
-                val hasNextPage = response?.data?.page?.pageInfo?.hasNextPage ?: false
+                android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: Starting null safety checks for API response fields")
+                android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: response.data = ${response.data}")
+                android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: response.data.page = ${response.data?.page}")
+                android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: response.data.page.media = ${response.data?.page?.media}")
+                android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: response.data.page.pageInfo = ${response.data?.page?.pageInfo}")
+                android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: response.data.page.pageInfo.hasNextPage = ${response.data?.page?.pageInfo?.hasNextPage}")
 
+                // Null safety checks with detailed logging
+                if (response.data == null) {
+                    android.util.Log.e("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: ERROR - response.data is null")
+                    throw Exception("API response data is null - API returned invalid response structure")
+                }
+
+                if (response.data?.page == null) {
+                    android.util.Log.e("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: ERROR - response.data.page is null")
+                    throw Exception("API response page is null - API returned invalid page structure")
+                }
+
+                if (response.data?.page?.media == null) {
+                    android.util.Log.w("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: WARNING - response.data.page.media is null, treating as empty list")
+                }
+
+                if (response.data?.page?.pageInfo == null) {
+                    android.util.Log.w("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: WARNING - response.data.page.pageInfo is null, treating hasNextPage as false")
+                }
+
+                val mediaItems = response.data?.page?.media ?: emptyList()
+                val hasNextPage = response.data?.page?.pageInfo?.hasNextPage ?: false
+
+                android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: After null safety checks - mediaItems.size=${mediaItems.size}, hasNextPage=$hasNextPage")
                 android.util.Log.d("BrowseFragment", "loadAniListResults: Received ${mediaItems.size} media items, hasNextPage=$hasNextPage")
                 android.util.Log.d("API_ERROR_HANDLING", "API_ERROR_HANDLING: Successfully parsed response with ${mediaItems.size} items")
 
-                val searchResponses = mediaItems.mapNotNull { it.toSearchResponse() }
+                // Additional null safety for individual media items
+                android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: Starting null safety checks for individual media items")
+                val validMediaItems = mutableListOf<AniListApi.MediaByGenreItem>()
+                var nullItemCount = 0
+                var invalidItemCount = 0
+                
+                mediaItems.forEachIndexed { index, mediaItem ->
+                    android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: Checking media item $index")
+                    android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: mediaItem = $mediaItem")
+                    android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: mediaItem.id = ${mediaItem?.id}")
+                    android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: mediaItem.title = ${mediaItem?.title}")
+                    android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: mediaItem.coverImage = ${mediaItem?.coverImage}")
+                    
+                    when {
+                        mediaItem == null -> {
+                            nullItemCount++
+                            android.util.Log.e("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: ERROR - media item $index is null")
+                        }
+                        mediaItem.id == null -> {
+                            invalidItemCount++
+                            android.util.Log.e("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: ERROR - media item $index has null id")
+                        }
+                        mediaItem.title == null -> {
+                            invalidItemCount++
+                            android.util.Log.e("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: ERROR - media item $index has null title")
+                        }
+                        mediaItem.coverImage == null -> {
+                            android.util.Log.w("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: WARNING - media item $index has null coverImage")
+                            // Still include items with null coverImage, just log warning
+                            validMediaItems.add(mediaItem)
+                        }
+                        else -> {
+                            android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: media item $index is valid")
+                            validMediaItems.add(mediaItem)
+                        }
+                    }
+                }
+                
+                android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: Null safety summary - total=${mediaItems.size}, valid=${validMediaItems.size}, null=$nullItemCount, invalid=$invalidItemCount")
+
+                val searchResponses = validMediaItems.mapNotNull { it.toSearchResponse() }
+                android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: Converted ${validMediaItems.size} valid media items to ${searchResponses.size} SearchResponse items")
                 android.util.Log.d("BrowseFragment", "loadAniListResults: Converted to ${searchResponses.size} SearchResponse items")
 
                 main {
@@ -1406,15 +1603,50 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         android.util.Log.d("BrowseFragment", "========== loadMoreResults completed ==========")
     }
 
-    private fun AniListApi.MediaByGenreItem.toSearchResponse(): SearchResponse {
+    private fun AniListApi.MediaByGenreItem.toSearchResponse(): SearchResponse? {
+        android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: Converting MediaByGenreItem to SearchResponse")
+        android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: this.id = ${this.id}")
+        android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: this.title = ${this.title}")
+        android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: this.title.romaji = ${this.title?.romaji}")
+        android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: this.title.english = ${this.title?.english}")
+        android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: this.coverImage = ${this.coverImage}")
+        android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: this.coverImage.large = ${this.coverImage?.large}")
+        android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: this.coverImage.medium = ${this.coverImage?.medium}")
+
+        // Null safety checks for required fields
+        if (this.id == null) {
+            android.util.Log.e("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: ERROR - Cannot convert item with null id")
+            return null
+        }
+
+        if (this.title == null) {
+            android.util.Log.e("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: ERROR - Cannot convert item with null title")
+            return null
+        }
+
+        // Extract name with fallbacks
+        val name = this.title?.romaji ?: this.title?.english ?: ""
+        if (name.isBlank()) {
+            android.util.Log.e("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: ERROR - Both romaji and english titles are null or blank")
+            return null
+        }
+
+        // Extract poster URL with fallbacks
+        val posterUrl = this.coverImage?.large ?: this.coverImage?.medium
+        if (posterUrl == null) {
+            android.util.Log.w("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: WARNING - Both coverImage.large and coverImage.medium are null, using null posterUrl")
+        }
+
+        android.util.Log.d("NULL_SAFETY_CHECK", "NULL_SAFETY_CHECK: Successfully converted - name='$name', posterUrl=$posterUrl")
+        
         @Suppress("DEPRECATION_ERROR")
         return AnimeSearchResponse(
-            name = this.title?.romaji ?: this.title?.english ?: "",
+            name = name,
             url = "https://anilist.co/anime/${this.id}",
             apiName = "AniList",
             type = TvType.Anime,
             id = this.id,
-            posterUrl = this.coverImage?.large ?: this.coverImage?.medium
+            posterUrl = posterUrl
         )
     }
 }

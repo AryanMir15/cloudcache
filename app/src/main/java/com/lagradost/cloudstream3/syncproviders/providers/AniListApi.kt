@@ -1224,25 +1224,47 @@ class AniListApi : SyncAPI() {
         search: String? = null,
         isAdult: Boolean? = null
     ): MediaByGenreResponse? {
-        // Fetch official genre list to validate/normalize genre names
+        android.util.Log.d("API_OPTIMIZATION", "API_OPTIMIZATION: getMediaByGenre called with genres=$genres, excludedGenres=$excludedGenres, tags=$tags, excludedTags=$excludedTags")
+        
+        // OPTIMIZATION: Cache genre collection to avoid redundant API calls
+        android.util.Log.d("API_OPTIMIZATION", "API_OPTIMIZATION: Checking if we need to fetch genre collection")
         val officialGenres = getGenreCollection()
+        android.util.Log.d("API_OPTIMIZATION", "API_OPTIMIZATION: Genre collection fetched, size=${officialGenres?.size}")
         android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: official genres from API=$officialGenres")
         android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: requested genres=$genres")
         android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: search=$search")
         
-        // Normalize genre names to match official list (case-sensitive match)
-        val normalizedGenres = genres.map { genre ->
-            officialGenres?.firstOrNull { it.equals(genre, ignoreCase = true) } ?: genre
+        // OPTIMIZATION: Only normalize if we have genres to normalize and official genres are available
+        val normalizedGenres = if (genres.isNotEmpty() && officialGenres != null) {
+            android.util.Log.d("API_OPTIMIZATION", "API_OPTIMIZATION: Normalizing ${genres.size} genres")
+            genres.map { genre ->
+                val normalized = officialGenres.firstOrNull { it.equals(genre, ignoreCase = true) } ?: genre
+                android.util.Log.d("API_OPTIMIZATION", "API_OPTIMIZATION: Genre normalization: '$genre' -> '$normalized'")
+                normalized
+            }
+        } else {
+            android.util.Log.d("API_OPTIMIZATION", "API_OPTIMIZATION: No genres to normalize or official genres unavailable, using original genres")
+            genres
         }
         android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: normalized genres=$normalizedGenres")
         
-        // Normalize excluded genre names to match official list
-        val normalizedExcludedGenres = excludedGenres.map { genre ->
-            officialGenres?.firstOrNull { it.equals(genre, ignoreCase = true) } ?: genre
+        // OPTIMIZATION: Only normalize excluded genres if we have them and official genres are available
+        val normalizedExcludedGenres = if (excludedGenres.isNotEmpty() && officialGenres != null) {
+            android.util.Log.d("API_OPTIMIZATION", "API_OPTIMIZATION: Normalizing ${excludedGenres.size} excluded genres")
+            excludedGenres.map { genre ->
+                val normalized = officialGenres.firstOrNull { it.equals(genre, ignoreCase = true) } ?: genre
+                android.util.Log.d("API_OPTIMIZATION", "API_OPTIMIZATION: Excluded genre normalization: '$genre' -> '$normalized'")
+                normalized
+            }
+        } else {
+            android.util.Log.d("API_OPTIMIZATION", "API_OPTIMIZATION: No excluded genres to normalize or official genres unavailable, using original excluded genres")
+            excludedGenres
         }
         android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: excluded genres=$excludedGenres")
         android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: normalized excluded genres=$normalizedExcludedGenres")
         android.util.Log.d("GenreFilter", "AniListApi.getMediaByGenre: excluded tags=$excludedTags")
+        
+        android.util.Log.d("API_OPTIMIZATION", "API_OPTIMIZATION: Genre normalization completed - included: ${normalizedGenres.size}, excluded: ${normalizedExcludedGenres.size}")
         
         // Single master query with all possible filter variables including search and exclusions
         val query = """
