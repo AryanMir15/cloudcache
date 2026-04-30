@@ -67,8 +67,7 @@ class SettingsUI : BasePreferenceFragmentCompat() {
         }
 
         getPref(R.string.library_poster_size_key)?.setOnPreferenceChangeListener { _, newValue ->
-            // Note: This will update all PageAdapter instances when they're created
-            // The actual spanCount update happens in ViewpagerAdapter when the RecyclerView is attached
+            context?.let { PageAdapter.updatePosterSize(null, it, newValue as? Int) }
             true
         }
 

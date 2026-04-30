@@ -16,7 +16,6 @@ import com.lagradost.cloudstream3.ui.ViewHolderState
 import com.lagradost.cloudstream3.ui.search.SearchClickCallback
 import com.lagradost.cloudstream3.ui.search.SearchResultBuilder
 import com.lagradost.cloudstream3.utils.UIHelper.getSpanCount
-import com.lagradost.cloudstream3.utils.UIHelper.toPx
 import kotlin.math.roundToInt
 
 class PageAdapter(
@@ -33,16 +32,10 @@ class PageAdapter(
     private val coverHeight: Int get() = (resView.itemWidth / 0.68).roundToInt()
 
     companion object {
-        fun updatePosterSize(resView: AutofitRecyclerView, context: Context, value: Int? = null) {
-            val scale = value ?: PreferenceManager.getDefaultSharedPreferences(context)
-                ?.getInt(context.getString(R.string.library_poster_size_key), 0) ?: 0
-            // Adjust spanCount to control poster size
-            // Higher scale = fewer columns = larger posters
-            val baseSpanCount = context.getSpanCount()
-            val adjustedSpanCount = maxOf(1, (baseSpanCount / (1.0f + scale * 0.1f)).roundToInt())
-            
-            // Update the RecyclerView's spanCount
-            resView.spanCount = adjustedSpanCount
+        fun updatePosterSize(resView: AutofitRecyclerView?, context: Context, value: Int? = null) {
+            val spanCount = value ?: PreferenceManager.getDefaultSharedPreferences(context)
+                .getInt(context.getString(R.string.library_poster_size_key), 3)
+            resView?.spanCount = spanCount
         }
     }
 
