@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="auto_download_network_entries">
+        <item>Wi-Fi only</item>
+        <item>Mobile data only</item>
+        <item>Wi-Fi and mobile data</item>
+    </string-array>
+    <string-array name="auto_download_network_values">
+        <item>wifi_only</item>
+        <item>data_only</item>
+        <item>both</item>
+    </string-array>
+</resources>

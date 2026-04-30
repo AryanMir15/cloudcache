@@ -422,8 +422,33 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
         adapter.submitList(newItems)
     }
 
+    private fun isKeyboardVisible(): Boolean {
+        val rootView = binding?.root ?: return false
+        val rect = android.graphics.Rect()
+        rootView.getWindowVisibleDisplayFrame(rect)
+        val screenHeight = rootView.height
+        val keypadHeight = screenHeight - rect.bottom
+        val threshold = screenHeight * 0.15
+        val isVisible = keypadHeight > threshold
+        android.util.Log.d("QuickSearchToast", "[KEYBOARD_CHECK] screenHeight: $screenHeight, keypadHeight: $keypadHeight, threshold: $threshold, isVisible: $isVisible")
+        return isVisible // Keyboard is visible if it takes more than 15% of screen
+    }
+
     private fun showNoMoreResultsToast() {
-        binding?.noMoreResultsToast?.apply {
+        val keyboardVisible = isKeyboardVisible()
+        android.util.Log.d("QuickSearchToast", "[TOAST_POSITION] Keyboard visible: $keyboardVisible")
+        
+        // Show top toast if keyboard is visible, otherwise show bottom toast
+        val toastView = if (keyboardVisible) {
+            android.util.Log.d("QuickSearchToast", "[TOAST_POSITION] Using TOP toast")
+            binding?.noMoreResultsToastTop
+        } else {
+            android.util.Log.d("QuickSearchToast", "[TOAST_POSITION] Using BOTTOM toast")
+            binding?.noMoreResultsToast
+        }
+
+        toastView?.apply {
+            android.util.Log.d("QuickSearchToast", "[TOAST_POSITION] Toast view: $id, visibility before: $visibility")
             visibility = View.VISIBLE
             alpha = 0f
             animate()

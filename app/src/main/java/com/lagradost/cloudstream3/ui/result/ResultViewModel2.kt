@@ -482,10 +482,15 @@ class ResultViewModel2 : ViewModel() {
     var EPISODE_RANGE_SIZE: Int = 20
 
     fun clear() {
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "clear() called - clearing currentResponse")
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "clear() - currentResponse before clear: ${currentResponse?.name}, type: ${currentResponse?.javaClass?.simpleName}")
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "clear() - _subscribeStatus.value before clear: ${_subscribeStatus.value}")
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "clear() - justUnsubscribedId before clear: $justUnsubscribedId (NOT clearing to preserve across reload)")
         currentResponse = null
         originalResponse = null
         currentMeta = null
         currentSync = null
+        // Don't clear justUnsubscribedId here - it needs to persist across the reload cycle
         _isMetadataSwapMode.postValue(false)
         _page.postValue(null)
     }
@@ -630,6 +635,12 @@ class ResultViewModel2 : ViewModel() {
 
     companion object {
         const val TAG = "RVM2"
+        // Track if user just unsubscribed to preserve false status across ViewModel recreation
+        // This survives clear() and ViewModel recreation caused by reloadLibraryEvent
+        private var justUnsubscribedId: Int? = null
+        private var justUnsubscribedTime: Long = 0
+        private const val UNSUBSCRIBE_WINDOW_MS = 5000 // 5 second window
+        
         var sharedOriginalResponse: LoadResponse? = null
         var sharedTrueOriginal: LoadResponse? = null // Stores the true original data from the first swap
         var sharedSwappedResponse: LoadResponse? = null
@@ -903,18 +914,35 @@ class ResultViewModel2 : ViewModel() {
         val response = currentResponse ?: return
         val currentId = currentId ?: return
 
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus ENTRY - isSubscribed: $isSubscribed, response type: ${response::class.simpleName}, currentId: $currentId, response.isEpisodeBased: ${response.isEpisodeBased()}")
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus ENTRY - currentResponse: ${currentResponse?.name}, currentResponse type: ${currentResponse?.javaClass?.simpleName}")
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus ENTRY - CALL STACK: ${Thread.currentThread().stackTrace.take(10).joinToString("\n") { "    at ${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})" }}")
+
         // This might be a bit confusing, but even if the loadresponse is not a EpisodeResponse
         // _subscribeStatus might be true.
 
         if (isSubscribed) {
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - UNSUBSCRIBE path - removing data for id: $currentId")
             removeSubscribedData(currentId)
             statusChangedCallback?.invoke(false)
-            _subscribeStatus.postValue(if (response is EpisodeResponse) false else null)
+            // Always set false on unsubscribe, regardless of response type
+            // This ensures the button remains visible for re-subscription
+            val newStatus = false
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - UNSUBSCRIBE - posting new status: $newStatus (response type: ${response::class.simpleName})")
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - UNSUBSCRIBE - _subscribeStatus.value before postValue: ${_subscribeStatus.value}")
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - UNSUBSCRIBE - setting companion justUnsubscribedId to: $currentId")
+            ResultViewModel2.justUnsubscribedId = currentId
+            ResultViewModel2.justUnsubscribedTime = System.currentTimeMillis()
+            _subscribeStatus.postValue(newStatus)
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - UNSUBSCRIBE - _subscribeStatus.value after postValue: ${_subscribeStatus.value}")
             MainActivity.reloadLibraryEvent(true)
         } else {
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - SUBSCRIBE path - checking if response is EpisodeResponse")
             if (response !is EpisodeResponse) {
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - SUBSCRIBE - response is NOT EpisodeResponse, returning early")
                 return
             }
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - SUBSCRIBE - checking for duplicates")
             checkAndWarnDuplicates(
                 context,
                 LibraryListType.SUBSCRIPTIONS,
@@ -925,19 +953,24 @@ class ResultViewModel2 : ViewModel() {
                 ),
                 getAllSubscriptions(),
             ) { shouldContinue: Boolean, duplicateIds: List<Int?> ->
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - SUBSCRIBE - duplicate check callback - shouldContinue: $shouldContinue, duplicateIds: $duplicateIds")
                 if (!shouldContinue) {
+                    android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - SUBSCRIBE - user cancelled, invoking callback with null")
                     statusChangedCallback?.invoke(null)
                     return@checkAndWarnDuplicates
                 }
 
                 if (duplicateIds.isNotEmpty()) {
+                    android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - SUBSCRIBE - removing duplicate entries: $duplicateIds")
                     duplicateIds.forEach { duplicateId ->
                         removeSubscribedData(duplicateId)
                     }
                 }
 
                 val current = getSubscribedData(currentId)
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - SUBSCRIBE - existing data for currentId: ${current != null}")
 
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - SUBSCRIBE - setting subscribed data for id: $currentId, name: ${response.name}")
                 setSubscribedData(
                     currentId,
                     DataStoreHelper.SubscribedData(
@@ -958,6 +991,10 @@ class ResultViewModel2 : ViewModel() {
                     )
                 )
 
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - SUBSCRIBE - clearing companion justUnsubscribedId (user subscribed again)")
+                ResultViewModel2.justUnsubscribedId = null
+                ResultViewModel2.justUnsubscribedTime = 0
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "toggleSubscriptionStatus - SUBSCRIBE - posting status: true, invoking callback with true")
                 _subscribeStatus.postValue(true)
                 statusChangedCallback?.invoke(true)
                 MainActivity.reloadLibraryEvent(true)
@@ -2118,6 +2155,63 @@ class ResultViewModel2 : ViewModel() {
         }
     }
 
+    suspend fun fetchMetadataFromAniList(name: String, year: Int?): LoadResponse? {
+        Log.d(TAG, "ANILIST_FALLBACK - Attempting to fetch metadata from AniList for: $name, year: $year")
+        return try {
+            val anilistApi = com.lagradost.cloudstream3.syncproviders.providers.AniListApi()
+            val searchResults = anilistApi.search(null, name)
+            Log.d(TAG, "ANILIST_FALLBACK - AniList search results: ${searchResults?.size}")
+            
+            val bestMatch = searchResults?.firstOrNull { result ->
+                result.name.equals(name, ignoreCase = true) || 
+                name.contains(result.name, ignoreCase = true) ||
+                result.name.contains(name, ignoreCase = true)
+            }
+            
+            if (bestMatch != null) {
+                Log.d(TAG, "ANILIST_FALLBACK - Found match: ${bestMatch.name}, loading details")
+                // Use the URL instead of id to avoid Invalid internalId error
+                val syncResult = anilistApi.load(null, bestMatch.url)
+                
+                if (syncResult != null) {
+                    Log.d(TAG, "ANILIST_FALLBACK - Successfully loaded from AniList - actors: ${syncResult.actors?.size}, plot: ${syncResult.synopsis?.take(30)}")
+                    
+                    // Convert SyncResult to LoadResponseFromSearch for merging
+                    return LoadResponseFromSearch(
+                        name = syncResult.title ?: name,
+                        url = bestMatch.url,
+                        apiName = "AniList",
+                        type = TvType.Anime,
+                        posterUrl = null, // AniList doesn't provide poster in SyncResult
+                        year = year,
+                        plot = syncResult.synopsis,
+                        score = syncResult.publicScore,
+                        tags = null,
+                        duration = null,
+                        trailers = syncResult.trailers?.map { TrailerData(it, null, true) }?.toMutableList() ?: mutableListOf(),
+                        recommendations = null,
+                        actors = syncResult.actors,
+                        comingSoon = false,
+                        syncData = mutableMapOf(),
+                        posterHeaders = null,
+                        backgroundPosterUrl = null,
+                        logoUrl = null,
+                        contentRating = null,
+                        uniqueUrl = bestMatch.url,
+                        id = null,
+                        showStatus = null
+                    )
+                }
+            }
+            
+            Log.w(TAG, "ANILIST_FALLBACK - No match found in AniList")
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "ANILIST_FALLBACK - Exception fetching from AniList: ${e.message}", e)
+            null
+        }
+    }
+
     suspend fun fetchMetadataFromProvider(
         providerName: String,
         name: String,
@@ -2244,23 +2338,40 @@ class ResultViewModel2 : ViewModel() {
                 android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after PLOT merge - plot: ${plot?.take(30)}")
             }
             if (MetadataField.ACTORS in fieldsToMerge) {
-                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - ACTORS in fieldsToMerge, checking types - this is AnimeLoadResponse: ${this is AnimeLoadResponse}, source is AnimeLoadResponse: ${source is AnimeLoadResponse}")
-                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - this is TvSeriesLoadResponse: ${this is TvSeriesLoadResponse}, source is TvSeriesLoadResponse: ${source is TvSeriesLoadResponse}")
-                android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - this is LoadResponseFromSearch: ${this is LoadResponseFromSearch}")
+                android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - ACTORS in fieldsToMerge, checking types - this: ${this::class.simpleName}, source: ${source::class.simpleName}")
+                android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - this is AnimeLoadResponse: ${this is AnimeLoadResponse}, source is AnimeLoadResponse: ${source is AnimeLoadResponse}")
+                android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - this is TvSeriesLoadResponse: ${this is TvSeriesLoadResponse}, source is TvSeriesLoadResponse: ${source is TvSeriesLoadResponse}")
+                android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - this is LoadResponseFromSearch: ${this is LoadResponseFromSearch}")
+                android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - target.actors: ${actors?.size}, source.actors: ${source.actors?.size}")
+                
                 if (this is AnimeLoadResponse && source is AnimeLoadResponse) {
-                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging ACTORS (Anime) - target.actors: ${actors?.size}, source.actors: ${source.actors?.size}")
+                    android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - merging ACTORS (Anime)")
                     actors = source.actors
-                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after ACTORS merge - actors: ${actors?.size}")
+                    android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - after ACTORS merge - actors: ${actors?.size}")
                 } else if (this is TvSeriesLoadResponse && source is TvSeriesLoadResponse) {
-                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging ACTORS (TvSeries) - target.actors: ${actors?.size}, source.actors: ${source.actors?.size}")
+                    android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - merging ACTORS (TvSeries)")
                     actors = source.actors
-                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after ACTORS merge - actors: ${actors?.size}")
-                } else if (this is LoadResponseFromSearch && source.actors != null) {
-                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - merging ACTORS (LoadResponseFromSearch) - target.actors: ${actors?.size}, source.actors: ${source.actors?.size}")
-                    actors = source.actors
-                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - after ACTORS merge - actors: ${actors?.size}")
+                    android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - after ACTORS merge - actors: ${actors?.size}")
+                } else if (this is LoadResponseFromSearch) {
+                    // LoadResponseFromSearch can accept actors from any source type
+                    if (source.actors != null) {
+                        android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - merging ACTORS (LoadResponseFromSearch from ${source::class.simpleName})")
+                        actors = source.actors
+                        android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - after ACTORS merge - actors: ${actors?.size}")
+                    } else {
+                        android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - ACTORS merge skipped - source actors is null")
+                    }
+                } else if ((this is AnimeLoadResponse || this is TvSeriesLoadResponse) && source is LoadResponseFromSearch) {
+                    // AnimeLoadResponse and TvSeriesLoadResponse can accept actors from LoadResponseFromSearch (for AniList fallback)
+                    if (source.actors != null) {
+                        android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - merging ACTORS (${this::class.simpleName} from LoadResponseFromSearch)")
+                        actors = source.actors
+                        android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - after ACTORS merge - actors: ${actors?.size}")
+                    } else {
+                        android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - ACTORS merge skipped - source actors is null")
+                    }
                 } else {
-                    android.util.Log.d("MetadataSwap", "mergeMetadataFromLoadResponse - ACTORS merge skipped - type mismatch or null source actors")
+                    android.util.Log.d("MetadataSwap", "ACTORS_MERGE_DEBUG - ACTORS merge skipped - type mismatch")
                 }
             }
             if (MetadataField.SCORE in fieldsToMerge) {
@@ -2312,6 +2423,7 @@ class ResultViewModel2 : ViewModel() {
         viewModelScope.launchSafe {
             currentResponse?.let { response ->
                 Log.i(TAG, "Manual metadata refresh for: ${response.name}")
+                Log.d(TAG, "ACTORS_REFRESH_DEBUG - Response source - type: ${response::class.simpleName}, actors: ${response.actors?.size}, is LoadResponseFromSearch: ${response is LoadResponseFromSearch}")
                 _refreshError.value = null // Clear previous error
                 
                 // Guard against blank names which cause API errors
@@ -2341,6 +2453,7 @@ class ResultViewModel2 : ViewModel() {
                     DOWNLOAD_HEADER_CACHE,
                     cacheKeyForSwap
                 )
+                Log.d(TAG, "ACTORS_REFRESH_DEBUG - Existing cache state - actors count: ${existingCache?.actors?.size}, plot: ${existingCache?.plot?.take(30)}, hasSwappedMetadata: ${existingCache?.hasSwappedMetadata}")
 
                 // Determine which fields to update based on current response
                 // If a field is null, pull it from provider (full refresh for broken entries)
@@ -2375,8 +2488,10 @@ class ResultViewModel2 : ViewModel() {
                 val actorsNull = when (response) {
                     is AnimeLoadResponse -> response.actors.isNullOrEmpty()
                     is TvSeriesLoadResponse -> response.actors.isNullOrEmpty()
+                    is LoadResponseFromSearch -> response.actors.isNullOrEmpty()
                     else -> true
                 }
+                Log.d(TAG, "ACTORS_REFRESH_DEBUG - response type: ${response::class.simpleName}, actorsNull: $actorsNull, actors count: ${when(response) { is AnimeLoadResponse -> response.actors?.size; is TvSeriesLoadResponse -> response.actors?.size; is LoadResponseFromSearch -> response.actors?.size; else -> null }}")
                 if (actorsNull) nullFields.add(MetadataField.ACTORS)
 
                 // For null fields, include all fields. For non-null fields, only include refreshable fields
@@ -2426,35 +2541,82 @@ class ResultViewModel2 : ViewModel() {
                 if (metadata != null) {
                     val actorsCount = metadata.actors?.size
                     val plotPreview = metadata.plot?.take(30)
-                    Log.i(TAG, "Successfully refreshed metadata from $providerName - actors: $actorsCount, plot: $plotPreview")
+                    Log.i(TAG, "ACTORS_REFRESH_DEBUG - Successfully refreshed metadata from $providerName - metadata type: ${metadata::class.simpleName}, actors: $actorsCount, plot: $plotPreview")
+                    
+                    // Fallback to AniList for missing actors (only for anime type)
+                    var finalMetadata = metadata
+                    if (response.type == TvType.Anime && metadata.actors.isNullOrEmpty()) {
+                        Log.d(TAG, "ANILIST_FALLBACK - Primary provider has no actors, trying AniList fallback")
+                        val anilistMetadata = try {
+                            withTimeout(15_000) {
+                                fetchMetadataFromAniList(response.name, response.year)
+                            }
+                        } catch (e: TimeoutCancellationException) {
+                            Log.w(TAG, "ANILIST_FALLBACK - AniList request timed out")
+                            null
+                        } catch (e: Exception) {
+                            Log.e(TAG, "ANILIST_FALLBACK - Exception fetching from AniList: ${e.message}", e)
+                            null
+                        }
+                        
+                        if (anilistMetadata != null && !anilistMetadata.actors.isNullOrEmpty()) {
+                            Log.d(TAG, "ANILIST_FALLBACK - Successfully got actors from AniList: ${anilistMetadata.actors?.size}")
+                            // Merge AniList actors into primary metadata
+                            finalMetadata = mergeMetadataFromLoadResponse(metadata, anilistMetadata, setOf(MetadataField.ACTORS))
+                            Log.d(TAG, "ANILIST_FALLBACK - After merge, finalMetadata actors count: ${finalMetadata.actors?.size}")
+                        } else {
+                            Log.d(TAG, "ANILIST_FALLBACK - AniList also has no actors or failed")
+                        }
+                    }
                     
                     // Preserve existing actors if provider returns null for actors
                     val existingActors = when (response) {
                         is AnimeLoadResponse -> response.actors
                         is TvSeriesLoadResponse -> response.actors
+                        is LoadResponseFromSearch -> response.actors
                         else -> null
                     }
-                    val metadataActors = when (metadata) {
-                        is AnimeLoadResponse -> metadata.actors
-                        is TvSeriesLoadResponse -> metadata.actors
+                    val metadataActors = when (finalMetadata) {
+                        is AnimeLoadResponse -> finalMetadata.actors
+                        is TvSeriesLoadResponse -> finalMetadata.actors
+                        is LoadResponseFromSearch -> finalMetadata.actors
                         else -> null
                     }
+                    Log.d(TAG, "ACTORS_REFRESH_DEBUG - finalMetadata type: ${finalMetadata::class.simpleName}, finalMetadata actors count: ${finalMetadata.actors?.size}")
+                    Log.d(TAG, "ACTORS_REFRESH_DEBUG - existingActors count: ${existingActors?.size}, metadataActors count: ${metadataActors?.size}")
                     
-                    // If metadata has no actors but response does, remove ACTORS from fieldsToUpdate to preserve existing actors
-                    val adjustedFieldsToUpdate = if (metadataActors.isNullOrEmpty() && !existingActors.isNullOrEmpty()) {
-                        fieldsToUpdate - MetadataField.ACTORS
+                    // If metadata has no actors, check if cache has actors to preserve
+                    // This prevents overwriting existing cache actors with null from provider
+                    val cacheActors = existingCache?.actors
+                    val adjustedFieldsToUpdate = if (metadataActors.isNullOrEmpty()) {
+                        if (!cacheActors.isNullOrEmpty()) {
+                            Log.d(TAG, "ACTORS_REFRESH_DEBUG - metadataActors is null/empty but cache has ${cacheActors.size} actors, removing ACTORS from fieldsToUpdate to preserve cache actors")
+                            // Load actors from cache into response before merge
+                            when (response) {
+                                is LoadResponseFromSearch -> response.actors = parseActorsFromCache(cacheActors)
+                                is AnimeLoadResponse -> response.actors = parseActorsFromCache(cacheActors)
+                                is TvSeriesLoadResponse -> response.actors = parseActorsFromCache(cacheActors)
+                            }
+                            fieldsToUpdate - MetadataField.ACTORS
+                        } else {
+                            Log.d(TAG, "ACTORS_REFRESH_DEBUG - metadataActors is null/empty and cache has no actors, removing ACTORS from fieldsToUpdate")
+                            fieldsToUpdate - MetadataField.ACTORS
+                        }
                     } else {
                         fieldsToUpdate
                     }
                     
-                    val mergedResponse = mergeMetadataFromLoadResponse(response, metadata, adjustedFieldsToUpdate)
+                    val mergedResponse = mergeMetadataFromLoadResponse(response, finalMetadata, adjustedFieldsToUpdate)
 
                     // Handle poster separately since it's not in merge function
                     if (MetadataField.POSTER in adjustedFieldsToUpdate) {
-                        mergedResponse.posterUrl = metadata.posterUrl
+                        mergedResponse.posterUrl = finalMetadata.posterUrl
                     }
 
+                    android.util.Log.d("[SUBSCRIBE_DEBUG]", "manualMetadataRefresh - Setting currentResponse to mergedResponse, type: ${mergedResponse.javaClass.simpleName}")
+                    android.util.Log.d("[SUBSCRIBE_DEBUG]", "manualMetadataRefresh - CALL STACK: ${Thread.currentThread().stackTrace.take(10).joinToString("\n") { "    at ${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})" }}")
                     currentResponse = mergedResponse
+                    android.util.Log.d("[SUBSCRIBE_DEBUG]", "manualMetadataRefresh - currentResponse set, type: ${currentResponse?.javaClass?.simpleName}")
 
                     // Update cache with new metadata while preserving swapped fields
                     currentId?.let { id ->
@@ -2462,6 +2624,18 @@ class ResultViewModel2 : ViewModel() {
                         val mergedPlot = mergedResponse.plot
                         val mergedPoster = mergedResponse.posterUrl
                         val mergedLogo = mergedResponse.logoUrl
+                        
+                        // If mergedActors is null but cache has actors, preserve cache actors
+                        val actorsToSave = if (mergedActors.isNullOrEmpty() && !existingCache?.actors.isNullOrEmpty()) {
+                            Log.d(TAG, "ACTORS_CACHE_DEBUG - mergedActors is null but cache has ${existingCache?.actors?.size} actors, preserving cache actors")
+                            existingCache?.actors
+                        } else {
+                            mergedActors?.map { actorData ->
+                                "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
+                            }
+                        }
+                        
+                        Log.d(TAG, "ACTORS_CACHE_DEBUG - Saving to cache - actorsToSave count: ${actorsToSave?.size}, mergedActors count: ${mergedActors?.size}, mergedPlot: ${mergedPlot?.take(30)}, mergedPoster: ${mergedPoster?.take(30)}")
 
                         setKey(
                             DOWNLOAD_HEADER_CACHE,
@@ -2480,9 +2654,7 @@ class ResultViewModel2 : ViewModel() {
                                 year = mergedResponse.year,
                                 episodeCount = if (mergedResponse is AnimeLoadResponse) mergedResponse.episodes.values.flatten().size else if (mergedResponse is TvSeriesLoadResponse) mergedResponse.episodes.size else null,
                                 date = null,
-                                actors = mergedActors?.map { actorData ->
-                                    "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
-                                },
+                                actors = actorsToSave,
                                 tags = mergedResponse.tags,
                                 id = id,
                                 cacheTime = System.currentTimeMillis(),
@@ -2499,6 +2671,14 @@ class ResultViewModel2 : ViewModel() {
                                 originalShowStatus = existingCache?.originalShowStatus
                             )
                         )
+                        Log.d(TAG, "ACTORS_CACHE_DEBUG - Cache updated successfully - saved actors count: ${mergedActors?.size ?: 0}")
+                        
+                        // Verify cache was actually saved by reading it back
+                        val verifyCache = getKey<DownloadObjects.DownloadHeaderCached>(
+                            DOWNLOAD_HEADER_CACHE,
+                            cacheKeyForSwap
+                        )
+                        Log.d(TAG, "ACTORS_CACHE_DEBUG - Cache verification - read back actors count: ${verifyCache?.actors?.size ?: 0}, plot: ${verifyCache?.plot?.take(30)}")
                     }
 
                     currentRepo?.let { repo ->
@@ -2873,15 +3053,48 @@ class ResultViewModel2 : ViewModel() {
 
     private fun postSubscription(loadResponse: LoadResponse) {
         val id = loadResponse.getId()
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription ENTRY - loadResponse type: ${loadResponse::class.simpleName}, id: $id, isEpisodeBased: ${loadResponse.isEpisodeBased()}")
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription ENTRY - current _subscribeStatus.value: ${_subscribeStatus.value}")
         val data = getSubscribedData(id)
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - existing subscription data found: ${data != null}")
         if (loadResponse.isEpisodeBased()) {
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - episode-based path - updating subscribed data")
             updateSubscribedData(id, data, loadResponse as? EpisodeResponse)
-            _subscribeStatus.postValue(data != null)
+            val status = data != null
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - posting status: $status (based on existing data)")
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - CALL STACK: ${Thread.currentThread().stackTrace.take(10).joinToString("\n") { "    at ${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})" }}")
+            _subscribeStatus.postValue(status)
         }
         // lets say that we have subscribed, then we must be able to unsubscribe no matter what
         else if (data != null) {
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - non-episode-based with existing data - posting status: true")
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - CALL STACK: ${Thread.currentThread().stackTrace.take(10).joinToString("\n") { "    at ${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})" }}")
             _subscribeStatus.postValue(true)
-        } else _subscribeStatus.postValue(null)
+        } else {
+            // Preserve false status if user just unsubscribed
+            // Check both current status and the justUnsubscribedId flag
+            val currentStatus = _subscribeStatus.value
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - non-episode-based without existing data - currentStatus before decision: $currentStatus")
+            val isRecentUnsubscribe = ResultViewModel2.justUnsubscribedId == id && 
+                (System.currentTimeMillis() - ResultViewModel2.justUnsubscribedTime) < UNSUBSCRIBE_WINDOW_MS
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - non-episode-based without existing data - companion justUnsubscribedId: ${ResultViewModel2.justUnsubscribedId}, current id: $id, isRecentUnsubscribe: $isRecentUnsubscribe")
+            if (currentStatus == false || isRecentUnsubscribe) {
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - non-episode-based without existing data - preserving false status (currentStatus: $currentStatus, isRecentUnsubscribe: $isRecentUnsubscribe)")
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - CALL STACK: ${Thread.currentThread().stackTrace.take(10).joinToString("\n") { "    at ${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})" }}")
+                _subscribeStatus.postValue(false)
+                // Clear the flag after using it
+                if (isRecentUnsubscribe) {
+                    android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - clearing companion justUnsubscribedId")
+                    ResultViewModel2.justUnsubscribedId = null
+                    ResultViewModel2.justUnsubscribedTime = 0
+                }
+            } else {
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - non-episode-based without existing data - posting status: null (currentStatus was: $currentStatus, isRecentUnsubscribe: $isRecentUnsubscribe)")
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription - CALL STACK: ${Thread.currentThread().stackTrace.take(10).joinToString("\n") { "    at ${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})" }}")
+                _subscribeStatus.postValue(null)
+            }
+        }
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSubscription EXIT - final _subscribeStatus.value: ${_subscribeStatus.value}")
     }
 
     private fun postFavorites(loadResponse: LoadResponse) {
@@ -3073,8 +3286,11 @@ class ResultViewModel2 : ViewModel() {
         updateFillers: Boolean,
     ) {
         android.util.Log.d("CacheFlow", "postSuccessful - Input actors count: ${loadResponse.actors?.size}")
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSuccessful - Setting currentResponse to: ${loadResponse.name}, type: ${loadResponse.javaClass.simpleName}")
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSuccessful - CALL STACK: ${Thread.currentThread().stackTrace.take(10).joinToString("\n") { "    at ${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})" }}")
         currentId = mainId
         currentResponse = loadResponse
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSuccessful - currentResponse set, type: ${currentResponse?.javaClass?.simpleName}")
         postPage(loadResponse, apiRepository)
         android.util.Log.d("CacheFlow", "postSuccessful - After postPage, currentResponse actors count: ${currentResponse?.actors?.size}")
         postSubscription(loadResponse)
@@ -3483,6 +3699,37 @@ class ResultViewModel2 : ViewModel() {
         _page.postValue(Resource.Success(loadResponse.toResultData(apiRepository)))
     }
 
+    private fun parseActorsFromCache(cacheActors: List<String>?): List<ActorData>? {
+        android.util.Log.d("CacheFlow", "parseActorsFromCache - Starting actor parsing, input actors count: ${cacheActors?.size}")
+        val actors = cacheActors?.mapNotNull { actorDataString ->
+            try {
+                val parts = actorDataString.split("|")
+                if (parts.size >= 5) {
+                    ActorData(
+                        actor = Actor(name = parts[0], image = if (parts[1].isNotEmpty()) parts[1] else "android.resource://com.lagradost.cloudstream3/drawable/example_poster"),
+                        role = if (parts[2].isNotEmpty()) try { ActorRole.valueOf(parts[2]) } catch (e: Exception) { null } else null,
+                        roleString = if (parts[3].isNotEmpty()) parts[3] else null,
+                        voiceActor = if (parts[4].isNotEmpty()) Actor(name = parts[4], image = if (parts.size > 5 && parts[5].isNotEmpty()) parts[5] else null) else null
+                    )
+                } else {
+                    // Fallback for old cached data or malformed data
+                    android.util.Log.w("CacheFlow", "parseActorsFromCache - Malformed actor data: $actorDataString")
+                    ActorData(
+                        actor = Actor(name = actorDataString, image = "android.resource://com.lagradost.cloudstream3/drawable/example_poster"),
+                        role = null,
+                        roleString = null,
+                        voiceActor = null
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("CacheFlow", "parseActorsFromCache - Error parsing actor data: $actorDataString", e)
+                null
+            }
+        }
+        android.util.Log.d("CacheFlow", "parseActorsFromCache - Parsed actors count: ${actors?.size}")
+        return actors
+    }
+
     @Suppress("DEPRECATION")
     private fun createOfflineLoadResponse(
         cachedHeader: DownloadObjects.DownloadHeaderCached,
@@ -3497,33 +3744,7 @@ class ResultViewModel2 : ViewModel() {
         android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Using name: $name (cached: '${cachedHeader.name}')")
         
         // Parse cached actor data back to ActorData objects
-        android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Starting actor parsing, input actors count: ${cachedHeader.actors?.size}")
-        val actors = cachedHeader.actors?.mapNotNull { actorDataString ->
-            try {
-                val parts = actorDataString.split("|")
-                if (parts.size >= 5) {
-                    ActorData(
-                        actor = Actor(name = parts[0], image = if (parts[1].isNotEmpty()) parts[1] else "android.resource://com.lagradost.cloudstream3/drawable/example_poster"),
-                        role = if (parts[2].isNotEmpty()) try { ActorRole.valueOf(parts[2]) } catch (e: Exception) { null } else null,
-                        roleString = if (parts[3].isNotEmpty()) parts[3] else null,
-                        voiceActor = if (parts[4].isNotEmpty()) Actor(name = parts[4], image = if (parts.size > 5 && parts[5].isNotEmpty()) parts[5] else null) else null
-                    )
-                } else {
-                    // Fallback for old cached data or malformed data
-                    android.util.Log.w("CacheFlow", "createOfflineLoadResponse - Malformed actor data: $actorDataString")
-                    ActorData(
-                        actor = Actor(name = actorDataString, image = "android.resource://com.lagradost.cloudstream3/drawable/example_poster"),
-                        role = null,
-                        roleString = null,
-                        voiceActor = null
-                    )
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("CacheFlow", "createOfflineLoadResponse - Error parsing actor data: $actorDataString", e)
-                null
-            }
-        }
-        android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Parsed actors count: ${actors?.size}")
+        val actors = parseActorsFromCache(cachedHeader.actors)
 
         // Use LoadResponseFromSearch to avoid episodes field - UI will use _episodes LiveData instead
         val response = LoadResponseFromSearch(

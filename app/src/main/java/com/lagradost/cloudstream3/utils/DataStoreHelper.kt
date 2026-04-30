@@ -129,6 +129,11 @@ object DataStoreHelper {
     // Episode check preferences
     var episodeCheckFrequencyHours by UserPreferenceDelegate("episode_check_interval", 12)
     var episodeCheckEnabled by UserPreferenceDelegate("episode_check_enabled", true)
+    var autoDownloadSubscribedEpisodes by UserPreferenceDelegate("auto_download_subscribed", false)
+    var subscriptionDownloadRetryCount by UserPreferenceDelegate("subscription_dl_retry_count", 3)
+    var subscriptionDownloadRetryDelaySeconds by UserPreferenceDelegate("subscription_dl_retry_delay", 60)
+    // Network preference for auto-download: "wifi_only", "data_only", "both"
+    var autoDownloadNetworkPreference by UserPreferenceDelegate("auto_download_network_pref", "wifi_only")
 
     // Spoiler prevention mode
     var spoilerPreventionMode by UserPreferenceDelegate(SPOILER_PREV_KEY, SPOILER_MODE_OFF)
@@ -608,8 +613,10 @@ object DataStoreHelper {
 
     fun removeSubscribedData(id: Int?) {
         if (id == null) return
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "DataStoreHelper - removeSubscribedData - id: $id")
         AccountManager.localListApi.requireLibraryRefresh = true
         removeKey("$currentAccount/$RESULT_SUBSCRIBED_STATE_DATA", id.toString())
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "DataStoreHelper - removeSubscribedData - data removed for id: $id")
     }
 
     /**
@@ -617,22 +624,28 @@ object DataStoreHelper {
      **/
     fun updateSubscribedData(id: Int?, data: SubscribedData?, episodeResponse: EpisodeResponse?) {
         if (id == null || data == null || episodeResponse == null) return
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "DataStoreHelper - updateSubscribedData - id: $id, updating with latest episodes")
         val newData = data.copy(
             latestUpdatedTime = unixTimeMS,
             lastSeenEpisodeCount = episodeResponse.getLatestEpisodes()
         )
         setKey("$currentAccount/$RESULT_SUBSCRIBED_STATE_DATA", id.toString(), newData)
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "DataStoreHelper - updateSubscribedData - data updated for id: $id")
     }
 
     fun setSubscribedData(id: Int?, data: SubscribedData) {
         if (id == null) return
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "DataStoreHelper - setSubscribedData - id: $id, name: ${data.name}")
         setKey("$currentAccount/$RESULT_SUBSCRIBED_STATE_DATA", id.toString(), data)
         AccountManager.localListApi.requireLibraryRefresh = true
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "DataStoreHelper - setSubscribedData - data set for id: $id")
     }
 
     fun getSubscribedData(id: Int?): SubscribedData? {
         if (id == null) return null
-        return getKey("$currentAccount/$RESULT_SUBSCRIBED_STATE_DATA", id.toString())
+        val data = getKey<SubscribedData>("$currentAccount/$RESULT_SUBSCRIBED_STATE_DATA", id.toString())
+        android.util.Log.d("[SUBSCRIBE_DEBUG]", "DataStoreHelper - getSubscribedData - id: $id, data found: ${data != null}")
+        return data
     }
 
     fun getAllFavorites(): List<FavoritesData> {

@@ -1244,7 +1244,9 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 })
             */
             resultSubscribe.setOnClickListener {
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - Subscribe button CLICKED - current status: ${viewModel.subscribeStatus.value}")
                 viewModel.toggleSubscriptionStatus(context) { newStatus: Boolean? ->
+                    android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - toggleSubscriptionStatus callback - newStatus: $newStatus")
                     if (newStatus == null) return@toggleSubscriptionStatus
 
                     val message = if (newStatus) {
@@ -1257,6 +1259,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     val name = (viewModel.page.value as? Resource.Success)?.value?.title
                         ?: com.lagradost.cloudstream3.utils.txt(R.string.no_data)
                             .asStringNull(context) ?: ""
+                    android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - showing toast - message: ${if (newStatus) "subscription_new" else "subscription_deleted"}, name: $name")
                     showToast(
                         com.lagradost.cloudstream3.utils.txt(message, name),
                         Toast.LENGTH_SHORT
@@ -1400,14 +1403,20 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         }
 
         observeNullable(viewModel.subscribeStatus) { isSubscribed ->
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - subscribeStatus observer - isSubscribed: $isSubscribed")
             binding?.resultSubscribe?.isVisible = isSubscribed != null
-            if (isSubscribed == null) return@observeNullable
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - subscribeStatus observer - button visibility set to: ${isSubscribed != null}")
+            if (isSubscribed == null) {
+                android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - subscribeStatus observer - isSubscribed is null, returning early")
+                return@observeNullable
+            }
 
             val drawable = if (isSubscribed) {
                 R.drawable.ic_baseline_notifications_active_24
             } else {
                 R.drawable.baseline_notifications_none_24
             }
+            android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - subscribeStatus observer - setting drawable: ${if (isSubscribed) "notifications_active" else "notifications_none"}")
 
             binding?.resultSubscribe?.setImageResource(drawable)
         }

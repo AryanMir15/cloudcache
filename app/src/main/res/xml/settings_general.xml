@@ -28,25 +28,6 @@
         android:key="@string/episode_check_frequency_key"
         android:title="@string/episode_check_frequency" />
 
-    <PreferenceCategory android:title="Library">
-
-        <Preference
-            android:icon="@drawable/ic_baseline_folder_open_24"
-            android:key="scan_downloads_key"
-            android:title="Scan for Downloads" />
-
-        <Preference
-            android:icon="@drawable/baseline_help_outline_24"
-            android:key="scan_downloads_info_key"
-            android:title="Scan for Downloads Info" />
-
-        <Preference
-            android:icon="@drawable/ic_baseline_storage_24"
-            android:key="cache_management_key"
-            android:title="Cache Management" />
-
-    </PreferenceCategory>
-
     <PreferenceCategory android:title="@string/title_downloads">
 
         <Preference
@@ -79,9 +60,61 @@
             app:showSeekBarValue="true" />
 
         <Preference
+            android:icon="@drawable/ic_baseline_folder_open_24"
+            android:key="scan_downloads_key"
+            android:title="Scan for Downloads" />
+
+        <Preference
+            android:icon="@drawable/baseline_help_outline_24"
+            android:key="scan_downloads_info_key"
+            android:title="Scan for Downloads Info" />
+
+        <Preference
             android:icon="@drawable/ic_battery"
             android:key="@string/battery_optimisation_key"
             android:title="@string/battery_dialog_title" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Auto-Download (Subscribed)">
+
+        <SwitchPreference
+            android:icon="@drawable/netflix_download"
+            android:key="auto_download_subscribed"
+            android:title="@string/auto_download_subscribed_title"
+            android:summary="@string/auto_download_subscribed_summary"
+            android:defaultValue="false" />
+
+        <Preference
+            android:icon="@drawable/arrow_and_edge_24px"
+            android:key="subscription_dl_retry_count"
+            android:title="@string/download_retry_count_title"
+            android:summary="@string/download_retry_count_summary"
+            android:dependency="auto_download_subscribed" />
+
+        <ListPreference
+            android:key="auto_download_network_pref"
+            android:title="@string/auto_download_network_title"
+            android:summary="@string/auto_download_network_summary"
+            android:defaultValue="wifi_only"
+            android:entries="@array/auto_download_network_entries"
+            android:entryValues="@array/auto_download_network_values"
+            android:dependency="auto_download_subscribed" />
+
+        <Preference
+            android:key="manual_episode_check"
+            android:title="Manual Episode Check"
+            android:summary="Trigger episode check manually for testing"
+            android:dependency="auto_download_subscribed" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Library Management">
+
+        <Preference
+            android:icon="@drawable/ic_baseline_storage_24"
+            android:key="cache_management_key"
+            android:title="Cache Management" />
 
     </PreferenceCategory>
 

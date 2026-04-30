@@ -126,6 +126,9 @@ object DownloadButtonSetup {
                         click.data.parentId.toString()
                     ) ?: return
 
+                    android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Playing downloaded episode: id=${click.data.id}, episode=${click.data.episode}, parentId=${click.data.parentId}")
+                    android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Parent header: name=${parent.name}, apiName=${parent.apiName}, url=${parent.url}, type=${parent.type}")
+
                     // Update the clicked episode cache with proper name from API if available
                     // This ensures the episode title is preserved for the player sidebar
                     if (click.data.name != null) {
@@ -153,7 +156,8 @@ object DownloadButtonSetup {
                     val cachedByEpisode = cachedEpisodes.associateBy { it.episode }
                     val existingIds = cachedEpisodes.map { it.id }.toSet()
 
-                    android.util.Log.d("DownloadButtonSetup", "Found ${cachedEpisodes.size} cached episodes")
+                    android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Found ${cachedEpisodes.size} cached episodes")
+                    android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Cached episode numbers: ${cachedEpisodes.map { it.episode }.sorted()}")
 
                     // 2. Get folder path from first cached episode's file info
                     // This is the proven pattern used in existing code
@@ -273,8 +277,11 @@ object DownloadButtonSetup {
                     // 5. Sort and create generator
                     val sortedEpisodes = allEpisodes.sortedBy { it.episode ?: 0 }
 
+                    android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Total episodes in list: ${sortedEpisodes.size}")
+                    android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Episode numbers in final list: ${sortedEpisodes.mapNotNull { it.episode }.sorted()}")
+
                     if (sortedEpisodes.isEmpty()) {
-                        android.util.Log.e("DownloadButtonSetup", "No episodes found at all!")
+                        android.util.Log.e("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] No episodes found at all!")
                         // Could show error toast here
                         return
                     }
@@ -283,8 +290,8 @@ object DownloadButtonSetup {
                     val targetIndex = sortedEpisodes.indexOfFirst { it.id == click.data.id }
                     val finalIndex = if (targetIndex >= 0) targetIndex else 0
 
-                    android.util.Log.d("DownloadButtonSetup", "Creating generator with ${sortedEpisodes.size} episodes")
-                    android.util.Log.d("DownloadButtonSetup", "Target episode index: $finalIndex (id=${click.data.id})")
+                    android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Creating DownloadFileGenerator with ${sortedEpisodes.size} episodes")
+                    android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Target episode index: $finalIndex (id=${click.data.id})")
 
                     act.navigate(
                         R.id.global_to_navigation_player,

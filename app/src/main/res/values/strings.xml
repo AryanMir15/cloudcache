@@ -347,6 +347,15 @@
     <string name="dns_pref_summary">Useful for bypassing ISP blocks</string>
     <string name="episode_check_frequency">Episode Check Frequency</string>
     <string name="episode_check_frequency_key">episode_check_frequency</string>
+    <string name="auto_download_subscribed_title">Auto-download subscribed episodes</string>
+    <string name="auto_download_subscribed_summary">Automatically download new episodes for subscribed shows</string>
+    <string name="download_retry_count_title">Retry attempts</string>
+    <string name="download_retry_count_summary">Maximum retry attempts for failed auto-downloads</string>
+    <string name="auto_download_queued_title">Download Queued</string>
+    <string name="auto_download_queued">%1$s - Episode %2$d has been added to your download queue</string>
+    <string name="auto_download_queued_dubbed">%1$s - Episode %2$d (%3$s) has been added to your download queue</string>
+    <string name="auto_download_network_title">Auto-download network preference</string>
+    <string name="auto_download_network_summary">Choose which network types to use for auto-download</string>
     <string name="spoiler_prevention_title">Spoiler Prevention Mode</string>
     <string name="spoiler_prevention_summary">Protect against spoilers by hiding episode thumbnails and details</string>
     <string name="spoiler_prevention_key">spoiler_prevention_key</string>
@@ -639,6 +648,7 @@
     <string name="subscription_new">Subscribed to %s</string>
     <string name="subscription_deleted">Unsubscribed from %s</string>
     <string name="subscription_episode_released">Episode %d released!</string>
+    <string name="subscription_episode_released_dubbed">Episode %1$d of %2$s (%3$s) has been released!</string>
     <string name="action_subscribe">Subscribe</string>
     <string name="action_unsubscribe">Unsubscribe</string>
     <string name="profile_number">Profile %d</string>

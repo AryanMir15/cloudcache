@@ -517,6 +517,80 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
                 "${com.lagradost.cloudstream3.utils.DataStoreHelper.episodeCheckFrequencyHours} hours"
             }
 
+        // Auto-download subscribed episodes
+        findPreference<androidx.preference.SwitchPreference>("auto_download_subscribed")?.setOnPreferenceChangeListener { _, newValue ->
+            val enabled = newValue as Boolean
+            android.util.Log.d("SettingsGeneral", "Auto-download subscribed episodes: $enabled")
+            true
+        }
+
+        // Auto-download retry count - selectable dialog
+        findPreference<androidx.preference.Preference>("subscription_dl_retry_count")?.setOnPreferenceClickListener {
+            val retryOptions = arrayOf("No retries (0)", "1 attempt", "2 attempts", "3 attempts", "5 attempts", "10 attempts")
+            val retryValues = arrayOf(0, 1, 2, 3, 5, 10)
+            val currentRetryCount = com.lagradost.cloudstream3.utils.DataStoreHelper.subscriptionDownloadRetryCount
+            val currentIndex = retryValues.indexOf(currentRetryCount).takeIf { it >= 0 } ?: 3 // Default to 3
+
+            activity?.showDialog(
+                retryOptions.toList(),
+                currentIndex,
+                getString(R.string.download_retry_count_title),
+                true,
+                {}) { selectedIndex ->
+                val selectedRetryCount = retryValues[selectedIndex]
+                com.lagradost.cloudstream3.utils.DataStoreHelper.subscriptionDownloadRetryCount = selectedRetryCount
+                
+                // Update summary
+                it.summary = if (selectedRetryCount == 0) {
+                    "No retries"
+                } else {
+                    "$selectedRetryCount ${if (selectedRetryCount == 1) "attempt" else "attempts"}"
+                }
+            }
+            return@setOnPreferenceClickListener true
+        }
+
+        // Set initial summary for retry count
+        findPreference<androidx.preference.Preference>("subscription_dl_retry_count")?.let { pref ->
+            val currentCount = com.lagradost.cloudstream3.utils.DataStoreHelper.subscriptionDownloadRetryCount
+            pref.summary = if (currentCount == 0) {
+                "No retries"
+            } else {
+                "$currentCount ${if (currentCount == 1) "attempt" else "attempts"}"
+            }
+        }
+
+        // Auto-download network preference summary updater
+        findPreference<androidx.preference.ListPreference>("auto_download_network_pref")?.let { pref ->
+            pref.setOnPreferenceChangeListener { _, newValue ->
+                val value = newValue as String
+                val summary = when (value) {
+                    "wifi_only" -> "Only download on Wi-Fi"
+                    "data_only" -> "Only download on mobile data"
+                    "both" -> "Download on any network"
+                    else -> "Wi-Fi only"
+                }
+                pref.summary = summary
+                true
+            }
+            
+            // Set initial summary
+            val currentValue = com.lagradost.cloudstream3.utils.DataStoreHelper.autoDownloadNetworkPreference
+            pref.summary = when (currentValue) {
+                "wifi_only" -> "Only download on Wi-Fi"
+                "data_only" -> "Only download on mobile data"
+                "both" -> "Download on any network"
+                else -> "Wi-Fi only"
+            }
+        }
+
+        // Manual Episode Check Trigger
+        findPreference<androidx.preference.Preference>("manual_episode_check")?.setOnPreferenceClickListener {
+            android.util.Log.d("SettingsGeneral", "Manual episode check button clicked")
+            com.lagradost.cloudstream3.services.EpisodeCheckWorkManager.triggerManualCheck(context)
+            true
+        }
+
         // Spoiler Prevention Mode
         getPref(R.string.spoiler_prevention_key)?.setOnPreferenceClickListener {
             val currentMode = com.lagradost.cloudstream3.utils.DataStoreHelper.spoilerPreventionMode

@@ -707,29 +707,53 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 // No results at all and not loading
                 noResultsText.visibility = View.VISIBLE
                 endOfResultsToast.visibility = View.GONE
+                endOfResultsToastTop?.visibility = View.GONE
             } else if (!hasMoreResults && viewModel.uiState.value?.isLoading != true && resultsList.isNotEmpty()) {
                 // We have results but no more pages to load
                 noResultsText.visibility = View.GONE
-                endOfResultsToast.visibility = View.VISIBLE
-                endOfResultsToast.alpha = 0f
-                endOfResultsToast.animate()
-                    .alpha(1f)
-                    .setDuration(300)
-                    .start()
-                // Auto-hide after 2 seconds
-                endOfResultsToast.postDelayed({
-                    endOfResultsToast.animate()
-                        .alpha(0f)
+                
+                // Show top toast if keyboard is visible, otherwise show bottom toast
+                val toastView = if (isKeyboardVisible()) {
+                    android.util.Log.d("BrowseFragment", "[TOAST_POSITION] Using TOP toast (keyboard visible)")
+                    endOfResultsToastTop
+                } else {
+                    android.util.Log.d("BrowseFragment", "[TOAST_POSITION] Using BOTTOM toast (keyboard not visible)")
+                    endOfResultsToast
+                }
+                
+                // Hide the other toast
+                if (isKeyboardVisible()) {
+                    endOfResultsToast?.visibility = View.GONE
+                } else {
+                    endOfResultsToastTop?.visibility = View.GONE
+                }
+                
+                toastView?.apply {
+                    android.util.Log.d("BrowseFragment", "[TOAST_POSITION] Toast view id: ${id}, visibility before: $visibility")
+                    visibility = View.VISIBLE
+                    android.util.Log.d("BrowseFragment", "[TOAST_POSITION] Toast visibility set to VISIBLE")
+                    alpha = 0f
+                    animate()
+                        .alpha(1f)
                         .setDuration(300)
-                        .withEndAction {
-                            endOfResultsToast.visibility = View.GONE
-                        }
                         .start()
-                }, 2000)
+                    android.util.Log.d("BrowseFragment", "[TOAST_POSITION] Toast animation started, alpha: $alpha")
+                    // Auto-hide after 2 seconds
+                    postDelayed({
+                        animate()
+                            .alpha(0f)
+                            .setDuration(300)
+                            .withEndAction {
+                                visibility = View.GONE
+                            }
+                            .start()
+                    }, 2000)
+                }
             } else {
                 // We have results and more to load, or currently loading
                 noResultsText.visibility = View.GONE
                 endOfResultsToast.visibility = View.GONE
+                endOfResultsToastTop?.visibility = View.GONE
             }
 
             // Show/hide loading bar in search bar
@@ -740,6 +764,18 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         updateGenreChips()
         updateTagsChips()
         android.util.Log.d("BrowseFragment", "========== updateUI completed ==========")
+    }
+
+    private fun isKeyboardVisible(): Boolean {
+        val rootView = binding?.root ?: return false
+        val rect = android.graphics.Rect()
+        rootView.getWindowVisibleDisplayFrame(rect)
+        val screenHeight = rootView.height
+        val keypadHeight = screenHeight - rect.bottom
+        val threshold = screenHeight * 0.15
+        val isVisible = keypadHeight > threshold
+        android.util.Log.d("BrowseFragment", "[KEYBOARD_CHECK] screenHeight: $screenHeight, keypadHeight: $keypadHeight, threshold: $threshold, isVisible: $isVisible")
+        return isVisible // Keyboard is visible if it takes more than 15% of screen
     }
 
     private fun updateGenreChips() {

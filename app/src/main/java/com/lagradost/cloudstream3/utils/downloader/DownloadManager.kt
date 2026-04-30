@@ -52,6 +52,7 @@ import com.lagradost.cloudstream3.utils.DOWNLOAD_EPISODE_CACHE
 import com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE
 import com.lagradost.cloudstream3.utils.DataStore.getFolderName
 import com.lagradost.cloudstream3.utils.DataStore.getKey
+import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.DataStore.getKeys
 import com.lagradost.cloudstream3.utils.DataStore.removeKey
 import com.lagradost.cloudstream3.utils.Event
@@ -119,6 +120,18 @@ object VideoDownloadManager {
     private fun maxConcurrentConnections(context: Context): Int =
         PreferenceManager.getDefaultSharedPreferences(context)
             ?.getInt(context.getString(R.string.download_concurrent_key), 3) ?: 3
+
+    private fun getMaxStreamRetries(context: Context): Int {
+        val retryCount = DataStoreHelper.subscriptionDownloadRetryCount
+        val validCount = retryCount.coerceIn(0, 10) // Allow 0-10 range
+        android.util.Log.d(TAG, "[RETRY_CONFIG] maxStreamRetries: $validCount (from preference: $retryCount)")
+        return validCount
+    }
+
+    private fun getMaxParseRetries(context: Context): Int {
+        // Use same preference for both, or could add separate preference
+        return getMaxStreamRetries(context)
+    }
 
     private val _currentDownloads: MutableStateFlow<Set<Int>> = MutableStateFlow(emptySet())
     val currentDownloads: StateFlow<Set<Int>> = _currentDownloads
@@ -1358,7 +1371,8 @@ object VideoDownloadManager {
             android.util.Log.d("DownloadTest", "downloadHLS - About to open stream")
 
             // Retry stream opening to handle timing issues
-            val maxStreamRetries = 2
+            val maxStreamRetries = getMaxStreamRetries(context)
+            android.util.Log.d("DownloadTest", "[DOWNLOAD_RETRY_CONFIG] maxStreamRetries: $maxStreamRetries")
             for (retry in 0 until maxStreamRetries) {
                 try {
                     fileStream = stream.open()
@@ -1407,7 +1421,8 @@ object VideoDownloadManager {
             android.util.Log.d("DownloadTest", "downloadHLS - About to parse segments")
 
             // Retry M3U8 parsing locally to handle timing issues without triggering higher-level retry
-            val maxParseRetries = 3
+            val maxParseRetries = getMaxParseRetries(context)
+            android.util.Log.d("DownloadTest", "[DOWNLOAD_RETRY_CONFIG] maxParseRetries: $maxParseRetries")
             var items: M3u8Helper2.LazyHlsDownloadData? = null
             var parseException: Throwable? = null
 
@@ -1943,7 +1958,13 @@ object VideoDownloadManager {
                             resume
                         )
 
-                    if (connectionResult.retrySame) {
+                    // Use configurable retry count for subscription downloads
+                    val maxRetries = com.lagradost.cloudstream3.utils.DataStoreHelper.subscriptionDownloadRetryCount.coerceIn(0, 10)
+                    var retryCount = 0
+                    
+                    // Only retry if retrySame is true (not cancelled) and maxRetries > 0
+                    while (connectionResult.retrySame && maxRetries > 0 && retryCount < maxRetries) {
+                        android.util.Log.d(TAG, "[DOWNLOAD_RETRY] Retrying same link, attempt ${retryCount + 1}/$maxRetries for episode ${item.ep.id}")
                         connectionResult = downloadSingleEpisode(
                             context,
                             item.source,
@@ -1953,6 +1974,7 @@ object VideoDownloadManager {
                             notificationCallback,
                             true
                         )
+                        retryCount++
                     }
 
                     if (connectionResult.success) { // SUCCESS
