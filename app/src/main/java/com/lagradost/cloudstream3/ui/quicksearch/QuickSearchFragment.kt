@@ -238,9 +238,12 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                     this,
                 ) { callback ->
                     android.util.Log.d("MetadataSwap", "QuickSearchFragment single-provider click - action: ${callback.action}, card: ${callback.card.name}")
+                    // Invoke clickCallback first for metadata swap handling
                     android.util.Log.d("MetadataSwap", "QuickSearchFragment - invoking clickCallback, is null: ${clickCallback == null}")
                     clickCallback?.invoke(callback)
-                    android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked")
+                    android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked, now calling SearchHelper.handleSearchClickCallback")
+                    // Then handle normally to navigate to entry
+                    SearchHelper.handleSearchClickCallback(callback)
                 }
             }
 

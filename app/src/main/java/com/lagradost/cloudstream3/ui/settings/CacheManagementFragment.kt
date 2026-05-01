@@ -127,9 +127,21 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
 
     private fun clearAllCache() {
         try {
+            android.util.Log.d("CachePerformance", "=== CACHEMANAGEMENTFRAGMENT: CLEARING ALL CACHE ===")
             com.lagradost.cloudstream3.CloudStreamApp.removeKeys(DOWNLOAD_EPISODE_CACHE)
+            android.util.Log.d("CachePerformance", "Cleared all DOWNLOAD_EPISODE_CACHE entries")
+            
+            // Also clear all parent indices
+            val indexKeys = com.lagradost.cloudstream3.CloudStreamApp.getKeys(com.lagradost.cloudstream3.utils.EPISODE_PARENT_INDEX)
+            android.util.Log.d("CachePerformance", "Found ${indexKeys?.size} parent index keys to clear")
+            indexKeys?.forEach { key ->
+                com.lagradost.cloudstream3.CloudStreamApp.removeKey(key)
+                android.util.Log.d("CachePerformance", "Cleared parent index key: $key")
+            }
+            android.util.Log.d("CachePerformance", "=== CACHEMANAGEMENTFRAGMENT: CACHE CLEARING COMPLETE ===")
             loadCacheEntries()
         } catch (e: Exception) {
+            android.util.Log.e("CachePerformance", "Error clearing all cache: ${e.message}", e)
             logError(e)
         }
     }

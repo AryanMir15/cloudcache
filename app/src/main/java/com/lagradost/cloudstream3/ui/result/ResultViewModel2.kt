@@ -13,6 +13,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import com.lagradost.cloudstream3.*
+import com.lagradost.cloudstream3.utils.EPISODE_PARENT_INDEX
 import com.lagradost.cloudstream3.actions.AlwaysAskAction
 import com.lagradost.cloudstream3.actions.VideoClickActionHolder
 import com.lagradost.cloudstream3.APIHolder.apis
@@ -640,6 +641,56 @@ class ResultViewModel2 : ViewModel() {
         private var justUnsubscribedId: Int? = null
         private var justUnsubscribedTime: Long = 0
         private const val UNSUBSCRIBE_WINDOW_MS = 5000 // 5 second window
+        
+        /**
+         * Updates the parent index for O(1) episode lookup
+         * Maps parentId -> Set of episode IDs belonging to that parent
+         */
+        private fun updateParentIndex(parentId: Int, episodeId: String) {
+            try {
+                val indexKey = "${EPISODE_PARENT_INDEX}_${parentId}"
+                val currentIds = getKey<Set<String>>(indexKey) ?: emptySet()
+                val updatedIds = currentIds + episodeId
+                setKey(indexKey, updatedIds)
+                android.util.Log.d("CachePerformance", "=== PARENT INDEX UPDATE ===")
+                android.util.Log.d("CachePerformance", "ParentId: $parentId")
+                android.util.Log.d("CachePerformance", "Added episodeId: $episodeId")
+                android.util.Log.d("CachePerformance", "Previous count: ${currentIds.size}")
+                android.util.Log.d("CachePerformance", "New count: ${updatedIds.size}")
+                android.util.Log.d("CachePerformance", "Index key: $indexKey")
+                android.util.Log.d("CachePerformance", "=== PARENT INDEX UPDATE COMPLETE ===")
+            } catch (e: Exception) {
+                android.util.Log.e("CachePerformance", "Error updating parent index: ${e.message}", e)
+            }
+        }
+        
+        /**
+         * Gets episode IDs for a specific parent using the index for O(1) lookup
+         * Falls back to full scan if index is missing
+         */
+        private fun getEpisodesByParentId(parentId: Int): Set<String>? {
+            try {
+                val indexKey = "${EPISODE_PARENT_INDEX}_${parentId}"
+                val episodeIds = getKey<Set<String>>(indexKey)
+                if (episodeIds != null) {
+                    android.util.Log.d("CachePerformance", "=== PARENT INDEX LOOKUP SUCCESS ===")
+                    android.util.Log.d("CachePerformance", "ParentId: $parentId")
+                    android.util.Log.d("CachePerformance", "Found ${episodeIds.size} episodes in index")
+                    android.util.Log.d("CachePerformance", "Index key: $indexKey")
+                    android.util.Log.d("CachePerformance", "=== PARENT INDEX LOOKUP COMPLETE ===")
+                    return episodeIds
+                }
+                android.util.Log.w("CachePerformance", "=== PARENT INDEX NOT FOUND ===")
+                android.util.Log.w("CachePerformance", "ParentId: $parentId")
+                android.util.Log.w("CachePerformance", "Index key: $indexKey")
+                android.util.Log.w("CachePerformance", "Will fall back to full scan")
+                android.util.Log.w("CachePerformance", "=== PARENT INDEX NOT FOUND COMPLETE ===")
+                return null
+            } catch (e: Exception) {
+                android.util.Log.e("CachePerformance", "Error getting parent index: ${e.message}", e)
+                return null
+            }
+        }
         
         var sharedOriginalResponse: LoadResponse? = null
         var sharedTrueOriginal: LoadResponse? = null // Stores the true original data from the first swap
@@ -3385,6 +3436,9 @@ class ResultViewModel2 : ViewModel() {
                                     episodeCached
                                 )
                                 android.util.Log.d("CacheFlow", "postEpisodes - Cached new episode: id=$id, episode=$episode, season=${i.season}")
+                                
+                                // Update parent index for O(1) lookup
+                                updateParentIndex(mainId, id.toString())
                             } else {
                                 android.util.Log.d("CacheFlow", "postEpisodes - Episode already cached, skipping: id=$id, episode=$episode")
                             }
@@ -3472,6 +3526,9 @@ class ResultViewModel2 : ViewModel() {
                                 episodeCached
                             )
                             android.util.Log.d("CacheFlow", "postEpisodes - Cached new episode: id=$id, episode=$episodeIndex, season=${episode.season}")
+                            
+                            // Update parent index for O(1) lookup
+                            updateParentIndex(mainId, id.toString())
                         } else {
                             android.util.Log.d("CacheFlow", "postEpisodes - Episode already cached, skipping: id=$id, episode=$episodeIndex")
                         }
@@ -3782,13 +3839,43 @@ class ResultViewModel2 : ViewModel() {
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Using DOWNLOAD_HEADER_CACHE for: ${cachedHeader.name}")
             android.util.Log.d("CacheFlow", "Cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
             
-            // Load episodes from DOWNLOAD_EPISODE_CACHE using parentId (unified approach)
-            val cachedEpisodes = getKeys(DOWNLOAD_EPISODE_CACHE)
-                ?.mapNotNull { getKey<DownloadObjects.DownloadEpisodeCached>(it) }
-                ?.filter { it.parentId == parentId }
+            // Load episodes from DOWNLOAD_EPISODE_CACHE using parentId with O(1) index lookup
+            android.util.Log.d("CachePerformance", "=== STARTING EPISODE LOAD FOR PARENT ID: $parentId ===")
+            val startTime = System.currentTimeMillis()
+            
+            val cachedEpisodes = try {
+                // Try to use parent index for O(1) lookup
+                val episodeIds = getEpisodesByParentId(parentId)
+                if (episodeIds != null) {
+                    android.util.Log.d("CachePerformance", "loadOfflineEpisodes - Using parent index for O(1) lookup, found ${episodeIds.size} episode IDs")
+                    android.util.Log.d("CachePerformance", "Episode IDs from index: ${episodeIds.take(5)}${if (episodeIds.size > 5) "..." else ""}")
+                    val episodes = episodeIds.mapNotNull { episodeId ->
+                        getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, episodeId)
+                    }
+                    android.util.Log.d("CachePerformance", "Successfully loaded ${episodes.size} episodes from index in ${System.currentTimeMillis() - startTime}ms")
+                    episodes
+                } else {
+                    // Fallback to full scan if index is missing
+                    android.util.Log.w("CachePerformance", "loadOfflineEpisodes - Parent index missing, falling back to full scan")
+                    val allKeys = getKeys(DOWNLOAD_EPISODE_CACHE)
+                    android.util.Log.d("CachePerformance", "Full scan: total keys in cache = ${allKeys?.size}")
+                    val episodes = allKeys
+                        ?.mapNotNull { getKey<DownloadObjects.DownloadEpisodeCached>(it) }
+                        ?.filter { it.parentId == parentId }
+                    android.util.Log.d("CachePerformance", "Full scan loaded ${episodes?.size} episodes in ${System.currentTimeMillis() - startTime}ms")
+                    episodes
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("CachePerformance", "Error using parent index, falling back to full scan: ${e.message}", e)
+                getKeys(DOWNLOAD_EPISODE_CACHE)
+                    ?.mapNotNull { getKey<DownloadObjects.DownloadEpisodeCached>(it) }
+                    ?.filter { it.parentId == parentId }
+            }
                 ?.sortedWith(compareBy<DownloadObjects.DownloadEpisodeCached> { it.season ?: 0 }
                     .thenBy { it.episode })
                 ?.distinctBy { it.episode }
+            
+            android.util.Log.d("CachePerformance", "=== EPISODE LOAD COMPLETE: ${cachedEpisodes?.size} episodes loaded in ${System.currentTimeMillis() - startTime}ms ===")
 
             if (cachedEpisodes.isNullOrEmpty()) {
                 android.util.Log.d("CacheFlow", "No cached episodes found for parentId: $parentId, falling back to API")
@@ -3858,16 +3945,46 @@ class ResultViewModel2 : ViewModel() {
             }
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Converted ${resultEpisodes.size} episodes to ResultEpisode format")
             
+            // Infer dub status for episodes without cached dubStatus by looking at siblings in same season
+            // This prevents episodes from being misassigned to wrong dub/sub section
+            android.util.Log.d("DubStatusFix", "=== STARTING DUB STATUS INFERENCE ===")
+            android.util.Log.d("DubStatusFix", "Total cached episodes: ${cachedEpisodes.size}")
+            val dubStatusBySeason = mutableMapOf<Int, com.lagradost.cloudstream3.DubStatus>()
+            cachedEpisodes.forEach { cached ->
+                if (cached.dubStatus != null && cached.season != null) {
+                    val status = try { 
+                        com.lagradost.cloudstream3.DubStatus.valueOf(cached.dubStatus) 
+                    } catch (e: Exception) { 
+                        com.lagradost.cloudstream3.DubStatus.Subbed 
+                    }
+                    // If we haven't set a status for this season yet, use this one
+                    dubStatusBySeason.putIfAbsent(cached.season, status)
+                    android.util.Log.d("DubStatusFix", "Season ${cached.season} has dubStatus: $status (from episode ${cached.episode})")
+                }
+            }
+            android.util.Log.d("DubStatusFix", "Dub status by season map: $dubStatusBySeason")
+            
             // Group episodes by season AND their original dub status
+            android.util.Log.d("DubStatusFix", "Grouping ${resultEpisodes.size} episodes by season and dub status")
             val episodesBySeasonAndDub = resultEpisodes.groupBy { 
                 val cachedDub = cachedEpisodes.find { cached -> cached.id == it.id }?.dubStatus
-                val dubStatus = try { 
-                    com.lagradost.cloudstream3.DubStatus.valueOf(cachedDub ?: com.lagradost.cloudstream3.DubStatus.Subbed.name) 
-                } catch (e: Exception) { 
-                    com.lagradost.cloudstream3.DubStatus.Subbed 
+                val dubStatus = if (cachedDub != null) {
+                    try { 
+                        com.lagradost.cloudstream3.DubStatus.valueOf(cachedDub) 
+                    } catch (e: Exception) { 
+                        com.lagradost.cloudstream3.DubStatus.Subbed 
+                    }
+                } else {
+                    // Infer from season's common dub status, default to Subbed if unknown
+                    val inferred = dubStatusBySeason[it.season ?: 0] ?: com.lagradost.cloudstream3.DubStatus.Subbed
+                    android.util.Log.d("DubStatusFix", "Episode ${it.episode} (season ${it.season}) has no cached dubStatus, inferred: $inferred")
+                    inferred
                 }
+                android.util.Log.d("DubStatusFix", "Episode ${it.episode} assigned to: season=${it.season}, dubStatus=$dubStatus")
                 (it.season ?: 0) to dubStatus
             }
+            android.util.Log.d("DubStatusFix", "=== DUB STATUS INFERENCE COMPLETE ===")
+            android.util.Log.d("DubStatusFix", "Final groups: ${episodesBySeasonAndDub.keys}")
             val newEpisodes = mutableMapOf<EpisodeIndexer, List<ResultEpisode>>()
             episodesBySeasonAndDub.forEach { (seasonDubPair, episodes) ->
                 val (season, dubStatus) = seasonDubPair

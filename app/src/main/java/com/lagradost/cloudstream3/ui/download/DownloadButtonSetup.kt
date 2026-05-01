@@ -236,6 +236,19 @@ object DownloadButtonSetup {
                                 data = null
                             )
                             setKey(DOWNLOAD_EPISODE_CACHE, newId.toString(), newCachedEp)
+                            
+                            // Update parent index for O(1) lookup
+                            android.util.Log.d("CachePerformance", "=== DOWNLOADBUTTONSETUP: UPDATING PARENT INDEX ===")
+                            android.util.Log.d("CachePerformance", "ParentId: ${click.data.parentId}")
+                            android.util.Log.d("CachePerformance", "New episodeId: $newId")
+                            android.util.Log.d("CachePerformance", "Episode number: ${scanned.episodeNumber}")
+                            val indexKey = "${com.lagradost.cloudstream3.utils.EPISODE_PARENT_INDEX}_${click.data.parentId}"
+                            val currentIds = com.lagradost.cloudstream3.CloudStreamApp.getKey<Set<String>>(indexKey) ?: emptySet()
+                            val updatedIds = currentIds + newId.toString()
+                            com.lagradost.cloudstream3.CloudStreamApp.setKey(indexKey, updatedIds)
+                            android.util.Log.d("CachePerformance", "Previous count: ${currentIds.size}")
+                            android.util.Log.d("CachePerformance", "New count: ${updatedIds.size}")
+                            android.util.Log.d("CachePerformance", "=== DOWNLOADBUTTONSETUP: PARENT INDEX UPDATE COMPLETE ===")
 
                             // Cache file info for playback
                             val fileInfo = DownloadObjects.DownloadedFileInfo(

@@ -339,10 +339,22 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             android.util.Log.d("RefreshMetadata", "Pull-to-refresh triggered")
             val storedData = getStoredData()
             if (storedData != null) {
-                // Get the first available meta provider for refresh
+                // Use the original provider from currentResponse.apiName first
+                val originalProvider = viewModel.currentResponse?.apiName
                 val metaProviders = viewModel.getAvailableMetaProviders()
+                
+                android.util.Log.d("RefreshMetadata", "Original provider: $originalProvider, Available providers: $metaProviders")
+                
                 if (metaProviders.isNotEmpty()) {
-                    viewModel.refreshMetadata(metaProviders.first())
+                    // Prioritize the original provider if it's in the available list
+                    val providerToUse = if (originalProvider != null && originalProvider in metaProviders) {
+                        android.util.Log.d("RefreshMetadata", "Using original provider: $originalProvider")
+                        originalProvider
+                    } else {
+                        android.util.Log.d("RefreshMetadata", "Original provider not available or null, using first available: ${metaProviders.first()}")
+                        metaProviders.first()
+                    }
+                    viewModel.refreshMetadata(providerToUse)
                 } else {
                     android.util.Log.w("RefreshMetadata", "No meta providers available for refresh")
                     resultBinding?.resultSwipeRefresh?.isRefreshing = false
@@ -861,6 +873,14 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         super.onResume()
         PanelsChildGestureRegionObserver.Provider.get()
             .addGestureRegionsUpdateListener(gestureRegionsListener)
+        
+        // Force refresh episode adapter to update download status icons
+        // This fixes the issue where download scan icons don't update when navigating away during scan
+        android.util.Log.d("DownloadStatusRefresh", "=== RESULTFRAGMENTPHONE ONRESUME ===")
+        android.util.Log.d("DownloadStatusRefresh", "Forcing episode adapter refresh to update download status icons")
+        android.util.Log.d("DownloadStatusRefresh", "Current downloadStatus map size: ${com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.downloadStatus.size}")
+        viewModel.reloadEpisodes()
+        android.util.Log.d("DownloadStatusRefresh", "=== RESULTFRAGMENTPHONE ONRESUME COMPLETE ===")
     }
 
     override fun onStop() {

@@ -195,6 +195,14 @@ class ResultFragmentTv : BaseFragment<FragmentResultTvBinding>(
         activity?.setNavigationBarColorCompat(R.attr.primaryBlackBackground)
         afterPluginsLoadedEvent += ::reloadViewModel
         super.onResume()
+        
+        // Force refresh episode adapter to update download status icons
+        // This fixes the issue where download scan icons don't update when navigating away during scan
+        android.util.Log.d("DownloadStatusRefresh", "=== RESULTFRAGMENTTV ONRESUME ===")
+        android.util.Log.d("DownloadStatusRefresh", "Forcing episode adapter refresh to update download status icons")
+        android.util.Log.d("DownloadStatusRefresh", "Current downloadStatus map size: ${com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.downloadStatus.size}")
+        viewModel.reloadEpisodes()
+        android.util.Log.d("DownloadStatusRefresh", "=== RESULTFRAGMENTTV ONRESUME COMPLETE ===")
     }
 
     override fun onStop() {

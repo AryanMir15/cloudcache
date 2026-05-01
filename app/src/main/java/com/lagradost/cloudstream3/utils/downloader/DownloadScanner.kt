@@ -38,10 +38,36 @@ object DownloadScanner {
             
             val episodeIds = episodesToDelete.map { it.id }
             
+            android.util.Log.d("CachePerformance", "=== DOWNLOADSCANNER: CLEARING LIBRARY CACHE ===")
+            android.util.Log.d("CachePerformance", "HeaderId: $headerId")
+            android.util.Log.d("CachePerformance", "Episodes to delete: ${episodeIds.size}")
+            android.util.Log.d("CachePerformance", "Episode IDs: ${episodeIds.take(5)}${if (episodeIds.size > 5) "..." else ""}")
+            
             // Clear episode cache
             episodesToDelete.forEach { ep ->
                 com.lagradost.cloudstream3.CloudStreamApp.removeKey(DOWNLOAD_EPISODE_CACHE, ep.id.toString())
             }
+            android.util.Log.d("CachePerformance", "Cleared ${episodeIds.size} episodes from DOWNLOAD_EPISODE_CACHE")
+            
+            // Update parent index by removing deleted episode IDs
+            val indexKey = "${com.lagradost.cloudstream3.utils.EPISODE_PARENT_INDEX}_$headerId"
+            android.util.Log.d("CachePerformance", "Updating parent index: $indexKey")
+            val currentIds = com.lagradost.cloudstream3.CloudStreamApp.getKey<Set<String>>(indexKey)
+            android.util.Log.d("CachePerformance", "Current index size: ${currentIds?.size}")
+            if (currentIds != null) {
+                val updatedIds = currentIds - episodeIds.map { it.toString() }.toSet()
+                if (updatedIds.isEmpty()) {
+                    // Remove index entirely if no episodes left
+                    com.lagradost.cloudstream3.CloudStreamApp.removeKey(indexKey)
+                    android.util.Log.d("CachePerformance", "Removed parent index entirely (no episodes remaining)")
+                } else {
+                    com.lagradost.cloudstream3.CloudStreamApp.setKey(indexKey, updatedIds)
+                    android.util.Log.d("CachePerformance", "Updated parent index: removed ${episodeIds.size} episodes, remaining ${updatedIds.size}")
+                }
+            } else {
+                android.util.Log.w("CachePerformance", "Parent index not found for headerId: $headerId")
+            }
+            android.util.Log.d("CachePerformance", "=== DOWNLOADSCANNER: CACHE CLEARING COMPLETE ===")
             
             // Clear file info for each episode
             episodeIds.forEach { id ->
