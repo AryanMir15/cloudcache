@@ -215,6 +215,17 @@ object AniListFilterUtils {
             if (holder is CheckboxViewHolder) {
                 holder.text.text = item
 
+                // Set checkbox colors - blue checkmark when checked, gray border when unchecked
+                val states = arrayOf(
+                    intArrayOf(android.R.attr.state_checked), // Checked state
+                    intArrayOf(-android.R.attr.state_checked)  // Unchecked state
+                )
+                val colors = intArrayOf(
+                    android.graphics.Color.parseColor("#1976D2"), // Proper blue when checked
+                    android.graphics.Color.parseColor("#757575")  // Gray when unchecked
+                )
+                holder.checkbox.buttonTintList = android.content.res.ColorStateList(states, colors)
+
                 // Set checkbox state
                 holder.checkbox.isChecked = isSelected
 

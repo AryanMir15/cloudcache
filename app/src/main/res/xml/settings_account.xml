@@ -53,4 +53,18 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory
+        android:title="External API Keys">
+
+        <EditTextPreference
+            android:key="tmdb_api_key"
+            android:title="TMDB API Key"
+            android:summary="Enter your TMDB API key for Browse tab integration"
+            android:icon="@drawable/ic_baseline_ondemand_video_24"
+            android:dialogTitle="TMDB API Key"
+            android:dialogMessage="Enter your TMDB API key. You can get one at https://www.themoviedb.org/settings/api"
+            android:inputType="text" />
+
+    </PreferenceCategory>
+
 </PreferenceScreen>

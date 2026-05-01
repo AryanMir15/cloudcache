@@ -26,7 +26,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="AniList Filter"
+                android:text="TMDB Filter"
                 android:textSize="20sp"
                 android:textStyle="bold"
                 android:textColor="?attr/textColor" />
@@ -78,254 +78,10 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- NSFW Toggle -->
-            <LinearLayout
-                android:id="@+id/nsfw_header"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="12dp"
-                android:gravity="center_vertical"
-                android:background="@android:color/black">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Show NSFW"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/textColor" />
-
-                </LinearLayout>
-
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/nsfw_toggle"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp" />
-
-            </LinearLayout>
-
+    
+    <!-- Format Selector (Movie/TV) - REQUIRED for TMDB -->
     <LinearLayout
-        android:id="@+id/genres_header"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="12dp"
-        android:gravity="center_vertical"
-        android:background="@android:color/black">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Genres"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="?attr/textColor" />
-
-            <TextView
-                android:id="@+id/genres_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="0"
-                android:textSize="12sp"
-                android:textColor="?attr/grayTextColor" />
-
-        </LinearLayout>
-
-        <ImageView
-            android:id="@+id/genres_expand_icon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="8dp"
-            android:src="@drawable/ic_baseline_arrow_forward_24"
-            android:tint="?attr/textColor"
-            android:contentDescription="Expand" />
-
-    </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/genres_recycler"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:maxHeight="300dp"
-        android:visibility="gone"
-         />
-
-    <LinearLayout
-        android:id="@+id/tags_header"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="12dp"
-        android:gravity="center_vertical"
-        android:background="@android:color/black">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Tags"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="?attr/textColor" />
-
-            <TextView
-                android:id="@+id/tags_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="0"
-                android:textSize="12sp"
-                android:textColor="?attr/grayTextColor" />
-
-        </LinearLayout>
-
-        <ImageView
-            android:id="@+id/tags_expand_icon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="8dp"
-            android:src="@drawable/ic_baseline_arrow_forward_24"
-            android:tint="?attr/textColor"
-            android:contentDescription="Expand" />
-
-    </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/tags_recycler"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:maxHeight="300dp"
-        android:visibility="gone"
-         />
-
-    <LinearLayout
-        android:id="@+id/year_header"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="12dp"
-        android:gravity="center_vertical"
-        android:background="@android:color/black">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Year"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="?attr/textColor" />
-
-            <TextView
-                android:id="@+id/year_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="All"
-                android:textSize="12sp"
-                android:textColor="?attr/grayTextColor" />
-
-        </LinearLayout>
-
-        <ImageView
-            android:id="@+id/year_expand_icon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="8dp"
-            android:src="@drawable/ic_baseline_arrow_forward_24"
-            android:tint="?attr/textColor"
-            android:contentDescription="Expand" />
-
-    </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/year_recycler"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:maxHeight="300dp"
-        android:visibility="gone"
-         />
-
-    <LinearLayout
-        android:id="@+id/season_header"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="12dp"
-        android:gravity="center_vertical"
-        android:background="@android:color/black">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Season"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="?attr/textColor" />
-
-            <TextView
-                android:id="@+id/season_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="All"
-                android:textSize="12sp"
-                android:textColor="?attr/grayTextColor" />
-
-        </LinearLayout>
-
-        <ImageView
-            android:id="@+id/season_expand_icon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="8dp"
-            android:src="@drawable/ic_baseline_arrow_forward_24"
-            android:tint="?attr/textColor"
-            android:contentDescription="Expand" />
-
-    </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/season_recycler"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:maxHeight="300dp"
-        android:visibility="gone"
-         />
-
-    <LinearLayout
-        android:id="@+id/format_header"
+        android:id="@+id/tmdb_format_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
@@ -348,17 +104,17 @@
                 android:textColor="?attr/textColor" />
 
             <TextView
-                android:id="@+id/format_count"
+                android:id="@+id/tmdb_format_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="All"
+                android:text="Movie"
                 android:textSize="12sp"
                 android:textColor="?attr/grayTextColor" />
 
         </LinearLayout>
 
         <ImageView
-            android:id="@+id/format_expand_icon"
+            android:id="@+id/tmdb_format_expand_icon"
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:layout_marginStart="8dp"
@@ -369,7 +125,60 @@
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/format_recycler"
+        android:id="@+id/tmdb_format_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:maxHeight="150dp"
+        android:visibility="gone" />
+
+    <!-- Genres Section -->
+    <LinearLayout
+        android:id="@+id/tmdb_genres_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Genres"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+            <TextView
+                android:id="@+id/tmdb_genres_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textSize="12sp"
+                android:textColor="?attr/grayTextColor" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tmdb_genres_expand_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_baseline_arrow_forward_24"
+            android:tint="?attr/textColor"
+            android:contentDescription="Expand" />
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tmdb_genres_recycler"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
@@ -377,8 +186,344 @@
         android:visibility="gone"
          />
 
+    <!-- Keyword Section -->
     <LinearLayout
-        android:id="@+id/sort_header"
+        android:id="@+id/tmdb_keyword_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Keywords"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+            <TextView
+                android:id="@+id/tmdb_keyword_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="None"
+                android:textSize="12sp"
+                android:textColor="?attr/grayTextColor" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tmdb_keyword_expand_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_baseline_arrow_forward_24"
+            android:tint="?attr/textColor"
+            android:contentDescription="Expand" />
+
+    </LinearLayout>
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/tmdb_keyword_input_layout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:visibility="gone"
+        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/tmdb_keyword_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Enter keywords (e.g., marvel, action, comedy)"
+            android:inputType="text"
+            android:maxLines="1" />
+
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!-- Year Section -->
+    <LinearLayout
+        android:id="@+id/tmdb_year_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Year"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+            <TextView
+                android:id="@+id/tmdb_year_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="All"
+                android:textSize="12sp"
+                android:textColor="?attr/grayTextColor" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tmdb_year_expand_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_baseline_arrow_forward_24"
+            android:tint="?attr/textColor"
+            android:contentDescription="Expand" />
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tmdb_year_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:maxHeight="300dp"
+        android:visibility="gone"
+         />
+
+    <!-- Country Section -->
+    <LinearLayout
+        android:id="@+id/tmdb_country_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Country"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+            <TextView
+                android:id="@+id/tmdb_country_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="All"
+                android:textSize="12sp"
+                android:textColor="?attr/grayTextColor" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tmdb_country_expand_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_baseline_arrow_forward_24"
+            android:tint="?attr/textColor"
+            android:contentDescription="Expand" />
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tmdb_country_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:maxHeight="300dp"
+        android:visibility="gone"
+         />
+
+    <!-- Trending Section -->
+    <LinearLayout
+        android:id="@+id/tmdb_trending_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Trending"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+            <TextView
+                android:id="@+id/tmdb_trending_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Off"
+                android:textSize="12sp"
+                android:textColor="?attr/grayTextColor" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tmdb_trending_expand_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_baseline_arrow_forward_24"
+            android:tint="?attr/textColor"
+            android:contentDescription="Expand" />
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tmdb_trending_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:maxHeight="150dp"
+        android:visibility="gone"
+         />
+
+    <!-- Provider (Streaming On) Section -->
+    <LinearLayout
+        android:id="@+id/tmdb_provider_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Streaming On"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+            <TextView
+                android:id="@+id/tmdb_provider_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="All"
+                android:textSize="12sp"
+                android:textColor="?attr/grayTextColor" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tmdb_provider_expand_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_baseline_arrow_forward_24"
+            android:tint="?attr/textColor"
+            android:contentDescription="Expand" />
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tmdb_provider_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:maxHeight="300dp"
+        android:visibility="gone"
+         />
+
+    <!-- Minimum Votes Section -->
+    <LinearLayout
+        android:id="@+id/tmdb_min_votes_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Minimum Votes"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+            <TextView
+                android:id="@+id/tmdb_min_votes_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0"
+                android:textSize="12sp"
+                android:textColor="?attr/grayTextColor" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tmdb_min_votes_expand_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_baseline_arrow_forward_24"
+            android:tint="?attr/textColor"
+            android:contentDescription="Expand" />
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tmdb_min_votes_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:maxHeight="200dp"
+        android:visibility="gone"
+         />
+
+    <!-- Sort Section -->
+    <LinearLayout
+        android:id="@+id/tmdb_sort_header"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
@@ -401,7 +546,7 @@
                 android:textColor="?attr/textColor" />
 
             <TextView
-                android:id="@+id/sort_count"
+                android:id="@+id/tmdb_sort_count"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="Popularity"
@@ -411,7 +556,7 @@
         </LinearLayout>
 
         <ImageView
-            android:id="@+id/sort_expand_icon"
+            android:id="@+id/tmdb_sort_expand_icon"
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:layout_marginStart="8dp"
@@ -422,13 +567,47 @@
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/sort_recycler"
+        android:id="@+id/tmdb_sort_recycler"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:maxHeight="300dp"
         android:visibility="gone"
          />
+
+    <!-- Adult Content Toggle -->
+    <LinearLayout
+        android:id="@+id/tmdb_adult_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Include Adult Content"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+        </LinearLayout>
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/tmdb_adult_toggle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp" />
+
+    </LinearLayout>
 
     </LinearLayout>
 
@@ -444,7 +623,7 @@
         android:background="@android:color/black">
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/clear_button"
+            android:id="@+id/tmdb_clear_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
@@ -452,7 +631,7 @@
             style="@style/BlackButton" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/apply_button"
+            android:id="@+id/tmdb_apply_button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Apply"

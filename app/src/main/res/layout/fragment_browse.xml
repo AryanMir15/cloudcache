@@ -61,6 +61,39 @@
                 android:src="@drawable/ic_mic"
                 app:tint="?attr/textColor" />
 
+            <!-- Metadata Language Dropdown - Separate from filters -->
+            <FrameLayout
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_margin="10dp"
+                android:background="@drawable/search_background">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="30dp"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginEnd="30dp"
+                    android:paddingStart="8dp"
+                    android:paddingEnd="8dp"
+                    android:gravity="center"
+                    android:text="en-US"
+                    android:textColor="?attr/textColor"
+                    android:textSize="12sp"
+                    android:drawableEnd="@drawable/ic_baseline_keyboard_arrow_down_24"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:id="@+id/metadata_language_text" />
+
+                <ImageView
+                    android:id="@+id/metadata_language_dropdown"
+                    android:layout_width="25dp"
+                    android:layout_height="25dp"
+                    android:layout_gravity="center"
+                    android:background="?android:attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Change metadata language"
+                    android:src="@drawable/ic_baseline_language_24"
+                    app:tint="?attr/textColor" />
+            </FrameLayout>
+
             <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
@@ -72,7 +105,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="30dp"
                     android:layout_gravity="center_vertical"
-                    android:layout_marginEnd="30dp">
+                    android:layout_marginEnd="60dp">
 
                     <androidx.appcompat.widget.SearchView
                         android:id="@+id/browse_search"
@@ -85,35 +118,46 @@
                         android:iconifiedByDefault="false"
                         android:imeOptions="actionSearch"
                         android:inputType="text"
-                        android:queryHint="Search AniList"
+                        android:queryHint="Search in AniList"
                         app:iconifiedByDefault="false"
                         app:queryBackground="@color/transparent"
-                        app:searchIcon="@drawable/search_icon"
-                        app:closeIcon="@drawable/ic_baseline_close_24">
+                        app:searchHintIcon="@null"
+                        app:searchIcon="@null" />
 
-                        <androidx.core.widget.ContentLoadingProgressBar
-                            android:id="@+id/browse_search_loading_bar"
-                            style="@style/Widget.AppCompat.ProgressBar"
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
-                            android:layout_gravity="center"
-                            android:layout_marginStart="-35dp"
-                            android:indeterminateTint="@color/white">
+                    <androidx.core.widget.ContentLoadingProgressBar
+                        android:id="@+id/browse_search_loading_bar"
+                        style="?android:attr/progressBarStyleSmall"
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_gravity="center"
+                        android:layout_marginStart="-35dp"
+                        android:indeterminateTint="@color/white" />
 
-                        </androidx.core.widget.ContentLoadingProgressBar>
-                    </androidx.appcompat.widget.SearchView>
                 </FrameLayout>
 
-            <ImageView
-                android:id="@+id/filter_button"
-                android:layout_width="25dp"
-                android:layout_height="25dp"
-                android:layout_gravity="end|center_vertical"
-                android:layout_margin="10dp"
-                android:background="?selectableItemBackgroundBorderless"
-                android:contentDescription="Filter"
-                android:src="@drawable/ic_baseline_filter_list_24"
-                app:tint="?attr/textColor" />
+                <!-- Filter Icon inside search bar -->
+                <ImageView
+                    android:id="@+id/filter_button"
+                    android:layout_width="25dp"
+                    android:layout_height="25dp"
+                    android:layout_gravity="end|center_vertical"
+                    android:layout_marginEnd="10dp"
+                    android:background="?selectableItemBackgroundBorderless"
+                    android:contentDescription="Filter"
+                    android:src="@drawable/ic_baseline_filter_list_24"
+                    app:tint="?attr/textColor" />
+
+                <!-- Swap Provider Button on right side of search bar -->
+                <ImageView
+                    android:id="@+id/swap_metadata_button"
+                    android:layout_width="25dp"
+                    android:layout_height="25dp"
+                    android:layout_gravity="end|center_vertical"
+                    android:layout_marginEnd="40dp"
+                    android:background="?selectableItemBackgroundBorderless"
+                    android:contentDescription="Swap Metadata"
+                    android:src="@drawable/ic_baseline_swap_horiz_24"
+                    app:tint="?attr/textColor" />
             </FrameLayout>
         </LinearLayout>
 
@@ -182,7 +226,7 @@
                     app:autoSizeTextType="uniform" />
 
                 <TextView
-                    android:id="@+id/season_label"
+                    android:id="@+id/secondary_filter_label"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="6dp"
@@ -234,6 +278,18 @@
                     app:autoSizeMaxTextSize="14sp"
                     app:autoSizeMinTextSize="6sp"
                     app:autoSizeTextType="uniform" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/streaming_provider_chip"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="All"
+                    android:textColor="@android:color/white"
+                    android:visibility="gone"
+                    app:chipBackgroundColor="#E50914"
+                    app:chipCornerRadius="16dp"
+                    app:chipStrokeWidth="0dp" />
             </LinearLayout>
             </HorizontalScrollView>
         </LinearLayout>

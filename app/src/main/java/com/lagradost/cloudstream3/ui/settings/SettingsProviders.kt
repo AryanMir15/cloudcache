@@ -2,6 +2,7 @@ package com.lagradost.cloudstream3.ui.settings
 
 import android.os.Bundle
 import android.view.View
+import android.widget.Toast
 import androidx.core.content.edit
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.NavOptions
@@ -57,6 +58,64 @@ class SettingsProviders : BasePreferenceFragmentCompat() {
                         )
                     }
                 }
+            }
+
+            return@setOnPreferenceClickListener true
+        }
+
+        getPref(R.string.tmdb_display_language_key)?.setOnPreferenceClickListener {
+            // TMDB display languages - common ones with proper codes
+            val languages = listOf(
+                "English" to "en-US",
+                "Español" to "es-ES", 
+                "Français" to "fr-FR",
+                "Deutsch" to "de-DE",
+                "Italiano" to "it-IT",
+                "Português" to "pt-BR",
+                "Русский" to "ru-RU",
+                "日本語" to "ja-JP",
+                "한국어" to "ko-KR",
+                "中文" to "zh-CN",
+                "العربية" to "ar-SA",
+                "Türkçe" to "tr-TR",
+                "हिन्दी" to "hi-IN",
+                "Nederlands" to "nl-NL",
+                "Svenska" to "sv-SE",
+                "Norsk" to "no-NO",
+                "Dansk" to "da-DK",
+                "Suomi" to "fi-FI",
+                "Ελληνικά" to "el-GR",
+                "Polski" to "pl-PL",
+                "Čeština" to "cs-CZ",
+                "Magyar" to "hu-HU",
+                "Română" to "ro-RO",
+                "עברית" to "he-IL",
+                "Українська" to "uk-UA"
+            )
+            
+            val currentLanguage = settingsManager.getString(getString(R.string.tmdb_display_language_key), "en-US") ?: "en-US"
+            val currentIndex = languages.indexOfFirst { it.second == currentLanguage }.coerceAtLeast(0)
+            
+            activity?.showMultiDialog(
+                languages.map { it.first },
+                listOf(currentIndex),
+                getString(R.string.tmdb_display_language_settings),
+                {}
+            ) { selectedList ->
+                val selectedCode = if (selectedList.isNotEmpty()) {
+                    languages[selectedList.first()].second
+                } else {
+                    "en-US" // fallback
+                }
+                
+                settingsManager.edit {
+                    putString(getString(R.string.tmdb_display_language_key), selectedCode)
+                }
+                
+                // Clear genre cache when language changes
+                com.lagradost.cloudstream3.ui.browse.TmdbFilterUtils.clearGenreCache()
+                
+                Toast.makeText(requireContext(), "TMDB language changed to ${selectedCode}", Toast.LENGTH_SHORT).show()
             }
 
             return@setOnPreferenceClickListener true

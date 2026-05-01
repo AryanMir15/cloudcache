@@ -7,6 +7,11 @@
         android:title="@string/provider_lang_settings" />
 
     <Preference
+        android:icon="@drawable/ic_baseline_language_24"
+        android:key="@string/tmdb_display_language_key"
+        android:title="@string/tmdb_display_language_settings" />
+
+    <Preference
         android:icon="@drawable/ic_baseline_play_arrow_24"
         android:key="@string/prefer_media_type_key"
         android:title="@string/preferred_media_settings" />
