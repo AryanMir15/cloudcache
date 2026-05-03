@@ -511,6 +511,33 @@ object TmdbApi {
     }
 
     /**
+     * Search for keywords by text - returns list of keyword results
+     */
+    suspend fun searchKeywords(apiKey: String, query: String): List<KeywordResult>? {
+        return try {
+            if (query.isBlank()) return emptyList()
+            
+            val url = "$BASE_URL/search/keyword?api_key=$apiKey&query=${URLEncoder.encode(query, "UTF-8")}&page=1"
+            android.util.Log.d("KEYWORD_SEARCH_DEBUG", "Searching keywords: $query")
+            android.util.Log.d("KEYWORD_SEARCH_DEBUG", "URL: $url")
+            
+            val response = app.get(url, timeout = 5000)
+            val data = response.text
+            
+            val parsed = tryParseJson<KeywordSearchResponse>(data)
+            val results = parsed?.results?.map { 
+                KeywordResult(it.id ?: 0, it.name ?: "") 
+            }?.filter { it.name.isNotBlank() && it.id > 0 }
+            
+            android.util.Log.d("KEYWORD_SEARCH_DEBUG", "Found ${results?.size ?: 0} keywords")
+            results
+        } catch (e: Exception) {
+            android.util.Log.e("KEYWORD_SEARCH_DEBUG", "Error searching keywords", e)
+            null
+        }
+    }
+
+    /**
      * Convert TMDB SearchMultiResult to BrowseMediaItem
      */
     private fun SearchMultiResult.toBrowseMediaItem(): BrowseMediaItem? {

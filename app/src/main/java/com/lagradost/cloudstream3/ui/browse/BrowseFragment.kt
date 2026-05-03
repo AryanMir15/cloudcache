@@ -47,7 +47,14 @@ import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
 import com.lagradost.cloudstream3.ui.settings.Globals.TV
 import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
 import androidx.lifecycle.observe
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.widget.ArrayAdapter
 
 class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
     BaseFragment.BindingCreator.Inflate(FragmentBrowseBinding::inflate)
@@ -55,7 +62,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
 
     private val viewModel: BrowseViewModel by activityViewModels()
 
-    // Provider selection
+    // Provider selection - will be restored from SharedPreferences in onResume
     private var selectedProvider = FilterProvider.ANILIST
     
     // AniList filter state - synced with ViewModel
@@ -95,6 +102,98 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
     private var hasMoreResults = false
     private var isLoadingMoreResults = false
     private var searchQuery: String? = null
+
+    // KEYWORD_SEARCH_DEBOUNCE: Debouncing and keyword search variables
+    private var keywordSearchJob: Job? = null
+    private val keywordSearchDebounceMs = 400L
+    private var selectedKeywordIds = mutableSetOf<Int>()
+    private var excludedKeywordIds = mutableSetOf<Int>()
+    
+    // KEYWORD_SEARCH_DEBOUNCE: Debounced keyword search function
+    private fun performDebouncedKeywordSearch(query: String, onResults: (List<TmdbApi.KeywordResult>) -> Unit) {
+        android.util.Log.d("KEYWORD_SEARCH_DEBOUNCE", "Starting debounced search for: '$query'")
+        
+        // Cancel previous search job
+        keywordSearchJob?.cancel()
+        
+        // Start new debounced search
+        keywordSearchJob = CoroutineScope(Dispatchers.Main).launch {
+            delay(keywordSearchDebounceMs)
+            
+            if (query.isBlank()) {
+                onResults(emptyList())
+                return@launch
+            }
+            
+            android.util.Log.d("KEYWORD_SEARCH_DEBOUNCE", "Executing search for: '$query'")
+            
+            try {
+                val apiKey = PreferenceManager.getDefaultSharedPreferences(requireContext())
+                    .getString(TmdbApi.API_KEY_PREF, null)
+                if (apiKey.isNullOrBlank()) {
+                    onResults(emptyList())
+                    return@launch
+                }
+                val results = withContext(Dispatchers.IO) {
+                    TmdbApi.searchKeywords(apiKey, query)
+                }
+                
+                val keywordResults = results ?: emptyList()
+                android.util.Log.d("KEYWORD_SEARCH_DEBOUNCE", "Found ${keywordResults.size} keywords")
+                onResults(keywordResults)
+                
+            } catch (e: Exception) {
+                android.util.Log.e("KEYWORD_SEARCH_DEBOUNCE", "Error in keyword search", e)
+                onResults(emptyList())
+            }
+        }
+    }
+    
+    // KEYWORD_SEARCH_DEBOUNCE: Show keyword selection dialog
+    private fun showKeywordSelectionDialog(
+        keywords: List<TmdbApi.KeywordResult>,
+        dialogBinding: com.lagradost.cloudstream3.databinding.BottomTmdbFilterBinding,
+        includeKeywordIds: MutableSet<Int>,
+        excludeKeywordIds: MutableSet<Int>
+    ) {
+        android.util.Log.d("KEYWORD_SEARCH_DEBOUNCE", "Showing keyword selection dialog with ${keywords.size} options")
+        
+        val keywordNames = keywords.map { "${it.name} (ID: ${it.id})" }.toTypedArray()
+        
+        AlertDialog.Builder(requireContext())
+            .setTitle("Select Keyword")
+            .setItems(keywordNames) { _, which ->
+                val selectedKeyword = keywords[which]
+                AlertDialog.Builder(requireContext())
+                    .setTitle(selectedKeyword.name)
+                    .setItems(arrayOf("Include", "Exclude", "Clear")) { _, modeIndex ->
+                        when (modeIndex) {
+                            0 -> {
+                                includeKeywordIds.add(selectedKeyword.id)
+                                excludeKeywordIds.remove(selectedKeyword.id)
+                            }
+                            1 -> {
+                                excludeKeywordIds.add(selectedKeyword.id)
+                                includeKeywordIds.remove(selectedKeyword.id)
+                            }
+                            else -> {
+                                includeKeywordIds.remove(selectedKeyword.id)
+                                excludeKeywordIds.remove(selectedKeyword.id)
+                            }
+                        }
+                        val includeCount = includeKeywordIds.size
+                        val excludeCount = excludeKeywordIds.size
+                        dialogBinding.tmdbKeywordCount.text = when {
+                            includeCount == 0 && excludeCount == 0 -> "None"
+                            else -> "Include: $includeCount, Exclude: $excludeCount"
+                        }
+                        dialogBinding.tmdbKeywordInput.setText("")
+                    }
+                    .show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
 
     // RecyclerView layout state preservation
     private var recyclerViewLayoutState: android.os.Parcelable? = null
@@ -148,6 +247,9 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         android.util.Log.d("BrowseFragment", "onBindingCreated: viewModel.uiState.value.hasMore=${viewModel.uiState.value?.hasMore}")
         android.util.Log.d("BrowseFragment", "onBindingCreated: viewModel.uiState.value.currentPage=${viewModel.uiState.value?.currentPage}")
 
+        // TAB_STATE_FIX: Restore provider state before setting up UI
+        restoreProviderState()
+        
         // Load saved default filters
         loadDefaultFilters()
 
@@ -172,6 +274,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: ViewModel filters.excludedGenres = ${filters?.excludedGenres}")
             android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: ViewModel filters.excludedTags = ${filters?.excludedTags}")
             
+            selectedProvider = filters?.provider ?: selectedProvider
             selectedGenres = filters?.genres?.toMutableSet() ?: mutableSetOf()
             selectedTags = filters?.tags?.toMutableSet() ?: mutableSetOf()
             excludedGenres = filters?.excludedGenres?.toMutableSet() ?: mutableSetOf()
@@ -191,7 +294,10 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             selectedTmdbTrending = filters?.tmdbTrending ?: "Off"
             selectedTmdbIncludeAdult = filters?.tmdbIncludeAdult ?: false
             selectedTmdbKeywords = filters?.tmdbKeywords ?: ""
+            selectedKeywordIds = filters?.tmdbIncludeKeywordIds?.toMutableSet() ?: mutableSetOf()
+            excludedKeywordIds = filters?.tmdbExcludeKeywordIds?.toMutableSet() ?: mutableSetOf()
             selectedTmdbMinVotes = filters?.tmdbMinVotes ?: 0
+            selectedSort = syncSortValueForProvider(selectedSort, selectedProvider)
             
             
             android.util.Log.d("STATE_SYNC_FIX", "onBindingCreated: Restored local selectedGenres = $selectedGenres")
@@ -240,6 +346,9 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: view != null = ${view != null}")
         android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: activity != null = ${activity != null}")
         android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: context != null = ${context != null}")
+        
+        // TAB_STATE_FIX: Restore provider state from SharedPreferences when returning to Browse tab
+        restoreProviderState()
         
         // Force RecyclerView to recalculate layout after configuration change
         // Since fragment is retained, we need to manually trigger layout recalculation
@@ -325,10 +434,13 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Fragment instance = ${this.hashCode()}")
         android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: MainActivity.nextSearchQuery = ${com.lagradost.cloudstream3.MainActivity.nextSearchQuery}")
         android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isAdded = ${isAdded}")
-        android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: isDetached = ${isDetached}")
         android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: view != null = ${view != null}")
         android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: activity != null = ${activity != null}")
         android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: context != null = ${context != null}")
+        
+        // TAB_STATE_FIX: Save provider state when leaving Browse tab
+        saveProviderState()
+        
         android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onPause completed ==========")
     }
 
@@ -497,8 +609,8 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         if (estimatedHeight != null) {
                             topBarContainer.minimumHeight = 0
                         }
-                        // Scroll to top after animation completes
-                        browseResults.scrollToPosition(0)
+                        // SCROLL_POSITION_FIX: Don't scroll to top after animation, preserve scroll position
+                        // browseResults.scrollToPosition(0)
                     }
                 })
                 animator.start()
@@ -525,10 +637,22 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 override fun onQueryTextSubmit(query: String?): Boolean {
                     android.util.Log.d("BrowseFragment", "onQueryTextSubmit: query=$query")
                     
-                    // Prevent empty or whitespace-only queries from hanging
+                    // CLEAR_SEARCH_ENTER_FIX: Handle empty query to show full data list
                     if (query.isNullOrBlank()) {
-                        android.util.Log.d("BrowseFragment", "onQueryTextSubmit: Empty query, ignoring")
-                        return false
+                        android.util.Log.d("CLEAR_SEARCH_ENTER_FIX", "Empty query submitted, showing full data list")
+                        searchQuery = null
+                        currentAniListPage = 1
+                        
+                        // Clear the search view
+                        browseSearch.setQuery("", false)
+                        browseSearch.clearFocus()
+                        
+                        // Re-enable filters (discover mode)
+                        updateFilterStatesForSearch(isSearchMode = false)
+                        
+                        // Load full data list
+                        loadResults()
+                        return true
                     }
                     
                     searchQuery = query
@@ -544,6 +668,19 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
 
                 override fun onQueryTextChange(newText: String?): Boolean {
                     android.util.Log.d("BrowseFragment", "onQueryTextChange: newText=$newText")
+                    
+                    // CLEAR_SEARCH_ENTER_FIX: Handle empty text change to show full data list
+                    if (newText.isNullOrBlank() && searchQuery != null) {
+                        android.util.Log.d("CLEAR_SEARCH_ENTER_FIX", "Search text cleared, showing full data list")
+                        searchQuery = null
+                        currentAniListPage = 1
+                        
+                        // Re-enable filters (discover mode)
+                        updateFilterStatesForSearch(isSearchMode = false)
+                        
+                        // Load full data list
+                        loadResults()
+                    }
                     
                     // Update filter states based on whether user is typing or not
                     val isSearchMode = !newText.isNullOrBlank()
@@ -621,6 +758,16 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     }
                 }
                 
+                // Load TMDB defaults when switching to TMDB
+                if (selectedProvider == FilterProvider.TMDB) {
+                    android.util.Log.d("PROVIDER_SWITCH", "Switched to TMDB, loading TMDB defaults")
+                    loadTmdbDefaultFilters()
+                }
+                
+                // SORT_SYNC_FIX: Sync sort value when switching providers
+                selectedSort = syncSortValueForProvider(selectedSort, selectedProvider)
+                android.util.Log.d("SORT_SYNC_FIX", "Synced sort value to: $selectedSort for provider: $selectedProvider")
+                
                 android.util.Log.d("UI_DEBUG_LOG", "New provider after switch: $selectedProvider")
                 
                 // Update search hint based on provider
@@ -631,16 +778,40 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 binding?.browseSearch?.queryHint = newSearchHint
                 android.util.Log.d("UI_DEBUG_LOG", "Updated search hint to: $newSearchHint")
                 
-                                
+                // METADATA_LANGUAGE_FIX: Update metadata language button state based on provider
+                val isAniListSelected = selectedProvider == FilterProvider.ANILIST
+                binding?.apply {
+                    metadataLanguageDropdown.alpha = if (isAniListSelected) 0.5f else 1.0f
+                    metadataLanguageDropdown.isEnabled = !isAniListSelected
+                    metadataLanguageText.alpha = if (isAniListSelected) 0.5f else 1.0f
+                    metadataLanguageText.isEnabled = !isAniListSelected
+                }
+                android.util.Log.d("METADATA_LANGUAGE_FIX", "Updated metadata language button state - isAniListSelected: $isAniListSelected")
+                
                 // Reset page and reload results with new provider
                 currentAniListPage = 1
                 viewModel.resetPage()
                 loadResults()
                 
+                // TMDB_SEARCH_BUTTON_FIX: Update filter states when switching providers
+                val actualSearchMode = !searchQuery.isNullOrBlank()
+                updateFilterStatesForSearch(actualSearchMode)
+                android.util.Log.d("TMDB_SEARCH_BUTTON_FIX", "Updated filter states after provider switch - searchQuery='$searchQuery', actualSearchMode=$actualSearchMode")
+                
                 // Update UI to reflect provider change
                 updateUI()
                 android.util.Log.d("UI_DEBUG_LOG", "========== SWAP_METADATA_BUTTON COMPLETED ==========")
             }
+
+            // METADATA_LANGUAGE_FIX: Set initial metadata language button state based on provider
+            val isAniListSelected = selectedProvider == FilterProvider.ANILIST
+            binding?.apply {
+                metadataLanguageDropdown.alpha = if (isAniListSelected) 0.5f else 1.0f
+                metadataLanguageDropdown.isEnabled = !isAniListSelected
+                metadataLanguageText.alpha = if (isAniListSelected) 0.5f else 1.0f
+                metadataLanguageText.isEnabled = !isAniListSelected
+            }
+            android.util.Log.d("METADATA_LANGUAGE_FIX", "Initial metadata language button state - isAniListSelected: $isAniListSelected")
 
             // Setup metadata language dropdown click listener
             binding?.metadataLanguageDropdown?.setOnClickListener {
@@ -909,9 +1080,17 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             }
             android.util.Log.d("UI_DEBUG_LOG", "========== STREAMING_PROVIDER_CHIP_UPDATE COMPLETED ==========")
 
-            // Update results - convert BrowseMediaItem to SearchResponse for adapter
-            (browseResults.adapter as? SearchAdapter)?.submitList(resultsList.toSearchResponses())
-            android.util.Log.d("BrowseFragment", "updateUI: Submitted ${resultsList.size} results to adapter")
+            // DUPLICATE_ITEMS_FIX: Deduplicate results before submitting to adapter
+            val searchResponses = resultsList.toSearchResponses()
+            val deduplicatedResponses = searchResponses.distinctBy { it.url + it.name }
+            val duplicateCount = searchResponses.size - deduplicatedResponses.size
+            
+            if (duplicateCount > 0) {
+                android.util.Log.d("DUPLICATE_ITEMS_FIX", "Removed $duplicateCount duplicate items")
+            }
+            
+            (browseResults.adapter as? SearchAdapter)?.submitList(deduplicatedResponses)
+            android.util.Log.d("BrowseFragment", "updateUI: Submitted ${deduplicatedResponses.size} deduplicated results to adapter (original: ${searchResponses.size})")
 
             // Show/hide no results text and end of results toast
             if (resultsList.isEmpty() && viewModel.uiState.value?.isLoading != true) {
@@ -1536,8 +1715,8 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     currentAniListPage = 1
                     loadResults()
 
-                    // Scroll to top to prevent hollow space when topbar height changes
-                    binding?.browseResults?.scrollToPosition(0)
+                    // SCROLL_POSITION_FIX: Don't scroll to top when loading defaults, preserve scroll position
+                    // binding?.browseResults?.scrollToPosition(0)
 
                     Toast.makeText(requireContext(), "Defaults saved and applied", Toast.LENGTH_SHORT).show()
                     confirmDialog.dismiss()
@@ -1664,9 +1843,11 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         var dialogProvider = selectedTmdbProvider
         var dialogTrending = selectedTmdbTrending
         var dialogIncludeAdult = selectedTmdbIncludeAdult
-        var dialogSort = selectedSort
+        var dialogSort = syncSortValueForProvider(selectedSort, FilterProvider.TMDB)
         var dialogKeywords = selectedTmdbKeywords
         var dialogMinVotes = selectedTmdbMinVotes
+        var dialogIncludeKeywordIds = selectedKeywordIds.toMutableSet()
+        var dialogExcludeKeywordIds = excludedKeywordIds.toMutableSet()
 
         android.util.Log.d("TMDB_FILTER_DEBUG", "========== showTmdbFilterDialog START ==========")
         android.util.Log.d("TMDB_FILTER_DEBUG", "Initial state: format=$dialogFormat, year=$dialogYear, country=$dialogCountry")
@@ -1692,7 +1873,10 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             dialogBinding.tmdbProviderCount.text = dialogProvider
             dialogBinding.tmdbTrendingCount.text = dialogTrending
             dialogBinding.tmdbSortCount.text = dialogSort
-            dialogBinding.tmdbKeywordCount.text = if (dialogKeywords.isBlank()) "None" else dialogKeywords.toString()
+            dialogBinding.tmdbKeywordCount.text = when {
+                dialogIncludeKeywordIds.isEmpty() && dialogExcludeKeywordIds.isEmpty() -> "None"
+                else -> "Include: ${dialogIncludeKeywordIds.size}, Exclude: ${dialogExcludeKeywordIds.size}"
+            }
             
             // Check if user is in search mode (main search bar has text)
             val isSearchMode = !searchQuery.isNullOrBlank()
@@ -1762,9 +1946,15 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         dialogFormat = item
                         dialogBinding.tmdbFormatCount.text = item
                         // Update genre list based on format
-                        updateTmdbGenreAdapter(dialogBinding, item, dialogGenres, dialogExcludedGenres)
+                        updateTmdbGenreAdapter(dialogBinding, item, dialogGenres, dialogExcludedGenres, dialogYear, dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort, dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds)
                         // Update only the single item that was clicked to avoid animating all checkboxes
                         formatAdapter?.updateSingleItem(item, state)
+                        // Update TMDB Load Defaults button visibility
+                        updateTmdbLoadDefaultsButtonVisibility(
+                            dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
+                            dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                            dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+                        )
                     }
                 },
                 radioMode = true
@@ -1779,7 +1969,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             }
 
             // Setup Genres - 3-state support
-            updateTmdbGenreAdapter(dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres)
+            updateTmdbGenreAdapter(dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear, dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort, dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds)
 
             // Genres accordion toggle
             dialogBinding.tmdbGenresHeader.setOnClickListener {
@@ -1799,6 +1989,12 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         dialogBinding.tmdbYearCount.text = item
                         // Update only the single item that was clicked to avoid animating all checkboxes
                         yearAdapter?.updateSingleItem(item, state)
+                        // Update TMDB Load Defaults button visibility
+                        updateTmdbLoadDefaultsButtonVisibility(
+                            dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
+                            dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                            dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+                        )
                     }
                 },
                 radioMode = true
@@ -1826,6 +2022,12 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         dialogBinding.tmdbCountryCount.text = item
                         // Update only the single item that was clicked to avoid animating all checkboxes
                         countryAdapter?.updateSingleItem(item, state)
+                        // Update TMDB Load Defaults button visibility
+                        updateTmdbLoadDefaultsButtonVisibility(
+                            dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
+                            dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                            dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+                        )
                     }
                 },
                 radioMode = true
@@ -1839,7 +2041,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 toggleAccordion(dialogBinding.tmdbCountryRecycler, dialogBinding.tmdbCountryExpandIcon)
             }
 
-            // Setup Keywords - Text input with accordion
+            // KEYWORD_SEARCH_DEBOUNCE: Setup Keywords with TextInputEditText and debounced search
             dialogBinding.tmdbKeywordHeader.setOnClickListener {
                 val isVisible = dialogBinding.tmdbKeywordInputLayout.visibility == View.VISIBLE
                 if (isVisible) {
@@ -1853,35 +2055,68 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 }
             }
 
-            // Initialize keyword input text and listener
-            dialogBinding.tmdbKeywordInput.setText(dialogKeywords)
+            // KEYWORD_SEARCH_DEBOUNCE: Set up the debounced keyword search with TextInputEditText
+            var keywordResults = listOf<TmdbApi.KeywordResult>()
+            
+            // Set up the debounced keyword search
+            dialogBinding.tmdbKeywordInput.addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    val query = s.toString().trim()
+                    android.util.Log.d("KEYWORD_SEARCH_DEBOUNCE", "Text changed: '$query'")
+                    
+                    // Update display text
+                    dialogBinding.tmdbKeywordCount.text = when {
+                        dialogIncludeKeywordIds.isEmpty() && dialogExcludeKeywordIds.isEmpty() -> "None"
+                        else -> "Include: ${dialogIncludeKeywordIds.size}, Exclude: ${dialogExcludeKeywordIds.size}"
+                    }
+                    
+                    // Perform debounced search
+                    performDebouncedKeywordSearch(query) { results ->
+                        android.util.Log.d("KEYWORD_SEARCH_DEBOUNCE", "Got ${results.size} keyword results")
+                        keywordResults = results
+                        
+                        // Show simple dialog for keyword selection if we have results and user stops typing
+                        if (results.isNotEmpty() && query.isNotBlank()) {
+                            CoroutineScope(Dispatchers.Main).launch {
+                                showKeywordSelectionDialog(
+                                    results,
+                                    dialogBinding,
+                                    dialogIncludeKeywordIds,
+                                    dialogExcludeKeywordIds
+                                )
+                            }
+                        }
+                    }
+                }
+            })
+            
+            // Handle editor action (Done key) - add current text as keyword if valid
             dialogBinding.tmdbKeywordInput.setOnEditorActionListener { v, actionId, event ->
                 if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
-                    dialogKeywords = dialogBinding.tmdbKeywordInput.text.toString().trim()
-                    dialogBinding.tmdbKeywordCount.text = if (dialogKeywords.isBlank()) "None" else dialogKeywords
+                    val currentText = dialogBinding.tmdbKeywordInput.text.toString().trim()
+                    if (currentText.isNotBlank()) {
+                        // Try to find exact match in keyword results
+                        val match = keywordResults.find { it.name.equals(currentText, ignoreCase = true) }
+                        if (match != null) {
+                            // Add the matched keyword ID
+                            dialogIncludeKeywordIds.add(match.id)
+                            dialogExcludeKeywordIds.remove(match.id)
+                            dialogBinding.tmdbKeywordCount.text = "Include: ${dialogIncludeKeywordIds.size}, Exclude: ${dialogExcludeKeywordIds.size}"
+                            dialogBinding.tmdbKeywordInput.setText("")
+                            android.util.Log.d("KEYWORD_SEARCH_DEBOUNCE", "Added keyword by exact match: ${match.name} (ID: ${match.id})")
+                        } else {
+                            // Treat as text-based keyword (legacy fallback)
+                            android.util.Log.d("KEYWORD_SEARCH_DEBOUNCE", "No exact match found, treating as text keyword: $currentText")
+                        }
+                    }
                     // Hide keyboard
                     dialogBinding.tmdbKeywordInput.clearFocus()
                     return@setOnEditorActionListener true
                 }
                 false
             }
-
-            dialogBinding.tmdbKeywordInput.setOnFocusChangeListener { _, hasFocus ->
-                if (!hasFocus) {
-                    dialogKeywords = dialogBinding.tmdbKeywordInput.text.toString().trim()
-                    dialogBinding.tmdbKeywordCount.text = if (dialogKeywords.isBlank()) "None" else dialogKeywords
-                }
-            }
-            
-            // Add text watcher to update dialogKeywords in real-time
-            dialogBinding.tmdbKeywordInput.addTextChangedListener(object : android.text.TextWatcher {
-                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
-                override fun afterTextChanged(s: android.text.Editable?) {
-                    dialogKeywords = s?.toString()?.trim() ?: ""
-                    dialogBinding.tmdbKeywordCount.text = if (dialogKeywords.isBlank()) "None" else dialogKeywords
-                }
-            })
 
             // Setup Trending - Radio mode
             var trendingAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
@@ -1900,6 +2135,13 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         // When Trending is selected, disable other filters as per hsp1020's feedback
                         val isTrending = item != "Off"
                         updateFilterStatesForTrending(isTrending, dialogBinding)
+                        
+                        // Update TMDB Load Defaults button visibility
+                        updateTmdbLoadDefaultsButtonVisibility(
+                            dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
+                            dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                            dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+                        )
                     }
                 },
                 radioMode = true
@@ -1926,6 +2168,12 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         dialogBinding.tmdbProviderCount.text = item
                         // Update only the single item that was clicked to avoid animating all checkboxes
                         streamingProviderAdapter?.updateSingleItem(item, state)
+                        // Update TMDB Load Defaults button visibility
+                        updateTmdbLoadDefaultsButtonVisibility(
+                            dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
+                            dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                            dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+                        )
                     }
                 },
                 radioMode = true
@@ -1952,6 +2200,12 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         dialogBinding.tmdbSortCount.text = item
                         // Update only the single item that was clicked to avoid animating all checkboxes
                         sortAdapter?.updateSingleItem(item, state)
+                        // Update TMDB Load Defaults button visibility
+                        updateTmdbLoadDefaultsButtonVisibility(
+                            dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
+                            dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                            dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+                        )
                     }
                 },
                 radioMode = true
@@ -1966,7 +2220,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             }
 
             // Setup Minimum Votes - Radio mode
-            val minVotesOptions = listOf("0", "1", "5", "10", "50", "100", "200", "300", "400", "500", "1000", "2000", "3000", "5000", "10000")
+            val minVotesOptions = listOf("0", "1", "5", "10", "20", "30", "50", "100", "200", "300", "400", "500", "1000", "2000", "3000", "5000", "10000")
             var minVotesAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
             minVotesAdapter = AniListFilterUtils.AniListCheckboxAdapter(
                 minVotesOptions,
@@ -1979,6 +2233,12 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         dialogBinding.tmdbMinVotesCount.text = item
                         // Update only the single item that was clicked to avoid animating all checkboxes
                         minVotesAdapter?.updateSingleItem(item, state)
+                        // Update TMDB Load Defaults button visibility
+                        updateTmdbLoadDefaultsButtonVisibility(
+                            dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
+                            dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                            dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+                        )
                     }
                 },
                 radioMode = true
@@ -1997,6 +2257,12 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             dialogBinding.tmdbAdultToggle.setOnCheckedChangeListener { _, isChecked ->
                 android.util.Log.d("TMDB_FILTER_DEBUG", "ADULT_TOGGLE: isChecked=$isChecked")
                 dialogIncludeAdult = isChecked
+                // Update TMDB Load Defaults button visibility
+                updateTmdbLoadDefaultsButtonVisibility(
+                    dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
+                    dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                    dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+                )
             }
 
             // Clear button
@@ -2010,7 +2276,11 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 dialogProvider = "All"
                 dialogTrending = "Off"
                 dialogIncludeAdult = false
-                dialogSort = "Popularity"
+                dialogSort = "Popularity (High to Low)"
+                dialogMinVotes = 0 // MIN_VOTES_RESET_FIX: Reset minimum votes
+                dialogKeywords = ""
+                dialogIncludeKeywordIds.clear()
+                dialogExcludeKeywordIds.clear()
 
                 // Update UI counts
                 dialogBinding.tmdbFormatCount.text = dialogFormat
@@ -2021,15 +2291,188 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 dialogBinding.tmdbTrendingCount.text = dialogTrending
                 dialogBinding.tmdbSortCount.text = dialogSort
                 dialogBinding.tmdbAdultToggle.isChecked = false
+                dialogBinding.tmdbMinVotesCount.text = "0" // MIN_VOTES_RESET_FIX: Update UI count
+                dialogBinding.tmdbKeywordInput.setText("")
+                dialogBinding.tmdbKeywordCount.text = "None"
 
-                // Reset adapters
+                // FILTER_CHECKMARKS_FIX: Reset all adapters including missing minVotesAdapter
                 formatAdapter.updateSelectedSet(setOf(dialogFormat))
-                updateTmdbGenreAdapter(dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres)
+                updateTmdbGenreAdapter(dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear, dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort, dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds)
                 yearAdapter.updateSelectedSet(setOf(dialogYear))
                 countryAdapter.updateSelectedSet(setOf(dialogCountry))
                 trendingAdapter.updateSelectedSet(setOf(dialogTrending))
                 streamingProviderAdapter.updateSelectedSet(setOf(dialogProvider))
                 sortAdapter.updateSelectedSet(setOf(dialogSort))
+                minVotesAdapter.updateSelectedSet(setOf("0")) // Reset minimum votes to 0
+                android.util.Log.d("FILTER_CHECKMARKS_FIX", "Cleared all TMDB filter checkmarks including minVotes")
+                
+                // Update TMDB Load Defaults button visibility
+                updateTmdbLoadDefaultsButtonVisibility(
+                    dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
+                    dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                    dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+                )
+            }
+
+            // SET_DEFAULT_TMDB_FIX: Add missing TMDB Set Default button click listener
+            dialogBinding.setDefaultButton.setOnClickListener {
+                android.util.Log.d("SET_DEFAULT_TMDB_FIX", "TMDB Set Default button clicked")
+                android.util.Log.d("SET_DEFAULT_TMDB_FIX", "Current filter values: format=$dialogFormat, year=$dialogYear, country=$dialogCountry, sort=$dialogSort")
+                
+                try {
+                    android.util.Log.d("SET_DEFAULT_TMDB_FIX", "Creating confirmation dialog")
+                    
+                    val confirmDialog = android.app.AlertDialog.Builder(requireContext(), R.style.AlertDialogCustom)
+                        .setTitle("Set TMDB Defaults")
+                        .setMessage("Save current filter settings as default for TMDB?")
+                        .setPositiveButton("Set TMDB Defaults") { _, _ ->
+                            android.util.Log.d("SET_DEFAULT_TMDB_FIX", "User confirmed TMDB default settings")
+                            
+                            // Save TMDB defaults to SharedPreferences
+                            val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+                            prefs.edit().apply {
+                                putString("tmdb_default_format", dialogFormat)
+                                putStringSet("tmdb_default_genres", dialogGenres)
+                                putStringSet("tmdb_default_excluded_genres", dialogExcludedGenres)
+                                putString("tmdb_default_year", dialogYear)
+                                putString("tmdb_default_country", dialogCountry)
+                                putString("tmdb_default_provider", dialogProvider)
+                                putString("tmdb_default_trending", dialogTrending)
+                                putBoolean("tmdb_default_include_adult", dialogIncludeAdult)
+                                putString("tmdb_default_sort", dialogSort)
+                                putInt("tmdb_default_min_votes", dialogMinVotes)
+                                putStringSet("tmdb_default_include_keyword_ids", dialogIncludeKeywordIds.map { it.toString() }.toSet())
+                                putStringSet("tmdb_default_exclude_keyword_ids", dialogExcludeKeywordIds.map { it.toString() }.toSet())
+                                apply()
+                            }
+                            
+                            android.util.Log.d("SET_DEFAULT_TMDB_FIX", "TMDB defaults saved successfully")
+                            Toast.makeText(requireContext(), "TMDB defaults set", Toast.LENGTH_SHORT).show()
+                            
+                            // SET_DEFAULT_TMDB_FIX: Apply defaults and reload results
+                            dialogFormat = prefs.getString("tmdb_default_format", "Movie") ?: "Movie"
+                            dialogYear = prefs.getString("tmdb_default_year", "All") ?: "All"
+                            dialogCountry = prefs.getString("tmdb_default_country", "All") ?: "All"
+                            dialogSort = prefs.getString("tmdb_default_sort", "Popularity (High to Low)") ?: "Popularity (High to Low)"
+                            dialogMinVotes = prefs.getInt("tmdb_default_min_votes", 0)
+                            dialogIncludeKeywordIds = prefs.getStringSet("tmdb_default_include_keyword_ids", emptySet())
+                                ?.mapNotNull { it.toIntOrNull() }?.toMutableSet() ?: mutableSetOf()
+                            dialogExcludeKeywordIds = prefs.getStringSet("tmdb_default_exclude_keyword_ids", emptySet())
+                                ?.mapNotNull { it.toIntOrNull() }?.toMutableSet() ?: mutableSetOf()
+                            
+                            // Update UI to show applied defaults
+                            dialogBinding.tmdbFormatCount.text = dialogFormat
+                            dialogBinding.tmdbYearCount.text = dialogYear
+                            dialogBinding.tmdbCountryCount.text = dialogCountry
+                            dialogBinding.tmdbSortCount.text = dialogSort
+                            dialogBinding.tmdbMinVotesCount.text = dialogMinVotes.toString()
+                            dialogBinding.tmdbKeywordCount.text = when {
+                                dialogIncludeKeywordIds.isEmpty() && dialogExcludeKeywordIds.isEmpty() -> "None"
+                                else -> "Include: ${dialogIncludeKeywordIds.size}, Exclude: ${dialogExcludeKeywordIds.size}"
+                            }
+                            formatAdapter.updateSelectedSet(setOf(dialogFormat))
+                            yearAdapter.updateSelectedSet(setOf(dialogYear))
+                            countryAdapter.updateSelectedSet(setOf(dialogCountry))
+                            trendingAdapter.updateSelectedSet(setOf(dialogTrending))
+                            streamingProviderAdapter.updateSelectedSet(setOf(dialogProvider))
+                            sortAdapter.updateSelectedSet(setOf(dialogSort))
+                            minVotesAdapter.updateSelectedSet(setOf(dialogMinVotes.toString()))
+                            
+                            android.util.Log.d("SET_DEFAULT_TMDB_FIX", "Applied defaults to UI: format=$dialogFormat, year=$dialogYear, country=$dialogCountry, sort=$dialogSort")
+                            
+                            // Apply to fragment state immediately so Set Default has effect now.
+                            selectedTmdbFormat = if (dialogFormat == "Movie") TmdbFormat.MOVIE else TmdbFormat.TV
+                            selectedTmdbGenres.clear()
+                            selectedTmdbGenres.addAll(dialogGenres)
+                            excludedTmdbGenres.clear()
+                            excludedTmdbGenres.addAll(dialogExcludedGenres)
+                            selectedTmdbYear = dialogYear
+                            selectedTmdbCountry = dialogCountry
+                            selectedTmdbProvider = dialogProvider
+                            selectedTmdbTrending = dialogTrending
+                            selectedTmdbIncludeAdult = dialogIncludeAdult
+                            selectedSort = dialogSort
+                            selectedTmdbMinVotes = dialogMinVotes
+                            selectedKeywordIds = dialogIncludeKeywordIds.toMutableSet()
+                            excludedKeywordIds = dialogExcludeKeywordIds.toMutableSet()
+                            currentAniListPage = 1
+                            viewModel.resetPage()
+                            loadResults()
+                        }
+                        .setNegativeButton("Cancel") { _, _ ->
+                            android.util.Log.d("SET_DEFAULT_TMDB_FIX", "User cancelled TMDB default settings")
+                        }
+                        .create()
+                    
+                    android.util.Log.d("SET_DEFAULT_TMDB_FIX", "About to show confirmation dialog")
+                    confirmDialog.show()
+                    android.util.Log.d("SET_DEFAULT_TMDB_FIX", "Confirmation dialog shown successfully")
+                } catch (e: Exception) {
+                    android.util.Log.e("SET_DEFAULT_TMDB_FIX", "Error showing confirmation dialog", e)
+                    Toast.makeText(requireContext(), "Error setting defaults", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            // Set initial TMDB Load Defaults button visibility
+            updateTmdbLoadDefaultsButtonVisibility(
+                dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
+                dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+            )
+
+            // TMDB Load Defaults button
+            dialogBinding.loadDefaultButton.setOnClickListener {
+                android.util.Log.d("BrowseFragment", "TMDB_LOAD_DEFAULTS_DEBUG: TMDB Load Defaults button clicked")
+                val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+                
+                dialogFormat = prefs.getString("tmdb_default_format", "Movie") ?: "Movie"
+                dialogGenres = prefs.getStringSet("tmdb_default_genres", emptySet())?.toMutableSet() ?: mutableSetOf()
+                dialogExcludedGenres = prefs.getStringSet("tmdb_default_excluded_genres", emptySet())?.toMutableSet() ?: mutableSetOf()
+                dialogYear = prefs.getString("tmdb_default_year", "All") ?: "All"
+                dialogCountry = prefs.getString("tmdb_default_country", "All") ?: "All"
+                dialogProvider = prefs.getString("tmdb_default_provider", "All") ?: "All"
+                dialogTrending = prefs.getString("tmdb_default_trending", "Off") ?: "Off"
+                dialogIncludeAdult = prefs.getBoolean("tmdb_default_include_adult", false)
+                dialogSort = prefs.getString("tmdb_default_sort", "Popularity (High to Low)") ?: "Popularity (High to Low)"
+                dialogMinVotes = prefs.getInt("tmdb_default_min_votes", 0)
+                dialogIncludeKeywordIds = prefs.getStringSet("tmdb_default_include_keyword_ids", emptySet())
+                    ?.mapNotNull { it.toIntOrNull() }?.toMutableSet() ?: mutableSetOf()
+                dialogExcludeKeywordIds = prefs.getStringSet("tmdb_default_exclude_keyword_ids", emptySet())
+                    ?.mapNotNull { it.toIntOrNull() }?.toMutableSet() ?: mutableSetOf()
+                dialogKeywords = dialogIncludeKeywordIds.joinToString(",")
+
+                dialogBinding.tmdbFormatCount.text = dialogFormat
+                dialogBinding.tmdbGenresCount.text = (dialogGenres.size + dialogExcludedGenres.size).toString()
+                dialogBinding.tmdbYearCount.text = dialogYear
+                dialogBinding.tmdbCountryCount.text = dialogCountry
+                dialogBinding.tmdbProviderCount.text = dialogProvider
+                dialogBinding.tmdbTrendingCount.text = dialogTrending
+                dialogBinding.tmdbSortCount.text = dialogSort
+                dialogBinding.tmdbMinVotesCount.text = dialogMinVotes.toString()
+                dialogBinding.tmdbAdultToggle.isChecked = dialogIncludeAdult
+                dialogBinding.tmdbKeywordCount.text = when {
+                    dialogIncludeKeywordIds.isEmpty() && dialogExcludeKeywordIds.isEmpty() -> "None"
+                    else -> "Include: ${dialogIncludeKeywordIds.size}, Exclude: ${dialogExcludeKeywordIds.size}"
+                }
+
+                formatAdapter.updateSelectedSet(setOf(dialogFormat))
+                updateTmdbGenreAdapter(dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear, dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort, dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds)
+                yearAdapter.updateSelectedSet(setOf(dialogYear))
+                countryAdapter.updateSelectedSet(setOf(dialogCountry))
+                trendingAdapter.updateSelectedSet(setOf(dialogTrending))
+                streamingProviderAdapter.updateSelectedSet(setOf(dialogProvider))
+                sortAdapter.updateSelectedSet(setOf(dialogSort))
+                minVotesAdapter.updateSelectedSet(setOf(dialogMinVotes.toString()))
+                updateFilterStatesForTrending(dialogTrending != "Off", dialogBinding)
+
+                // Update TMDB Load Defaults button visibility
+                updateTmdbLoadDefaultsButtonVisibility(
+                    dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
+                    dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                    dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+                )
+
+                Toast.makeText(requireContext(), "TMDB defaults loaded", Toast.LENGTH_SHORT).show()
             }
 
             // Apply button
@@ -2053,8 +2496,14 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 selectedTmdbTrending = dialogTrending
                 selectedTmdbIncludeAdult = dialogIncludeAdult
                 selectedSort = dialogSort
-                selectedTmdbKeywords = dialogKeywords
+                selectedTmdbKeywords = if (dialogIncludeKeywordIds.isNotEmpty()) {
+                    dialogIncludeKeywordIds.joinToString(",")
+                } else {
+                    dialogKeywords
+                }
                 selectedTmdbMinVotes = dialogMinVotes
+                selectedKeywordIds = dialogIncludeKeywordIds.toMutableSet()
+                excludedKeywordIds = dialogExcludeKeywordIds.toMutableSet()
                 
                 android.util.Log.d("TMDB_FILTER_DEBUG", "APPLY_BUTTON: After update - selectedTmdbFormat=$selectedTmdbFormat, selectedTmdbYear=$selectedTmdbYear")
                 android.util.Log.d("TMDB_FILTER_DEBUG", "APPLY_BUTTON: After update - selectedTmdbCountry=$selectedTmdbCountry, selectedTmdbProvider=$selectedTmdbProvider")
@@ -2072,6 +2521,8 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     tmdbTrending = selectedTmdbTrending,
                     tmdbIncludeAdult = selectedTmdbIncludeAdult,
                     tmdbKeywords = selectedTmdbKeywords,
+                    tmdbIncludeKeywordIds = selectedKeywordIds,
+                    tmdbExcludeKeywordIds = excludedKeywordIds,
                     tmdbMinVotes = selectedTmdbMinVotes,
                     sort = selectedSort
                 )
@@ -2161,12 +2612,24 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
      * When browsing (empty search bar), enable filters based on trending state.
      */
     private fun updateFilterStatesForSearch(isSearchMode: Boolean) {
-        android.util.Log.d("SEARCH_FILTER_DEBUG", "SEARCH_FILTER_UPDATE: isSearchMode=$isSearchMode")
+        android.util.Log.d("SEARCH_FILTER_DEBUG", "SEARCH_FILTER_UPDATE: isSearchMode=$isSearchMode, searchQuery='$searchQuery'")
         
-        // If in search mode, disable all filters since Search endpoint ignores them
-        // If in browse mode, let trending logic handle filter states
+        // TMDB_SEARCH_BUTTON_FIX: Double-check search state based on actual searchQuery
+        val actualSearchMode = !searchQuery.isNullOrBlank()
+        if (isSearchMode != actualSearchMode) {
+            android.util.Log.w("TMDB_SEARCH_BUTTON_FIX", "Search mode mismatch! isSearchMode=$isSearchMode, actualSearchMode=$actualSearchMode")
+        }
+        
+        // ANILIST_FILTER_DISABLE_FIX: Only disable filters for TMDB search, not AniList
+        // AniList search supports filters, TMDB search doesn't
         val isTrending = selectedTmdbTrending != "Off"
-        val shouldDisableFilters = isSearchMode || isTrending
+        val isTmdbProvider = selectedProvider == FilterProvider.TMDB
+        val shouldDisableFilters = (isSearchMode && isTmdbProvider) || isTrending
+        android.util.Log.d("ANILIST_FILTER_DISABLE_FIX", "Filter disable logic - isSearchMode=$isSearchMode, isTmdbProvider=$isTmdbProvider, isTrending=$isTrending, shouldDisableFilters=$shouldDisableFilters")
+        
+        // FILTER_BUTTONS_FIX: Never disable the main filter button - users always need access to settings
+        val shouldDisableFilterButton = false // Always keep filter button enabled
+        android.util.Log.d("ANILIST_FILTER_DISABLE_FIX", "Filter button disable logic - shouldDisableFilterButton=$shouldDisableFilterButton")
         
         // Update main browse filter UI (genre chips, filter labels, etc.)
         binding?.apply {
@@ -2181,9 +2644,9 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             sortLabel.alpha = if (shouldDisableFilters) 0.5f else 1.0f
             streamingProviderChip.alpha = if (shouldDisableFilters) 0.5f else 1.0f
             
-            // Filter button
-            filterButton.alpha = if (shouldDisableFilters) 0.5f else 1.0f
-            filterButton.isEnabled = !shouldDisableFilters
+            // TRENDING_BUTTON_FIX: Filter button remains enabled for settings access
+            filterButton.alpha = if (shouldDisableFilterButton) 0.5f else 1.0f
+            filterButton.isEnabled = !shouldDisableFilterButton
         }
         
         android.util.Log.d("SEARCH_FILTER_DEBUG", "SEARCH_FILTER_UPDATE: Filter states updated - disabled: $shouldDisableFilters")
@@ -2251,7 +2714,16 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         dialogBinding: com.lagradost.cloudstream3.databinding.BottomTmdbFilterBinding,
         format: String,
         selectedGenres: MutableSet<String>,
-        excludedGenres: MutableSet<String>
+        excludedGenres: MutableSet<String>,
+        dialogYear: String = "All",
+        dialogCountry: String = "All",
+        dialogProvider: String = "All",
+        dialogTrending: String = "Off",
+        dialogIncludeAdult: Boolean = false,
+        dialogSort: String = "Popularity (High to Low)",
+        dialogMinVotes: Int = 0,
+        dialogIncludeKeywordIds: MutableSet<Int> = mutableSetOf(),
+        dialogExcludeKeywordIds: MutableSet<Int> = mutableSetOf()
     ) {
         val genreList = TmdbFilterUtils.getGenresForFormat(format).map { it.second }
         
@@ -2282,6 +2754,13 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 android.util.Log.d("TMDB_GENRE_DEBUG", "After: dialogGenres=$selectedGenres, dialogExcludedGenres=$excludedGenres, total=$totalCount")
                 // Update only the single item that was clicked to avoid animating all checkboxes
                 genreAdapter?.updateSingleItem(item, state)
+                
+                // Update TMDB Load Defaults button visibility
+                updateTmdbLoadDefaultsButtonVisibility(
+                    dialogBinding, format, selectedGenres, excludedGenres, dialogYear,
+                    dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort,
+                    dialogMinVotes, dialogIncludeKeywordIds, dialogExcludeKeywordIds
+                )
             },
             radioMode = false
         )
@@ -2304,6 +2783,42 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 .setDuration(250)
                 .start()
         }
+    }
+
+    private fun loadTmdbDefaultFilters() {
+        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+        
+        val defaultFormat = prefs.getString("tmdb_default_format", "Movie") ?: "Movie"
+        val defaultGenres = prefs.getStringSet("tmdb_default_genres", emptySet())?.toMutableSet() ?: mutableSetOf()
+        val defaultExcludedGenres = prefs.getStringSet("tmdb_default_excluded_genres", emptySet())?.toMutableSet() ?: mutableSetOf()
+        val defaultYear = prefs.getString("tmdb_default_year", "All") ?: "All"
+        val defaultCountry = prefs.getString("tmdb_default_country", "All") ?: "All"
+        val defaultProvider = prefs.getString("tmdb_default_provider", "All") ?: "All"
+        val defaultTrending = prefs.getString("tmdb_default_trending", "Off") ?: "Off"
+        val defaultIncludeAdult = prefs.getBoolean("tmdb_default_include_adult", false)
+        val defaultSort = prefs.getString("tmdb_default_sort", "Popularity (High to Low)") ?: "Popularity (High to Low)"
+        val defaultMinVotes = prefs.getInt("tmdb_default_min_votes", 0)
+        val defaultIncludeKeywordIds = prefs.getStringSet("tmdb_default_include_keyword_ids", emptySet())
+            ?.mapNotNull { it.toIntOrNull() }?.toMutableSet() ?: mutableSetOf()
+        val defaultExcludeKeywordIds = prefs.getStringSet("tmdb_default_exclude_keyword_ids", emptySet())
+            ?.mapNotNull { it.toIntOrNull() }?.toMutableSet() ?: mutableSetOf()
+
+        selectedTmdbFormat = if (defaultFormat == "Movie") TmdbFormat.MOVIE else TmdbFormat.TV
+        selectedTmdbGenres.clear()
+        selectedTmdbGenres.addAll(defaultGenres)
+        excludedTmdbGenres.clear()
+        excludedTmdbGenres.addAll(defaultExcludedGenres)
+        selectedTmdbYear = defaultYear
+        selectedTmdbCountry = defaultCountry
+        selectedTmdbProvider = defaultProvider
+        selectedTmdbTrending = defaultTrending
+        selectedTmdbIncludeAdult = defaultIncludeAdult
+        selectedSort = defaultSort
+        selectedTmdbMinVotes = defaultMinVotes
+        selectedKeywordIds = defaultIncludeKeywordIds.toMutableSet()
+        excludedKeywordIds = defaultExcludeKeywordIds.toMutableSet()
+
+        android.util.Log.d("BrowseFragment", "loadTmdbDefaultFilters: loaded format=$selectedTmdbFormat, genres=$selectedTmdbGenres, excludedGenres=$excludedTmdbGenres, year=$selectedTmdbYear, country=$selectedTmdbCountry, provider=$selectedTmdbProvider, trending=$selectedTmdbTrending, includeAdult=$selectedTmdbIncludeAdult, sort=$selectedSort, minVotes=$selectedTmdbMinVotes")
     }
 
     private fun loadDefaultFilters() {
@@ -2341,6 +2856,12 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         selectedNsfw = defaultNsfw
 
         android.util.Log.d("BrowseFragment", "loadDefaultFilters: loaded genres=$selectedGenres, excludedGenres=$excludedGenres, tags=$selectedTags, excludedTags=$excludedTags, year=$selectedYear, season=$selectedSeason, format=$selectedFormat, sort=$selectedSort, nsfw=$selectedNsfw")
+        
+        // Load TMDB defaults if TMDB is the selected provider
+        if (selectedProvider == FilterProvider.TMDB) {
+            android.util.Log.d("BrowseFragment", "loadDefaultFilters: TMDB is selected, loading TMDB defaults")
+            loadTmdbDefaultFilters()
+        }
     }
 
     private fun hasCustomDefaults(): Boolean {
@@ -2414,6 +2935,117 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         return differs
     }
 
+    // TMDB-specific helper functions for load defaults visibility
+    private fun hasTmdbCustomDefaults(): Boolean {
+        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+        val defaultFormat = prefs.getString("tmdb_default_format", "Movie")
+        val defaultGenres = prefs.getStringSet("tmdb_default_genres", null)
+        val defaultExcludedGenres = prefs.getStringSet("tmdb_default_excluded_genres", null)
+        val defaultYear = prefs.getString("tmdb_default_year", "All")
+        val defaultCountry = prefs.getString("tmdb_default_country", "All")
+        val defaultProvider = prefs.getString("tmdb_default_provider", "All")
+        val defaultTrending = prefs.getString("tmdb_default_trending", "Off")
+        val defaultIncludeAdult = prefs.getBoolean("tmdb_default_include_adult", false)
+        val defaultSort = prefs.getString("tmdb_default_sort", "Popularity (High to Low)")
+        val defaultMinVotes = prefs.getInt("tmdb_default_min_votes", 0)
+        val defaultIncludeKeywordIds = prefs.getStringSet("tmdb_default_include_keyword_ids", null)
+        val defaultExcludeKeywordIds = prefs.getStringSet("tmdb_default_exclude_keyword_ids", null)
+
+        // Check if any default has been set to non-default values
+        return (defaultFormat != "Movie") ||
+               (defaultGenres != null && defaultGenres.isNotEmpty()) ||
+               (defaultExcludedGenres != null && defaultExcludedGenres.isNotEmpty()) ||
+               (defaultYear != "All") ||
+               (defaultCountry != "All") ||
+               (defaultProvider != "All") ||
+               (defaultTrending != "Off") ||
+               defaultIncludeAdult ||
+               (defaultSort != "Popularity (High to Low)") ||
+               (defaultMinVotes != 0) ||
+               (defaultIncludeKeywordIds != null && defaultIncludeKeywordIds.isNotEmpty()) ||
+               (defaultExcludeKeywordIds != null && defaultExcludeKeywordIds.isNotEmpty())
+    }
+
+    private fun currentTmdbSettingsDifferFromDefaults(
+        currentFormat: String,
+        currentGenres: Set<String>,
+        currentExcludedGenres: Set<String>,
+        currentYear: String,
+        currentCountry: String,
+        currentProvider: String,
+        currentTrending: String,
+        currentIncludeAdult: Boolean,
+        currentSort: String,
+        currentMinVotes: Int,
+        currentIncludeKeywordIds: Set<Int>,
+        currentExcludeKeywordIds: Set<Int>
+    ): Boolean {
+        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+        val defaultFormat = prefs.getString("tmdb_default_format", "Movie")
+        val defaultGenres = prefs.getStringSet("tmdb_default_genres", emptySet())
+        val defaultExcludedGenres = prefs.getStringSet("tmdb_default_excluded_genres", emptySet())
+        val defaultYear = prefs.getString("tmdb_default_year", "All")
+        val defaultCountry = prefs.getString("tmdb_default_country", "All")
+        val defaultProvider = prefs.getString("tmdb_default_provider", "All")
+        val defaultTrending = prefs.getString("tmdb_default_trending", "Off")
+        val defaultIncludeAdult = prefs.getBoolean("tmdb_default_include_adult", false)
+        val defaultSort = prefs.getString("tmdb_default_sort", "Popularity (High to Low)")
+        val defaultMinVotes = prefs.getInt("tmdb_default_min_votes", 0)
+        val defaultIncludeKeywordIds = prefs.getStringSet("tmdb_default_include_keyword_ids", emptySet())
+            ?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()
+        val defaultExcludeKeywordIds = prefs.getStringSet("tmdb_default_exclude_keyword_ids", emptySet())
+            ?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet()
+
+        android.util.Log.d("BrowseFragment", "TMDB_LOAD_DEFAULTS_DEBUG: Comparing current TMDB to defaults")
+        android.util.Log.d("BrowseFragment", "TMDB_LOAD_DEFAULTS_DEBUG: currentFormat=$currentFormat, defaultFormat=$defaultFormat")
+        android.util.Log.d("BrowseFragment", "TMDB_LOAD_DEFAULTS_DEBUG: currentGenres=$currentGenres, defaultGenres=$defaultGenres")
+        android.util.Log.d("BrowseFragment", "TMDB_LOAD_DEFAULTS_DEBUG: currentYear=$currentYear, defaultYear=$defaultYear")
+        android.util.Log.d("BrowseFragment", "TMDB_LOAD_DEFAULTS_DEBUG: currentSort=$currentSort, defaultSort=$defaultSort")
+
+        val differs = currentFormat != defaultFormat ||
+                     currentGenres != defaultGenres ||
+                     currentExcludedGenres != defaultExcludedGenres ||
+                     currentYear != defaultYear ||
+                     currentCountry != defaultCountry ||
+                     currentProvider != defaultProvider ||
+                     currentTrending != defaultTrending ||
+                     currentIncludeAdult != defaultIncludeAdult ||
+                     currentSort != defaultSort ||
+                     currentMinVotes != defaultMinVotes ||
+                     currentIncludeKeywordIds != defaultIncludeKeywordIds ||
+                     currentExcludeKeywordIds != defaultExcludeKeywordIds
+
+        android.util.Log.d("BrowseFragment", "TMDB_LOAD_DEFAULTS_DEBUG: TMDB settings differ from defaults: $differs")
+        return differs
+    }
+
+    private fun updateTmdbLoadDefaultsButtonVisibility(
+        dialogBinding: com.lagradost.cloudstream3.databinding.BottomTmdbFilterBinding,
+        currentFormat: String,
+        currentGenres: Set<String>,
+        currentExcludedGenres: Set<String>,
+        currentYear: String,
+        currentCountry: String,
+        currentProvider: String,
+        currentTrending: String,
+        currentIncludeAdult: Boolean,
+        currentSort: String,
+        currentMinVotes: Int,
+        currentIncludeKeywordIds: Set<Int>,
+        currentExcludeKeywordIds: Set<Int>
+    ) {
+        val hasDefaults = hasTmdbCustomDefaults()
+        val differs = currentTmdbSettingsDifferFromDefaults(
+            currentFormat, currentGenres, currentExcludedGenres, currentYear, currentCountry,
+            currentProvider, currentTrending, currentIncludeAdult, currentSort, currentMinVotes,
+            currentIncludeKeywordIds, currentExcludeKeywordIds
+        )
+        val shouldShow = hasDefaults && differs
+
+        android.util.Log.d("BrowseFragment", "TMDB_LOAD_DEFAULTS_DEBUG: updateTmdbLoadDefaultsButtonVisibility: hasDefaults=$hasDefaults, differs=$differs, shouldShow=$shouldShow")
+        dialogBinding.loadDefaultButton.visibility = if (shouldShow) View.VISIBLE else View.GONE
+    }
+
     private fun updateLoadDefaultsButtonVisibility(
         dialogBinding: com.lagradost.cloudstream3.databinding.BottomAnilistGenreTagSelectorBinding,
         currentGenres: Set<String>,
@@ -2435,6 +3067,123 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
 
         android.util.Log.d("BrowseFragment", "LOAD_DEFAULTS_DEBUG: updateLoadDefaultsButtonVisibility: hasDefaults=$hasDefaults, differs=$differs, shouldShow=$shouldShow")
         dialogBinding.loadDefaultButton.visibility = if (shouldShow) View.VISIBLE else View.GONE
+    }
+    
+    // SORT_SYNC_FIX: Sync sort value between different providers
+    private fun syncSortValueForProvider(currentSort: String, targetProvider: FilterProvider): String {
+        android.util.Log.d("SORT_SYNC_FIX", "Syncing sort value: currentSort=$currentSort, targetProvider=$targetProvider")
+        
+        return when (targetProvider) {
+            FilterProvider.ANILIST -> {
+                // Map TMDB sort to AniList sort
+                when (currentSort) {
+                    "Popularity (High to Low)" -> "Popularity"
+                    "Rating (High to Low)" -> "Average Score"
+                    "Release Date (Newest)" -> "Release Date"
+                    "Title (A-Z)" -> "Title"
+                    else -> "Popularity" // Default fallback
+                }
+            }
+            FilterProvider.TMDB -> {
+                // Map AniList sort to TMDB sort
+                when (currentSort) {
+                    "Popularity" -> "Popularity (High to Low)"
+                    "Average Score" -> "Rating (High to Low)"
+                    "Release Date" -> "Release Date (Newest)"
+                    "Title" -> "Title (A-Z)"
+                    "Trending" -> "Popularity (High to Low)" // TMDB doesn't have trending
+                    "Favorites" -> "Popularity (High to Low)" // TMDB doesn't have favorites
+                    "Date Added" -> "Popularity (High to Low)" // TMDB doesn't have date added
+                    else -> "Popularity (High to Low)" // Default fallback
+                }
+            }
+        }
+    }
+    
+    // TAB_STATE_FIX: Save provider state to SharedPreferences
+    private fun saveProviderState() {
+        android.util.Log.d("TAB_STATE_FIX", "Saving provider state: selectedProvider=$selectedProvider")
+        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+        
+        // SCROLL_POSITION_FIX: Save scroll position
+        val scrollPosition = binding?.browseResults?.layoutManager?.let { layoutManager ->
+            if (layoutManager is androidx.recyclerview.widget.LinearLayoutManager) {
+                layoutManager.findFirstVisibleItemPosition()
+            } else 0
+        } ?: 0
+        
+        prefs.edit().apply {
+            putString("browse_selected_provider", selectedProvider.name)
+            putString("browse_selected_sort", selectedSort)
+            putInt("browse_scroll_position", scrollPosition)
+            apply()
+        }
+        android.util.Log.d("TAB_STATE_FIX", "Provider state saved successfully, scroll position: $scrollPosition")
+    }
+    
+    // TAB_STATE_FIX: Restore provider state from SharedPreferences
+    private fun restoreProviderState() {
+        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+        val savedProvider = prefs.getString("browse_selected_provider", null)
+        val savedSort = prefs.getString("browse_selected_sort", null)
+        val savedScrollPosition = prefs.getInt("browse_scroll_position", 0)
+        
+        android.util.Log.d("TAB_STATE_FIX", "Restoring provider state: savedProvider=$savedProvider, savedSort=$savedSort, savedScrollPosition=$savedScrollPosition")
+        
+        if (savedProvider != null) {
+            try {
+                val restoredProvider = FilterProvider.valueOf(savedProvider)
+                if (restoredProvider != selectedProvider) {
+                    android.util.Log.d("TAB_STATE_FIX", "Provider changed from $selectedProvider to $restoredProvider")
+                    selectedProvider = restoredProvider
+                    
+                    // Load defaults when switching to TMDB
+                    if (selectedProvider == FilterProvider.TMDB) {
+                        android.util.Log.d("TAB_STATE_FIX", "Switched to TMDB, loading TMDB defaults")
+                        loadTmdbDefaultFilters()
+                    }
+                    
+                    // Update search hint
+                    val newSearchHint = when (selectedProvider) {
+                        FilterProvider.ANILIST -> "Search in AniList"
+                        FilterProvider.TMDB -> "Search in TMDB"
+                    }
+                    binding?.browseSearch?.queryHint = newSearchHint
+                    
+                    // Update metadata language button state
+                    val isAniListSelected = selectedProvider == FilterProvider.ANILIST
+                    binding?.apply {
+                        metadataLanguageDropdown.alpha = if (isAniListSelected) 0.5f else 1.0f
+                        metadataLanguageDropdown.isEnabled = !isAniListSelected
+                        metadataLanguageText.alpha = if (isAniListSelected) 0.5f else 1.0f
+                        metadataLanguageText.isEnabled = !isAniListSelected
+                    }
+                    
+                    // Update filter states
+                    val actualSearchMode = !searchQuery.isNullOrBlank()
+                    updateFilterStatesForSearch(actualSearchMode)
+                    updateUI()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("TAB_STATE_FIX", "Error restoring provider: $savedProvider", e)
+            }
+        }
+        
+        if (savedSort != null && savedSort != selectedSort) {
+            android.util.Log.d("TAB_STATE_FIX", "Sort changed from $selectedSort to $savedSort")
+            selectedSort = syncSortValueForProvider(savedSort, selectedProvider)
+            updateUI()
+        }
+        
+        // SCROLL_POSITION_FIX: Restore scroll position after data is loaded
+        if (savedScrollPosition > 0) {
+            binding?.browseResults?.post {
+                binding?.browseResults?.scrollToPosition(savedScrollPosition)
+                android.util.Log.d("TAB_STATE_FIX", "Restored scroll position to: $savedScrollPosition")
+            }
+        }
+        
+        android.util.Log.d("TAB_STATE_FIX", "Provider state restoration completed")
     }
 
     private fun loadAniListResults() {
@@ -2672,7 +3421,11 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 tmdbCountry = selectedTmdbCountry,
                 tmdbProvider = selectedTmdbProvider,
                 tmdbTrending = selectedTmdbTrending,
-                tmdbIncludeAdult = selectedTmdbIncludeAdult
+                    tmdbIncludeAdult = selectedTmdbIncludeAdult,
+                    tmdbKeywords = selectedTmdbKeywords,
+                    tmdbIncludeKeywordIds = selectedKeywordIds,
+                    tmdbExcludeKeywordIds = excludedKeywordIds,
+                    tmdbMinVotes = selectedTmdbMinVotes
             )
             android.util.Log.d("STATE_SYNC_FIX", "loadTmdbResults: Calling viewModel.updateFilters with currentFilters=$currentFilters")
             viewModel.updateFilters(currentFilters)

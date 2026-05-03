@@ -40,6 +40,8 @@ data class BrowseFilterState(
     val tmdbTrending: String = "Off",  // "Today" or "This Week", Off = use discover
     val tmdbIncludeAdult: Boolean = false,  // include_adult
     val tmdbKeywords: String = "",  // with_keywords
+    val tmdbIncludeKeywordIds: Set<Int> = emptySet(),  // with_keywords (by ID)
+    val tmdbExcludeKeywordIds: Set<Int> = emptySet(),  // without_keywords (by ID)
     val tmdbMinVotes: Int = 0,  // vote_count.gte
     
     // Common

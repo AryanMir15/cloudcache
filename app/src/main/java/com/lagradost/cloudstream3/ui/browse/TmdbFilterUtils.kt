@@ -225,7 +225,12 @@ object TmdbFilterUtils {
         "AMC+" to "526",
         "Shudder" to "99",
         "MUBI" to "11",
-        "Criterion Channel" to "258"
+        "Criterion Channel" to "258",
+        // KOREAN_STREAMING_SERVICES: Added Korean streaming services with TMDB IDs
+        "Watcha" to "97",
+        "Wavve" to "356", 
+        "TVING" to "437",
+        "Coupang Play" to "514"
     )
     
     val PROVIDER_NAMES = WATCH_PROVIDERS.map { it.first }

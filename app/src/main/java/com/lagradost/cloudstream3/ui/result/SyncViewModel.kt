@@ -88,6 +88,11 @@ class SyncViewModel : ViewModel() {
         return true
     }
 
+    fun clearUrlCache() {
+        Log.i(TAG, "clearUrlCache - clearing ${hasAddedFromUrl.size} cached URLs")
+        hasAddedFromUrl.clear()
+    }
+
     fun addSyncs(map: Map<String, String>?): Boolean {
         var isValid = false
 
