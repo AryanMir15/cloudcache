@@ -38,6 +38,29 @@ object TmdbApi {
     }
     
     /**
+     * Build TMDB query parameters with region-based logic for Korean providers
+     * Automatically forces KR region when Korean native providers are selected
+     */
+    fun buildTmdbQuery(selectedProviders: List<String>, country: String): Map<String, String> {
+        val queryMap = mutableMapOf<String, String>()
+        
+        // Identify native Korean providers (TMDB IDs)
+        val nativeKRProviders = listOf("356", "1796", "2416", "97", "82", "337")
+        
+        // Logic: If any native KR provider is selected, force region to KR
+        val hasKRProvider = selectedProviders.any { it in nativeKRProviders }
+        val activeRegion = if (hasKRProvider) "KR" else country
+        
+        queryMap["watch_region"] = activeRegion
+        queryMap["with_watch_providers"] = selectedProviders.joinToString("|")
+        
+        android.util.Log.d("TMDB_API_DEBUG", "buildTmdbQuery: hasKRProvider=$hasKRProvider, activeRegion=$activeRegion")
+        android.util.Log.d("TMDB_API_DEBUG", "buildTmdbQuery: selectedProviders=$selectedProviders")
+        
+        return queryMap
+    }
+    
+    /**
      * Data classes for TMDB API responses
      */
     data class GenreResponse(
@@ -264,12 +287,14 @@ object TmdbApi {
                 android.util.Log.d("TMDB_API_DEBUG", "Added vote_count.gte=$minVotes")
             }
             
-            // Watch provider filter (requires watch_region)
-            provider?.takeIf { it != "All" }?.let {
-                params.add("with_watch_providers=$it")
-                params.add("watch_region=US") // Default to US, could be configurable
-                android.util.Log.d("TMDB_API_DEBUG", "Added with_watch_providers=$it, watch_region=US")
+            // Watch provider filter using buildTmdbQuery helper for region logic
+            val selectedProviderIds = provider?.takeIf { it != "All" }?.let { listOf(it) } ?: emptyList()
+            val regionQuery = buildTmdbQuery(selectedProviderIds, country ?: "US")
+            
+            regionQuery.forEach { (key, value) ->
+                params.add("$key=$value")
             }
+            android.util.Log.d("TMDB_API_DEBUG", "Added region query: $regionQuery")
             
             // Sort - handle format-specific date parameters
             val sortParam = when {
@@ -348,11 +373,14 @@ object TmdbApi {
                 params.add("first_air_date_year=$it")
             }
             
-            // Watch provider filter
-            provider?.takeIf { it != "All" }?.let {
-                params.add("with_watch_providers=$it")
-                params.add("watch_region=US")
+            // Watch provider filter using buildTmdbQuery helper for region logic
+            val selectedProviderIds = provider?.takeIf { it != "All" }?.let { listOf(it) } ?: emptyList()
+            val regionQuery = buildTmdbQuery(selectedProviderIds, country ?: "US")
+            
+            regionQuery.forEach { (key, value) ->
+                params.add("$key=$value")
             }
+            android.util.Log.d("TMDB_API_DEBUG", "Added region query: $regionQuery")
             
             // Sort - handle format-specific date parameters
             val sortParam = when {

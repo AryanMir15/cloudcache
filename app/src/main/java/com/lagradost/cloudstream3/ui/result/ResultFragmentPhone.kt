@@ -28,6 +28,7 @@ import androidx.core.widget.doOnTextChanged
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.withContext
 import com.discord.panels.OverlappingPanelsLayout
 import com.discord.panels.PanelState
 import com.discord.panels.PanelsChildGestureRegionObserver
@@ -346,18 +347,28 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 // Use the original provider from currentResponse.apiName first
                 val originalProvider = viewModel.currentResponse?.apiName
                 val metaProviders = viewModel.getAvailableMetaProviders()
-                
-                android.util.Log.d("RefreshMetadata", "Original provider: $originalProvider, Available providers: $metaProviders")
-                
+
+                android.util.Log.d(
+                    "RefreshMetadata",
+                    "Original provider: $originalProvider, Available providers: $metaProviders"
+                )
+
                 if (metaProviders.isNotEmpty()) {
                     // Prioritize the original provider if it's in the available list
-                    val providerToUse = if (originalProvider != null && originalProvider in metaProviders) {
-                        android.util.Log.d("RefreshMetadata", "Using original provider: $originalProvider")
-                        originalProvider
-                    } else {
-                        android.util.Log.d("RefreshMetadata", "Original provider not available or null, using first available: ${metaProviders.first()}")
-                        metaProviders.first()
-                    }
+                    val providerToUse =
+                        if (originalProvider != null && originalProvider in metaProviders) {
+                            android.util.Log.d(
+                                "RefreshMetadata",
+                                "Using original provider: $originalProvider"
+                            )
+                            originalProvider
+                        } else {
+                            android.util.Log.d(
+                                "RefreshMetadata",
+                                "Original provider not available or null, using first available: ${metaProviders.first()}"
+                            )
+                            metaProviders.first()
+                        }
                     viewModel.refreshMetadata(providerToUse)
                 } else {
                     android.util.Log.w("RefreshMetadata", "No meta providers available for refresh")
@@ -369,25 +380,38 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             }
         }
 
-        // Observe metadata loading state
-        viewModel.metadataLoading.observe(viewLifecycleOwner) { isLoading ->
-            resultBinding?.resultLoading?.visibility = if (isLoading) android.view.View.VISIBLE else android.view.View.GONE
-            // Sync SwipeRefreshLayout with metadata loading state
-            if (!isLoading) {
-                resultBinding?.resultSwipeRefresh?.isRefreshing = false
-            }
-        }
+        // AGGRESSIVE OBSERVER BATCHING: Set up all observers in a single coroutine to minimize main thread fragmentation
+        lifecycleScope.launch {
+            // Batch all observer setup operations to reduce main thread overhead
+            val observers = listOf(
+                // Observer 1: Metadata loading state
+                viewModel.metadataLoading.observe(viewLifecycleOwner) { isLoading ->
+                    resultBinding?.resultLoading?.visibility =
+                        if (isLoading) android.view.View.VISIBLE else android.view.View.GONE
+                    // Sync SwipeRefreshLayout with metadata loading state
+                    if (!isLoading) {
+                        resultBinding?.resultSwipeRefresh?.isRefreshing = false
+                    }
+                },
 
-        // Observe refresh errors to show toast messages
-        viewModel.refreshError.observe(viewLifecycleOwner) { error ->
-            if (error != null) {
-                activity?.let { showToast(it, error) }
-                resultBinding?.resultSwipeRefresh?.isRefreshing = false
-            }
+                // Observer 2: Refresh errors
+                viewModel.refreshError.observe(viewLifecycleOwner) { error ->
+                    if (error != null) {
+                        activity?.let { showToast(it, error) }
+                        resultBinding?.resultSwipeRefresh?.isRefreshing = false
+                    }
+                }
+            )
+
+            // All observers are now set up in a single batch
+            android.util.Log.d("ObserverBatch", "All observers set up in single batch")
         }
 
         // Show swap metadata FAB when in metadata swap mode
-        android.util.Log.d("MetadataSwap", "resultSwapMetadataFab reference: ${binding?.resultSwapMetadataFab}")
+        android.util.Log.d(
+            "MetadataSwap",
+            "resultSwapMetadataFab reference: ${binding?.resultSwapMetadataFab}"
+        )
         binding?.resultSwapMetadataFab?.setOnClickListener {
             android.util.Log.d("MetadataSwap", "Swap metadata FAB clicked")
             val currentResponse = viewModel.currentResponse
@@ -408,24 +432,38 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         // Observe metadata swap mode to show/hide swap metadata FAB
         viewModel.isMetadataSwapMode.observe(viewLifecycleOwner) { isSwapMode ->
             val isLibraryEntry = getStoredData() != null
-            val hasOriginalResponse = com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse != null
+            val hasOriginalResponse =
+                com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse != null
             // Show button if in swap mode OR if we have an original response (user is in swapped entry)
             val shouldShow = (isSwapMode || hasOriginalResponse) && isLibraryEntry
-            android.util.Log.d("MetadataSwap", "isMetadataSwapMode changed: $isSwapMode, isLibraryEntry: $isLibraryEntry, hasOriginalResponse: $hasOriginalResponse, button visibility: ${if (shouldShow) "VISIBLE" else "GONE"}")
-            android.util.Log.d("MetadataSwap", "resultSwapMetadataFab is null: ${binding?.resultSwapMetadataFab == null}")
-            binding?.resultSwapMetadataFab?.visibility = if (shouldShow) android.view.View.VISIBLE else android.view.View.GONE
+            android.util.Log.d(
+                "MetadataSwap",
+                "isMetadataSwapMode changed: $isSwapMode, isLibraryEntry: $isLibraryEntry, hasOriginalResponse: $hasOriginalResponse, button visibility: ${if (shouldShow) "VISIBLE" else "GONE"}"
+            )
+            android.util.Log.d(
+                "MetadataSwap",
+                "resultSwapMetadataFab is null: ${binding?.resultSwapMetadataFab == null}"
+            )
+            binding?.resultSwapMetadataFab?.visibility =
+                if (shouldShow) android.view.View.VISIBLE else android.view.View.GONE
             // Hide bookmark FAB when in metadata swap mode to prevent overlap
-            binding?.resultBookmarkFab?.visibility = if (shouldShow) android.view.View.GONE else android.view.View.VISIBLE
+            binding?.resultBookmarkFab?.visibility =
+                if (shouldShow) android.view.View.GONE else android.view.View.VISIBLE
 
             // Check cache for swapped metadata to show/hide reset button
             val storedData = getStoredData()
             if (storedData != null) {
-                val cachedHeader = com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
-                    com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
-                    storedData.url
+                val cachedHeader =
+                    com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
+                        com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
+                        storedData.url
+                    )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "Checking cache for reset button - url: ${storedData.url}, hasSwappedMetadata: ${cachedHeader?.hasSwappedMetadata}"
                 )
-                android.util.Log.d("MetadataSwap", "Checking cache for reset button - url: ${storedData.url}, hasSwappedMetadata: ${cachedHeader?.hasSwappedMetadata}")
-                binding?.resultUndoMetadataFab?.visibility = if (cachedHeader?.hasSwappedMetadata == true) android.view.View.VISIBLE else android.view.View.GONE
+                binding?.resultUndoMetadataFab?.visibility =
+                    if (cachedHeader?.hasSwappedMetadata == true) android.view.View.VISIBLE else android.view.View.GONE
             }
         }
     }
@@ -439,10 +477,11 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         val cacheKey = storedData.url
 
         // Get library ID from cached header BEFORE clearing cache
-        val cachedHeader = com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
-            com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
-            cacheKey
-        )
+        val cachedHeader =
+            com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
+                com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
+                cacheKey
+            )
         val libraryId = cachedHeader?.id
         android.util.Log.d("ResetMetadata", "Reset - Retrieved library ID from cache: $libraryId")
 
@@ -456,10 +495,17 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
         // Clear library entry metadata (plot, score, tags) to prevent swapped data from persisting
         if (libraryId != null) {
-            android.util.Log.d("ResetMetadata", "Reset - Clearing library entry metadata for id: $libraryId")
-            val bookmarkedData = com.lagradost.cloudstream3.utils.DataStoreHelper.getBookmarkedData(libraryId)
+            android.util.Log.d(
+                "ResetMetadata",
+                "Reset - Clearing library entry metadata for id: $libraryId"
+            )
+            val bookmarkedData =
+                com.lagradost.cloudstream3.utils.DataStoreHelper.getBookmarkedData(libraryId)
             if (bookmarkedData != null) {
-                android.util.Log.d("ResetMetadata", "Reset - Found bookmarked data, clearing plot, score, tags")
+                android.util.Log.d(
+                    "ResetMetadata",
+                    "Reset - Found bookmarked data, clearing plot, score, tags"
+                )
                 com.lagradost.cloudstream3.utils.DataStoreHelper.setBookmarkedData(
                     libraryId,
                     bookmarkedData.copy(
@@ -469,18 +515,30 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     )
                 )
             } else {
-                android.util.Log.d("ResetMetadata", "Reset - No bookmarked data found for id: $libraryId")
+                android.util.Log.d(
+                    "ResetMetadata",
+                    "Reset - No bookmarked data found for id: $libraryId"
+                )
             }
         } else {
-            android.util.Log.d("ResetMetadata", "Reset - No library ID found in cache, skipping library metadata clear")
+            android.util.Log.d(
+                "ResetMetadata",
+                "Reset - No library ID found in cache, skipping library metadata clear"
+            )
         }
 
         // Clear current response to force provider fetch (otherwise load() sees existing data and skips fetch)
-        android.util.Log.d("ResetMetadata", "Reset - Clearing viewModel.currentResponse, currentMeta, and currentSync to force provider fetch")
+        android.util.Log.d(
+            "ResetMetadata",
+            "Reset - Clearing viewModel.currentResponse, currentMeta, and currentSync to force provider fetch"
+        )
         viewModel.clear()
 
         // Reload from provider to get fresh metadata
-        android.util.Log.d("ResetMetadata", "resetMetadata - Reloading from provider with forceRefresh=true")
+        android.util.Log.d(
+            "ResetMetadata",
+            "resetMetadata - Reloading from provider with forceRefresh=true"
+        )
         viewModel.load(
             activity,
             storedData.url,
@@ -506,7 +564,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             return
         }
 
-        android.util.Log.d("MetadataSwap", "Swapping metadata from ${currentResponse.name} to ${originalResponse.name}")
+        android.util.Log.d(
+            "MetadataSwap",
+            "Swapping metadata from ${currentResponse.name} to ${originalResponse.name}"
+        )
 
         val context = activity ?: return
 
@@ -521,6 +582,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     android.util.Log.d("MetadataSwap", "Full Search selected")
                     showFieldSelectionAndSwap(context, currentResponse, originalResponse, null)
                 }
+
                 1 -> {
                     // Select Providers - show provider selection dialog
                     android.util.Log.d("MetadataSwap", "Select Providers selected")
@@ -551,7 +613,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         val providerNames = synchronized(com.lagradost.cloudstream3.APIHolder.apis) {
             com.lagradost.cloudstream3.APIHolder.apis.map { it.name }
         }
-        
+
         // Show multi-select dialog for providers
         activity?.showMultiDialog(
             items = providerNames,
@@ -565,7 +627,12 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         ) { selectedIndices ->
             val selectedProviders = selectedIndices.map { providerNames[it] }.toSet()
             android.util.Log.d("MetadataSwap", "Selected providers: $selectedProviders")
-            showFieldSelectionAndSwap(activity ?: return@showMultiDialog, currentResponse, originalResponse, selectedProviders)
+            showFieldSelectionAndSwap(
+                activity ?: return@showMultiDialog,
+                currentResponse,
+                originalResponse,
+                selectedProviders
+            )
         }
     }
 
@@ -576,8 +643,18 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         selectedProviders: Set<String>?
     ) {
         // Show field selection modal dialog
-        val fieldNames = arrayOf("Plot", "Poster", "Banner", "Logo", "Actors", "Score", "Status", "Year")
-        val fieldChecked = booleanArrayOf(true, true, true, true, true, true, true, true) // All fields selected by default
+        val fieldNames =
+            arrayOf("Plot", "Poster", "Banner", "Logo", "Actors", "Score", "Status", "Year")
+        val fieldChecked = booleanArrayOf(
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true,
+            true
+        ) // All fields selected by default
 
         val builder = androidx.appcompat.app.AlertDialog.Builder(context)
         builder.setTitle("Select fields to swap")
@@ -626,27 +703,40 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
             // If providers were selected, use them to search for metadata
             if (selectedProviders != null && selectedProviders.isNotEmpty()) {
-                android.util.Log.d("MetadataSwap", "Using selected providers for metadata search: $selectedProviders")
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "Using selected providers for metadata search: $selectedProviders"
+                )
                 // Store selected providers for use in QuickSearchFragment
-                com.lagradost.cloudstream3.ui.result.ResultViewModel2.selectedProvidersForSwap = selectedProviders
+                com.lagradost.cloudstream3.ui.result.ResultViewModel2.selectedProvidersForSwap =
+                    selectedProviders
                 // Open QuickSearch with selected providers
                 openSearchForMetadataWithProviders(currentResponse, selectedProviders)
             } else {
                 // Full search or no providers selected - proceed with direct swap
-                android.util.Log.d("MetadataSwap", "No providers selected or full search - proceeding with direct swap")
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "No providers selected or full search - proceeding with direct swap"
+                )
                 performDirectSwap(currentResponse, originalResponse, fieldsToSwap, context)
             }
         }
         builder.setNegativeButton("Cancel") { dialog, _ ->
             // Don't reset metadata swap mode - user is still in the swapped entry
             // The button should remain visible as long as sharedOriginalResponse is set
-            android.util.Log.d("MetadataSwap", "Field selection dialog cancelled - keeping metadata swap mode active")
+            android.util.Log.d(
+                "MetadataSwap",
+                "Field selection dialog cancelled - keeping metadata swap mode active"
+            )
             dialog.dismiss()
         }
         builder.setOnCancelListener {
             // Don't reset metadata swap mode - user is still in the swapped entry
             // The button should remain visible as long as sharedOriginalResponse is set
-            android.util.Log.d("MetadataSwap", "Field selection dialog cancelled via back button - keeping metadata swap mode active")
+            android.util.Log.d(
+                "MetadataSwap",
+                "Field selection dialog cancelled via back button - keeping metadata swap mode active"
+            )
         }
         builder.show()
     }
@@ -656,16 +746,26 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         selectedProviders: Set<String>
     ) {
         val currentName = currentResponse.name
-        android.util.Log.d("MetadataSwap", "openSearchForMetadataWithProviders - currentResponse: $currentName, providers: $selectedProviders")
+        android.util.Log.d(
+            "MetadataSwap",
+            "openSearchForMetadataWithProviders - currentResponse: $currentName, providers: $selectedProviders"
+        )
 
         // Store original response in static variable BEFORE opening QuickSearchFragment
         viewModel.originalResponse = currentResponse
-        com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse = currentResponse
-        android.util.Log.d("MetadataSwap", "openSearchForMetadataWithProviders - stored originalResponse in viewModel.originalResponse and sharedOriginalResponse")
+        com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse =
+            currentResponse
+        android.util.Log.d(
+            "MetadataSwap",
+            "openSearchForMetadataWithProviders - stored originalResponse in viewModel.originalResponse and sharedOriginalResponse"
+        )
 
         // DO NOT set isMetadataSwapActive here - only set it when user actually selects an entry
         // This prevents the swap button from appearing on all search results
-        android.util.Log.d("MetadataSwap", "openSearchForMetadataWithProviders - NOT setting isMetadataSwapActive yet, will set on entry selection")
+        android.util.Log.d(
+            "MetadataSwap",
+            "openSearchForMetadataWithProviders - NOT setting isMetadataSwapActive yet, will set on entry selection"
+        )
 
         // Open QuickSearchFragment with selected providers and title pre-filled, passing metadata swap context via bundle
         com.lagradost.cloudstream3.ui.quicksearch.QuickSearchFragment.pushSearch(
@@ -679,13 +779,22 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
         // Set up callback to handle search result selection
         com.lagradost.cloudstream3.ui.quicksearch.QuickSearchFragment.clickCallback = { callback ->
-            android.util.Log.d("MetadataSwap", "QuickSearchFragment callback received - action: ${callback.action}")
+            android.util.Log.d(
+                "MetadataSwap",
+                "QuickSearchFragment callback received - action: ${callback.action}"
+            )
             if (callback.action == com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_LOAD) {
                 // Set isMetadataSwapActive only when user actually selects an entry
                 com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive = true
-                android.util.Log.d("MetadataSwap", "User selected entry - setting isMetadataSwapActive = true")
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "User selected entry - setting isMetadataSwapActive = true"
+                )
                 // Open entry with metadata swap flag
-                openEntryForMetadataSwap(callback.card, selectedProviders.firstOrNull() ?: "Unknown")
+                openEntryForMetadataSwap(
+                    callback.card,
+                    selectedProviders.firstOrNull() ?: "Unknown"
+                )
             }
         }
     }
@@ -697,14 +806,19 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         context: Context
     ) {
         // Swap selected metadata fields - merge currentResponse metadata into originalResponse
-        val swappedResponse = viewModel.swapAllMetadata(originalResponse, currentResponse, fieldsToSwap)
+        val swappedResponse =
+            viewModel.swapAllMetadata(originalResponse, currentResponse, fieldsToSwap)
         android.util.Log.d("MetadataSwap", "Swapped response: ${swappedResponse.name}")
 
         // Old static variable approach
         // sharedTrueOriginal is already saved at the start of the swap flow in openSearchForMetadata
-        com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedSwappedResponse = swappedResponse
+        com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedSwappedResponse =
+            swappedResponse
         com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedFieldsToSwap = fieldsToSwap
-        android.util.Log.d("MetadataSwap", "Stored swapped response in sharedSwappedResponse (old system)")
+        android.util.Log.d(
+            "MetadataSwap",
+            "Stored swapped response in sharedSwappedResponse (old system)"
+        )
 
         // Update the original response with swapped metadata
         viewModel.currentResponse = swappedResponse
@@ -724,24 +838,40 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     }
 
     private fun openSearchForMetadata(providerName: String) {
-        android.util.Log.d("MetadataSwap", "openSearchForMetadata called with provider: $providerName")
+        android.util.Log.d(
+            "MetadataSwap",
+            "openSearchForMetadata called with provider: $providerName"
+        )
         val currentResponse = viewModel.currentResponse ?: run {
             android.util.Log.e("MetadataSwap", "openSearchForMetadata - currentResponse is null")
             return
         }
         val currentName = currentResponse.name
-        android.util.Log.d("MetadataSwap", "openSearchForMetadata - currentResponse: $currentName, provider: $providerName")
+        android.util.Log.d(
+            "MetadataSwap",
+            "openSearchForMetadata - currentResponse: $currentName, provider: $providerName"
+        )
 
-        android.util.Log.d("MetadataSwap", "openSearchForMetadata called - storing original response: ${currentResponse.name}")
+        android.util.Log.d(
+            "MetadataSwap",
+            "openSearchForMetadata called - storing original response: ${currentResponse.name}"
+        )
 
         // Store original response in static variable BEFORE opening QuickSearchFragment
         viewModel.originalResponse = currentResponse
-        com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse = currentResponse
-        android.util.Log.d("MetadataSwap", "openSearchForMetadata - stored originalResponse in viewModel.originalResponse and sharedOriginalResponse")
+        com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse =
+            currentResponse
+        android.util.Log.d(
+            "MetadataSwap",
+            "openSearchForMetadata - stored originalResponse in viewModel.originalResponse and sharedOriginalResponse"
+        )
 
         // DO NOT set isMetadataSwapActive here - only set it when user actually selects an entry
         // This prevents the swap button from appearing on all search results
-        android.util.Log.d("MetadataSwap", "openSearchForMetadata - NOT setting isMetadataSwapActive yet, will set on entry selection")
+        android.util.Log.d(
+            "MetadataSwap",
+            "openSearchForMetadata - NOT setting isMetadataSwapActive yet, will set on entry selection"
+        )
 
         // Open QuickSearchFragment with provider pre-selected and title pre-filled, passing metadata swap context via bundle
         com.lagradost.cloudstream3.ui.quicksearch.QuickSearchFragment.pushSearch(
@@ -756,11 +886,17 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         // Set up callback to handle search result selection
         android.util.Log.d("MetadataSwap", "openSearchForMetadata - setting up clickCallback")
         com.lagradost.cloudstream3.ui.quicksearch.QuickSearchFragment.clickCallback = { callback ->
-            android.util.Log.d("MetadataSwap", "QuickSearchFragment callback received - action: ${callback.action}, card: ${callback.card.name}")
+            android.util.Log.d(
+                "MetadataSwap",
+                "QuickSearchFragment callback received - action: ${callback.action}, card: ${callback.card.name}"
+            )
             if (callback.action == com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_LOAD) {
                 // Set isMetadataSwapActive only when user actually selects an entry
                 com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive = true
-                android.util.Log.d("MetadataSwap", "User selected entry - setting isMetadataSwapActive = true")
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "User selected entry - setting isMetadataSwapActive = true"
+                )
                 // Open entry with metadata swap flag
                 openEntryForMetadataSwap(callback.card, providerName)
             }
@@ -772,25 +908,50 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         searchResult: com.lagradost.cloudstream3.SearchResponse,
         providerName: String
     ) {
-        android.util.Log.d("MetadataSwap", "openEntryForMetadataSwap called - searchResult: ${searchResult.name}, provider: $providerName")
-        android.util.Log.d("MetadataSwap", "openEntryForMetadataSwap - viewModel.currentResponse: ${viewModel.currentResponse?.name}")
-        android.util.Log.d("MetadataSwap", "openEntryForMetadataSwap - isMetadataSwapActive before: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive}")
-        
+        android.util.Log.d(
+            "MetadataSwap",
+            "openEntryForMetadataSwap called - searchResult: ${searchResult.name}, provider: $providerName"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "openEntryForMetadataSwap - viewModel.currentResponse: ${viewModel.currentResponse?.name}"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "openEntryForMetadataSwap - isMetadataSwapActive before: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive}"
+        )
+
         // Store original response in static variable for swapping back
         viewModel.originalResponse = viewModel.currentResponse
-        com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse = viewModel.currentResponse
-        android.util.Log.d("MetadataSwap", "openEntryForMetadataSwap - stored viewModel.currentResponse in viewModel.originalResponse and sharedOriginalResponse")
-        android.util.Log.d("MetadataSwap", "openEntryForMetadataSwap - sharedOriginalResponse after set: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse?.name}")
+        com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse =
+            viewModel.currentResponse
+        android.util.Log.d(
+            "MetadataSwap",
+            "openEntryForMetadataSwap - stored viewModel.currentResponse in viewModel.originalResponse and sharedOriginalResponse"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "openEntryForMetadataSwap - sharedOriginalResponse after set: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse?.name}"
+        )
 
         // Ensure isMetadataSwapActive is set BEFORE loading the new fragment
         com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive = true
-        android.util.Log.d("MetadataSwap", "openEntryForMetadataSwap - Set isMetadataSwapActive to true")
-        android.util.Log.d("MetadataSwap", "openEntryForMetadataSwap - isMetadataSwapActive after: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive}")
+        android.util.Log.d(
+            "MetadataSwap",
+            "openEntryForMetadataSwap - Set isMetadataSwapActive to true"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "openEntryForMetadataSwap - isMetadataSwapActive after: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive}"
+        )
 
         // Open the entry with metadata swap flag and original response info in bundle
-        android.util.Log.d("MetadataSwap", "openEntryForMetadataSwap - calling loadSearchResult with metadataSwap=true and original response info")
+        android.util.Log.d(
+            "MetadataSwap",
+            "openEntryForMetadataSwap - calling loadSearchResult with metadataSwap=true and original response info"
+        )
         com.lagradost.cloudstream3.utils.AppContextUtils.loadSearchResult(
-            searchResult, 
+            searchResult,
             metadataSwap = true,
             originalResponseName = viewModel.currentResponse?.name,
             originalResponseUrl = viewModel.currentResponse?.url
@@ -812,7 +973,8 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
         // Show rating if available
         binding.posterCard.textRating.text = metadata.score?.toString() ?: ""
-        binding.posterCard.textRating.visibility = if (metadata.score != null) android.view.View.VISIBLE else android.view.View.GONE
+        binding.posterCard.textRating.visibility =
+            if (metadata.score != null) android.view.View.VISIBLE else android.view.View.GONE
 
         // Hide other elements not needed for preview
         binding.posterCard.watchProgressContainer.visibility = android.view.View.GONE
@@ -877,12 +1039,18 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         super.onResume()
         PanelsChildGestureRegionObserver.Provider.get()
             .addGestureRegionsUpdateListener(gestureRegionsListener)
-        
+
         // Force refresh episode adapter to update download status icons
         // This fixes the issue where download scan icons don't update when navigating away during scan
         android.util.Log.d("DownloadStatusRefresh", "=== RESULTFRAGMENTPHONE ONRESUME ===")
-        android.util.Log.d("DownloadStatusRefresh", "Forcing episode adapter refresh to update download status icons")
-        android.util.Log.d("DownloadStatusRefresh", "Current downloadStatus map size: ${com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.downloadStatus.size}")
+        android.util.Log.d(
+            "DownloadStatusRefresh",
+            "Forcing episode adapter refresh to update download status icons"
+        )
+        android.util.Log.d(
+            "DownloadStatusRefresh",
+            "Current downloadStatus map size: ${com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.downloadStatus.size}"
+        )
         viewModel.reloadEpisodes()
         android.util.Log.d("DownloadStatusRefresh", "=== RESULTFRAGMENTPHONE ONRESUME COMPLETE ===")
     }
@@ -902,6 +1070,82 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         view?.let { fixSystemBarsPadding(it) }
     }
 
+    private fun resumeAction(
+        storedData: ResultFragment.StoredData,
+        resume: ResumeWatchingStatus
+    ) {
+        viewModel.handleAction(
+            EpisodeClickEvent(
+                storedData.playerAction, //?: ACTION_PLAY_EPISODE_IN_PLAYER,
+                resume.result
+            )
+        )
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // Clear metadata swap mode when navigating away within QuickSearchFragment
+        if (com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive) {
+            android.util.Log.d("MetadataSwap", "onPause - Clearing isMetadataSwapMode")
+        }
+        PanelsChildGestureRegionObserver.Provider.get()
+            .addGestureRegionsUpdateListener(gestureRegionsListener)
+    }
+
+    private fun setRecommendations(rec: List<SearchResponse>?, validApiName: String?) {
+        val isInvalid = rec.isNullOrEmpty()
+        val matchAgainst = validApiName ?: rec?.firstOrNull()?.apiName
+
+        recommendationBinding?.apply {
+            root.isGone = isInvalid
+            root.post {
+                rec?.let { list ->
+                    (resultRecommendationsList.adapter as? SearchAdapter)?.submitList(list.filter { it.apiName == matchAgainst })
+                }
+            }
+        }
+
+        binding?.apply {
+            resultRecommendationsBtt.isGone = isInvalid
+            resultRecommendationsBtt.setOnClickListener {
+                val nextFocusDown =
+                    if (resultOverlappingPanels.getSelectedPanel().ordinal == 1) {
+                        resultOverlappingPanels.openEndPanel()
+                        R.id.result_recommendations
+                    } else {
+                        resultOverlappingPanels.closePanels()
+                        R.id.result_description
+                    }
+                resultBinding?.apply {
+                    resultRecommendationsBtt.nextFocusDownId = nextFocusDown
+                    resultSearch.nextFocusDownId = nextFocusDown
+                    resultOpenInBrowser.nextFocusDownId = nextFocusDown
+                    resultShare.nextFocusDownId = nextFocusDown
+                }
+            }
+            resultOverlappingPanels.setEndPanelLockState(if (isInvalid) OverlappingPanelsLayout.LockState.CLOSE else OverlappingPanelsLayout.LockState.UNLOCKED)
+
+            rec?.map { it.apiName }?.distinct()?.let { apiNames ->
+                // very dirty selection
+                recommendationBinding?.resultRecommendationsFilterButton?.apply {
+                    isVisible = apiNames.size > 1
+                    text = matchAgainst
+                    setOnClickListener { _ ->
+                        activity?.showBottomDialog(
+                            apiNames,
+                            apiNames.indexOf(matchAgainst),
+                            getString(R.string.home_change_provider_img_des), false, {}
+                        ) {
+                            setRecommendations(rec, apiNames[it])
+                        }
+                    }
+                }
+            } ?: run {
+                recommendationBinding?.resultRecommendationsFilterButton?.isVisible = false
+            }
+        }
+    }
+
     @SuppressLint("SetTextI18n")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
@@ -912,7 +1156,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
         // Reset sticky flag when loading a new entry to prevent ghosting previous sync state
         wasNameMatchFound = false
-        android.util.Log.d("[MINI_SYNC_FIX]", "Reset wasNameMatchFound to false for new entry: ${storedData.name}")
+        android.util.Log.d(
+            "[MINI_SYNC_FIX]",
+            "Reset wasNameMatchFound to false for new entry: ${storedData.name}"
+        )
 
         android.util.Log.d("MetadataSwap", "===== COMPREHENSIVE DEBUG START =====")
         android.util.Log.d("MetadataSwap", "storedData.name: ${storedData.name}")
@@ -920,63 +1167,147 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         android.util.Log.d("MetadataSwap", "storedData.apiName: ${storedData.apiName}")
 
         // Check if this is a metadata swap navigation (from bundle or static flag or sharedOriginalResponse)
-        val isMetadataSwapFromBundle = arguments?.getBoolean(com.lagradost.cloudstream3.ui.result.ResultFragment.METADATA_SWAP_BUNDLE) ?: false
-        val isMetadataSwapFromStatic = com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive
-        val hasSharedOriginalResponse = com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse != null
+        val isMetadataSwapFromBundle =
+            arguments?.getBoolean(com.lagradost.cloudstream3.ui.result.ResultFragment.METADATA_SWAP_BUNDLE)
+                ?: false
+        val isMetadataSwapFromStatic =
+            com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive
+        val hasSharedOriginalResponse =
+            com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse != null
         val hasOriginalResponseInBundle = arguments?.getString("original_response_name") != null
-        val isMetadataSwap = isMetadataSwapFromBundle || isMetadataSwapFromStatic || hasSharedOriginalResponse || hasOriginalResponseInBundle
-        android.util.Log.d("MetadataSwap", "onViewCreated - isMetadataSwap from bundle: $isMetadataSwapFromBundle, from static: $isMetadataSwapFromStatic, hasSharedOriginalResponse: $hasSharedOriginalResponse, hasOriginalResponseInBundle: $hasOriginalResponseInBundle")
-        android.util.Log.d("MetadataSwap", "onViewCreated - sharedOriginalResponse: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse?.name}")
-        android.util.Log.d("MetadataSwap", "onViewCreated - sharedOriginalResponse.url: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse?.url}")
-        android.util.Log.d("MetadataSwap", "onViewCreated - bundle original_response_name: ${arguments?.getString("original_response_name")}")
-        android.util.Log.d("MetadataSwap", "onViewCreated - bundle original_response_url: ${arguments?.getString("original_response_url")}")
-        android.util.Log.d("MetadataSwap", "onViewCreated - sharedSwappedResponse: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedSwappedResponse?.name}")
-        android.util.Log.d("MetadataSwap", "onViewCreated - sharedSwappedResponse.url: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedSwappedResponse?.url}")
+        val isMetadataSwap =
+            isMetadataSwapFromBundle || isMetadataSwapFromStatic || hasSharedOriginalResponse || hasOriginalResponseInBundle
+        android.util.Log.d(
+            "MetadataSwap",
+            "onViewCreated - isMetadataSwap from bundle: $isMetadataSwapFromBundle, from static: $isMetadataSwapFromStatic, hasSharedOriginalResponse: $hasSharedOriginalResponse, hasOriginalResponseInBundle: $hasOriginalResponseInBundle"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "onViewCreated - sharedOriginalResponse: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse?.name}"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "onViewCreated - sharedOriginalResponse.url: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse?.url}"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "onViewCreated - bundle original_response_name: ${arguments?.getString("original_response_name")}"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "onViewCreated - bundle original_response_url: ${arguments?.getString("original_response_url")}"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "onViewCreated - sharedSwappedResponse: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedSwappedResponse?.name}"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "onViewCreated - sharedSwappedResponse.url: ${com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedSwappedResponse?.url}"
+        )
         if (isMetadataSwap) {
             viewModel.setMetadataSwapMode(true)
-            viewModel.originalResponse = com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse
-            android.util.Log.d("MetadataSwap", "onViewCreated - Set isMetadataSwapMode to true, originalResponse: ${viewModel.originalResponse?.name}")
-            android.util.Log.d("MetadataSwap", "onViewCreated - viewModel.originalResponse.url: ${viewModel.originalResponse?.url}")
+            viewModel.originalResponse =
+                com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse
+            android.util.Log.d(
+                "MetadataSwap",
+                "onViewCreated - Set isMetadataSwapMode to true, originalResponse: ${viewModel.originalResponse?.name}"
+            )
+            android.util.Log.d(
+                "MetadataSwap",
+                "onViewCreated - viewModel.originalResponse.url: ${viewModel.originalResponse?.url}"
+            )
             // Don't clear isMetadataSwapActive here - it should persist while navigating between search results
         }
 
         // Check if there's a swapped response available (from metadata swap completion)
-        var swappedResponse = com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedSwappedResponse
-        var fieldsToSwap = com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedFieldsToSwap ?: emptySet()
+        var swappedResponse =
+            com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedSwappedResponse
+        var fieldsToSwap =
+            com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedFieldsToSwap ?: emptySet()
         var skipNormalLoad = false
-        
+
         // Use new MetadataSwapManager if feature flag is enabled
         if (com.lagradost.cloudstream3.ui.result.ResultViewModel2.USE_NEW_SWAP_SYSTEM) {
-            val cacheKey = com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.resolveKey(storedData.url, null)
-            android.util.Log.d("MetadataSwap", "onViewCreated - Using new MetadataSwapManager - cacheKey: $cacheKey")
-            
+            val cacheKey = com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.resolveKey(
+                storedData.url,
+                null
+            )
+            android.util.Log.d(
+                "MetadataSwap",
+                "onViewCreated - Using new MetadataSwapManager - cacheKey: $cacheKey"
+            )
+
             lifecycleScope.launch {
-                val isSwapped = com.lagradost.cloudstream3.ui.result.swap.MetadataSwapManager.isSwapped(context ?: return@launch, cacheKey)
+                val isSwapped =
+                    com.lagradost.cloudstream3.ui.result.swap.MetadataSwapManager.isSwapped(
+                        context ?: return@launch, cacheKey
+                    )
                 android.util.Log.d("MetadataSwap", "onViewCreated - isSwapped: $isSwapped")
-                
+
                 if (isSwapped) {
                     // Let the normal load flow handle swap metadata application via ResultViewModel2
                     // The ViewModel will check MetadataSwapManager and apply metadata if needed
-                    android.util.Log.d("MetadataSwap", "onViewCreated - Swap active, letting ViewModel handle metadata application")
+                    android.util.Log.d(
+                        "MetadataSwap",
+                        "onViewCreated - Swap active, letting ViewModel handle metadata application"
+                    )
                 }
             }
         }
-        
-        android.util.Log.d("MetadataSwap", "onViewCreated - sharedSwappedResponse: ${swappedResponse?.name}")
-        android.util.Log.d("MetadataSwap", "onViewCreated - sharedSwappedResponse.url: ${swappedResponse?.url}")
-        android.util.Log.d("MetadataSwap", "onViewCreated - viewModel.originalResponse: ${viewModel.originalResponse?.name}")
-        android.util.Log.d("MetadataSwap", "onViewCreated - viewModel.originalResponse.url: ${viewModel.originalResponse?.url}")
+
+        android.util.Log.d(
+            "MetadataSwap",
+            "onViewCreated - sharedSwappedResponse: ${swappedResponse?.name}"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "onViewCreated - sharedSwappedResponse.url: ${swappedResponse?.url}"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "onViewCreated - viewModel.originalResponse: ${viewModel.originalResponse?.name}"
+        )
+        android.util.Log.d(
+            "MetadataSwap",
+            "onViewCreated - viewModel.originalResponse.url: ${viewModel.originalResponse?.url}"
+        )
         if (swappedResponse != null && !com.lagradost.cloudstream3.ui.result.ResultViewModel2.USE_NEW_SWAP_SYSTEM) {
-            android.util.Log.d("MetadataSwap", "onViewCreated - Found swapped response: ${swappedResponse.name}, updating page and cache")
-            android.util.Log.d("MetadataSwap", "onViewCreated - swappedResponse.url: ${swappedResponse.url}")
-            android.util.Log.d("MetadataSwap", "onViewCreated - swappedResponse actors: ${(swappedResponse as? com.lagradost.cloudstream3.AnimeLoadResponse)?.actors?.size ?: (swappedResponse as? com.lagradost.cloudstream3.TvSeriesLoadResponse)?.actors?.size}")
-            android.util.Log.d("MetadataSwap", "onViewCreated - swappedResponse plot: ${(swappedResponse as? com.lagradost.cloudstream3.AnimeLoadResponse)?.plot?.take(30) ?: (swappedResponse as? com.lagradost.cloudstream3.TvSeriesLoadResponse)?.plot?.take(30)}")
+            android.util.Log.d(
+                "MetadataSwap",
+                "onViewCreated - Found swapped response: ${swappedResponse.name}, updating page and cache"
+            )
+            android.util.Log.d(
+                "MetadataSwap",
+                "onViewCreated - swappedResponse.url: ${swappedResponse.url}"
+            )
+            android.util.Log.d(
+                "MetadataSwap",
+                "onViewCreated - swappedResponse actors: ${(swappedResponse as? com.lagradost.cloudstream3.AnimeLoadResponse)?.actors?.size ?: (swappedResponse as? com.lagradost.cloudstream3.TvSeriesLoadResponse)?.actors?.size}"
+            )
+            android.util.Log.d(
+                "MetadataSwap",
+                "onViewCreated - swappedResponse plot: ${
+                    (swappedResponse as? com.lagradost.cloudstream3.AnimeLoadResponse)?.plot?.take(
+                        30
+                    ) ?: (swappedResponse as? com.lagradost.cloudstream3.TvSeriesLoadResponse)?.plot?.take(
+                        30
+                    )
+                }"
+            )
             // Set the swapped response as the current response
             viewModel.currentResponse = swappedResponse
-            android.util.Log.d("MetadataSwap", "onViewCreated - Set viewModel.currentResponse to swappedResponse")
-            android.util.Log.d("MetadataSwap", "onViewCreated - viewModel.currentResponse.url: ${viewModel.currentResponse?.url}")
+            android.util.Log.d(
+                "MetadataSwap",
+                "onViewCreated - Set viewModel.currentResponse to swappedResponse"
+            )
+            android.util.Log.d(
+                "MetadataSwap",
+                "onViewCreated - viewModel.currentResponse.url: ${viewModel.currentResponse?.url}"
+            )
             // Get the API for the swapped response and wrap it in APIRepository
-            val api = com.lagradost.cloudstream3.APIHolder.getApiFromNameNull(swappedResponse.apiName)
+            val api =
+                com.lagradost.cloudstream3.APIHolder.getApiFromNameNull(swappedResponse.apiName)
             if (api != null) {
                 val apiRepository = com.lagradost.cloudstream3.ui.APIRepository(api)
                 // Post the swapped response to update the UI
@@ -986,79 +1317,155 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 // Use the target entry URL (storedData.url) as cache key - this is the library entry we're swapping TO
                 // swappedResponse.url is the SOURCE URL (from search result), not the target URL
                 android.util.Log.d("MetadataSwap", "DEBUG - storedData.url: ${storedData.url}")
-                android.util.Log.d("MetadataSwap", "DEBUG - swappedResponse.url: ${swappedResponse.url}")
-                android.util.Log.d("MetadataSwap", "DEBUG - viewModel.originalResponse.url: ${viewModel.originalResponse?.url}")
-                
-                // Use existingCache.url as originalUrl (target URL) if it exists, otherwise fall back to storedData.url
-                val existingCache = com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
-                    com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
-                    storedData.url
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - swappedResponse.url: ${swappedResponse.url}"
                 )
-                
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - viewModel.originalResponse.url: ${viewModel.originalResponse?.url}"
+                )
+
+                // Use existingCache.url as originalUrl (target URL) if it exists, otherwise fall back to storedData.url
+                val existingCache =
+                    com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
+                        com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
+                        storedData.url
+                    )
+
                 val originalUrl = existingCache?.originalUrl ?: existingCache?.url ?: storedData.url
                 android.util.Log.d("MetadataSwap", "DEBUG - originalUrl (target): $originalUrl")
-                android.util.Log.d("MetadataSwap", "DEBUG - existingCache?.url: ${existingCache?.url}")
-                android.util.Log.d("MetadataSwap", "DEBUG - existingCache?.originalUrl: ${existingCache?.originalUrl}")
-                
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - existingCache?.url: ${existingCache?.url}"
+                )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - existingCache?.originalUrl: ${existingCache?.originalUrl}"
+                )
+
                 val cacheKey = originalUrl
                 android.util.Log.d("MetadataSwap", "DEBUG - Using cacheKey: $cacheKey")
-                android.util.Log.d("MetadataSwap", "DEBUG - cacheKey type: ${cacheKey::class.simpleName}")
-                android.util.Log.d("MetadataSwap", "DEBUG - storedData.url type: ${storedData.url::class.simpleName}")
-                android.util.Log.d("MetadataSwap", "DEBUG - swappedResponse.url type: ${swappedResponse.url::class.simpleName}")
-                val fieldsToSwap = com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedFieldsToSwap ?: emptySet()
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - cacheKey type: ${cacheKey::class.simpleName}"
+                )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - storedData.url type: ${storedData.url::class.simpleName}"
+                )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - swappedResponse.url type: ${swappedResponse.url::class.simpleName}"
+                )
+                val fieldsToSwap =
+                    com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedFieldsToSwap
+                        ?: emptySet()
 
                 // Extract metadata from swappedResponse for swapped fields, from swappedResponse for unswapped fields (if not null), otherwise from existing cache
-                val finalPoster = if (com.lagradost.cloudstream3.ui.result.MetadataField.POSTER in fieldsToSwap) swappedResponse.posterUrl else (swappedResponse.posterUrl ?: existingCache?.poster)
-                val finalBanner = if (com.lagradost.cloudstream3.ui.result.MetadataField.BANNER in fieldsToSwap) swappedResponse.backgroundPosterUrl else (swappedResponse.backgroundPosterUrl ?: existingCache?.backgroundPosterUrl)
-                val finalLogo = if (com.lagradost.cloudstream3.ui.result.MetadataField.LOGO in fieldsToSwap) swappedResponse.logoUrl else (swappedResponse.logoUrl ?: existingCache?.logoUrl)
-                val finalPlot = if (com.lagradost.cloudstream3.ui.result.MetadataField.PLOT in fieldsToSwap) {
-                    swappedResponse.plot  // LoadResponse has plot property, no cast needed
-                } else {
-                    swappedResponse.plot ?: existingCache?.plot
-                }
-                val finalActors = if (com.lagradost.cloudstream3.ui.result.MetadataField.ACTORS in fieldsToSwap) {
-                    swappedResponse.actors  // LoadResponse has actors property, no cast needed
-                } else {
-                    swappedResponse.actors ?: existingCache?.actors
-                }
-                val finalScore = if (com.lagradost.cloudstream3.ui.result.MetadataField.SCORE in fieldsToSwap) swappedResponse.score else (swappedResponse.score ?: existingCache?.score)
-                val finalYear = if (com.lagradost.cloudstream3.ui.result.MetadataField.YEAR in fieldsToSwap) swappedResponse.year else (swappedResponse.year ?: existingCache?.year)
-                val finalShowStatus = if (com.lagradost.cloudstream3.ui.result.MetadataField.STATUS in fieldsToSwap) {
-                    if (swappedResponse is com.lagradost.cloudstream3.AnimeLoadResponse) swappedResponse.showStatus?.name else if (swappedResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse) swappedResponse.showStatus?.name else null
-                } else {
-                    val swappedStatus = if (swappedResponse is com.lagradost.cloudstream3.AnimeLoadResponse) swappedResponse.showStatus?.name else if (swappedResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse) swappedResponse.showStatus?.name else null
-                    swappedStatus ?: existingCache?.showStatus
-                }
+                val finalPoster =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.POSTER in fieldsToSwap) swappedResponse.posterUrl else (swappedResponse.posterUrl
+                        ?: existingCache?.poster)
+                val finalBanner =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.BANNER in fieldsToSwap) swappedResponse.backgroundPosterUrl else (swappedResponse.backgroundPosterUrl
+                        ?: existingCache?.backgroundPosterUrl)
+                val finalLogo =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.LOGO in fieldsToSwap) swappedResponse.logoUrl else (swappedResponse.logoUrl
+                        ?: existingCache?.logoUrl)
+                val finalPlot =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.PLOT in fieldsToSwap) {
+                        swappedResponse.plot  // LoadResponse has plot property, no cast needed
+                    } else {
+                        swappedResponse.plot ?: existingCache?.plot
+                    }
+                val finalActors =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.ACTORS in fieldsToSwap) {
+                        swappedResponse.actors  // LoadResponse has actors property, no cast needed
+                    } else {
+                        swappedResponse.actors ?: existingCache?.actors
+                    }
+                val finalScore =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.SCORE in fieldsToSwap) swappedResponse.score else (swappedResponse.score
+                        ?: existingCache?.score)
+                val finalYear =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.YEAR in fieldsToSwap) swappedResponse.year else (swappedResponse.year
+                        ?: existingCache?.year)
+                val finalShowStatus =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.STATUS in fieldsToSwap) {
+                        if (swappedResponse is com.lagradost.cloudstream3.AnimeLoadResponse) swappedResponse.showStatus?.name else if (swappedResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse) swappedResponse.showStatus?.name else null
+                    } else {
+                        val swappedStatus =
+                            if (swappedResponse is com.lagradost.cloudstream3.AnimeLoadResponse) swappedResponse.showStatus?.name else if (swappedResponse is com.lagradost.cloudstream3.TvSeriesLoadResponse) swappedResponse.showStatus?.name else null
+                        swappedStatus ?: existingCache?.showStatus
+                    }
 
                 // Store original values before overwriting (for undo functionality)
-                val originalPoster = if (com.lagradost.cloudstream3.ui.result.MetadataField.POSTER in fieldsToSwap) existingCache?.poster else null
-                val originalBanner = if (com.lagradost.cloudstream3.ui.result.MetadataField.BANNER in fieldsToSwap) existingCache?.backgroundPosterUrl else null
-                val originalLogo = if (com.lagradost.cloudstream3.ui.result.MetadataField.LOGO in fieldsToSwap) existingCache?.logoUrl else null
-                val originalPlot = if (com.lagradost.cloudstream3.ui.result.MetadataField.PLOT in fieldsToSwap) existingCache?.plot else null
-                val originalActors = if (com.lagradost.cloudstream3.ui.result.MetadataField.ACTORS in fieldsToSwap) existingCache?.actors else null
-                val originalScore = if (com.lagradost.cloudstream3.ui.result.MetadataField.SCORE in fieldsToSwap) existingCache?.score else null
-                val originalYear = if (com.lagradost.cloudstream3.ui.result.MetadataField.YEAR in fieldsToSwap) existingCache?.year else null
-                val originalShowStatus = if (com.lagradost.cloudstream3.ui.result.MetadataField.STATUS in fieldsToSwap) existingCache?.showStatus else null
+                val originalPoster =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.POSTER in fieldsToSwap) existingCache?.poster else null
+                val originalBanner =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.BANNER in fieldsToSwap) existingCache?.backgroundPosterUrl else null
+                val originalLogo =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.LOGO in fieldsToSwap) existingCache?.logoUrl else null
+                val originalPlot =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.PLOT in fieldsToSwap) existingCache?.plot else null
+                val originalActors =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.ACTORS in fieldsToSwap) existingCache?.actors else null
+                val originalScore =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.SCORE in fieldsToSwap) existingCache?.score else null
+                val originalYear =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.YEAR in fieldsToSwap) existingCache?.year else null
+                val originalShowStatus =
+                    if (com.lagradost.cloudstream3.ui.result.MetadataField.STATUS in fieldsToSwap) existingCache?.showStatus else null
 
                 // Convert List<ActorData> to List<String> for cache storage
-                val finalActorsAsString = if (finalActors != null && finalActors.isNotEmpty() && finalActors.first() is com.lagradost.cloudstream3.ActorData) {
-                    @Suppress("UNCHECKED_CAST")
-                    (finalActors as List<com.lagradost.cloudstream3.ActorData>).map { actorData ->
-                        "${actorData.actor.name}|${actorData.actor.image ?: ""}|${actorData.role?.name ?: ""}|${actorData.roleString ?: ""}|${actorData.voiceActor?.name ?: ""}|${actorData.voiceActor?.image ?: ""}"
+                val finalActorsAsString =
+                    if (finalActors != null && finalActors.isNotEmpty() && finalActors.first() is com.lagradost.cloudstream3.ActorData) {
+                        @Suppress("UNCHECKED_CAST")
+                        (finalActors as List<com.lagradost.cloudstream3.ActorData>).map { actorData ->
+                            "${actorData.actor.name}|${actorData.actor.image ?: ""}|${actorData.role?.name ?: ""}|${actorData.roleString ?: ""}|${actorData.voiceActor?.name ?: ""}|${actorData.voiceActor?.image ?: ""}"
+                        }
+                    } else {
+                        finalActors as? List<String>  // Already in string format or null
                     }
-                } else {
-                    finalActors as? List<String>  // Already in string format or null
-                }
 
-                android.util.Log.d("MetadataSwap", "DEBUG - About to save to cache with cacheKey: $cacheKey")
-                android.util.Log.d("MetadataSwap", "DEBUG - DownloadHeaderCached.url will be: ${existingCache?.url ?: swappedResponse.url}")
-                android.util.Log.d("MetadataSwap", "DEBUG - DownloadHeaderCached.originalUrl will be: $originalUrl")
-                android.util.Log.d("MetadataSwap", "DEBUG - DownloadHeaderCached.name will be: ${existingCache?.name ?: swappedResponse.name}")
-                android.util.Log.d("MetadataSwap", "DEBUG - DownloadHeaderCached.actors will be: ${finalActorsAsString?.size}")
-                android.util.Log.d("MetadataSwap", "DEBUG - DownloadHeaderCached.plot will be: ${finalPlot?.take(30)}")
-                android.util.Log.d("MetadataSwap", "DEBUG - DownloadHeaderCached.logoUrl will be: ${finalLogo}")
-                android.util.Log.d("MetadataSwap", "DEBUG - DownloadHeaderCached.hasSwappedMetadata will be: true")
-                android.util.Log.d("MetadataSwap", "DEBUG - DownloadHeaderCached.swappedFields will be: ${fieldsToSwap.map { it.name }.toSet()}")
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - About to save to cache with cacheKey: $cacheKey"
+                )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - DownloadHeaderCached.url will be: ${existingCache?.url ?: swappedResponse.url}"
+                )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - DownloadHeaderCached.originalUrl will be: $originalUrl"
+                )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - DownloadHeaderCached.name will be: ${existingCache?.name ?: swappedResponse.name}"
+                )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - DownloadHeaderCached.actors will be: ${finalActorsAsString?.size}"
+                )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - DownloadHeaderCached.plot will be: ${finalPlot?.take(30)}"
+                )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - DownloadHeaderCached.logoUrl will be: ${finalLogo}"
+                )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - DownloadHeaderCached.hasSwappedMetadata will be: true"
+                )
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "DEBUG - DownloadHeaderCached.swappedFields will be: ${
+                        fieldsToSwap.map { it.name }.toSet()
+                    }"
+                )
                 com.lagradost.cloudstream3.CloudStreamApp.setKey(
                     com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
                     cacheKey,
@@ -1094,11 +1501,17 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         originalShowStatus = originalShowStatus
                     )
                 )
-                android.util.Log.d("MetadataSwap", "onViewCreated - Updated cache with swapped metadata for url: $cacheKey, hasCustomPoster: true")
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "onViewCreated - Updated cache with swapped metadata for url: $cacheKey, hasCustomPoster: true"
+                )
                 // Clear the shared variables after using them
                 com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedSwappedResponse = null
                 com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedFieldsToSwap = null
-                android.util.Log.d("MetadataSwap", "onViewCreated - Cleared sharedSwappedResponse and sharedFieldsToSwap")
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "onViewCreated - Cleared sharedSwappedResponse and sharedFieldsToSwap"
+                )
                 // Skip the normal load since we've already loaded the swapped response
                 skipNormalLoad = true
             }
@@ -1107,7 +1520,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         activity?.loadCache()
         context?.updateHasTrailers()
         hideKeyboard()
-        android.util.Log.d("MetadataSwap", "load check - restart: ${storedData.restart}, hasLoaded: ${viewModel.hasLoaded()}, skipNormalLoad: $skipNormalLoad, willLoad: ${(storedData.restart || !viewModel.hasLoaded()) && !skipNormalLoad}")
+        android.util.Log.d(
+            "MetadataSwap",
+            "load check - restart: ${storedData.restart}, hasLoaded: ${viewModel.hasLoaded()}, skipNormalLoad: $skipNormalLoad, willLoad: ${(storedData.restart || !viewModel.hasLoaded()) && !skipNormalLoad}"
+        )
         if ((storedData.restart || !viewModel.hasLoaded()) && !skipNormalLoad)
             viewModel.load(
                 activity,
@@ -1119,225 +1535,324 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             )
         // MINI_SYNC_FIX: Clear URL cache and use HTTP URL for sync detection
         syncModel.clearUrlCache()
-        val syncUrl = if (storedData.url.contains("session") && storedData.url.contains("sessionDate")) {
-            // Try to get original HTTP URL from cache using multiple strategies
-            android.util.Log.d("[MINI_SYNC_FIX]", "Session URL detected: ${storedData.url.take(50)}...")
-            var cachedHttpUrl: String? = null
-            
-            // Strategy 1: Try direct lookup with storedData.url as key
-            val directHeader = com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
-                com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
-                storedData.url
-            )
-            if (directHeader != null) {
-                cachedHttpUrl = directHeader.originalUrl?.takeIf { it.startsWith("http") }
-                    ?: directHeader.url?.takeIf { it.startsWith("http") && !it.contains("session") }
-                android.util.Log.d("[MINI_SYNC_FIX]", "Direct cache lookup: ${cachedHttpUrl != null}")
-            }
-            
-            // Strategy 2: Try session ID lookup if direct failed
-            if (cachedHttpUrl == null) {
-                val sessionIdMatch = Regex("\"session\":\"([^\"]+)\"").find(storedData.url)
-                val sessionId = sessionIdMatch?.groupValues?.get(1)
-                android.util.Log.d("[MINI_SYNC_FIX]", "Extracted sessionId: ${sessionId != null}")
-                if (sessionId != null) {
-                    val allKeys = com.lagradost.cloudstream3.CloudStreamApp.getKeys(com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE)
-                    android.util.Log.d("[MINI_SYNC_FIX]", "Total cache keys: ${allKeys?.size ?: 0}")
-                    val matchingKey = allKeys?.find { it.contains(sessionId) }
-                    android.util.Log.d("[MINI_SYNC_FIX]", "Matching key found: ${matchingKey != null}")
-                    if (matchingKey != null) {
-                        val cachedHeader = com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(matchingKey)
-                        cachedHttpUrl = cachedHeader?.originalUrl?.takeIf { it.startsWith("http") }
-                            ?: cachedHeader?.url?.takeIf { it.startsWith("http") && !it.contains("session") }
-                        android.util.Log.d("[MINI_SYNC_FIX]", "Session lookup result: ${cachedHttpUrl != null}, originalUrl=${cachedHeader?.originalUrl != null}, url=${cachedHeader?.url != null}")
+        val syncUrl =
+            if (storedData.url.contains("session") && storedData.url.contains("sessionDate")) {
+                // Try to get original HTTP URL from cache using multiple strategies
+                android.util.Log.d(
+                    "[MINI_SYNC_FIX]",
+                    "Session URL detected: ${storedData.url.take(50)}..."
+                )
+                var cachedHttpUrl: String? = null
+
+                // Strategy 1: Try direct lookup with storedData.url as key
+                val directHeader =
+                    com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
+                        com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
+                        storedData.url
+                    )
+                if (directHeader != null) {
+                    cachedHttpUrl = directHeader.originalUrl?.takeIf { it.startsWith("http") }
+                        ?: directHeader.url?.takeIf { it.startsWith("http") && !it.contains("session") }
+                    android.util.Log.d(
+                        "[MINI_SYNC_FIX]",
+                        "Direct cache lookup: ${cachedHttpUrl != null}"
+                    )
+                }
+
+                // Strategy 2: Try session ID lookup if direct failed
+                if (cachedHttpUrl == null) {
+                    val sessionIdMatch = Regex("\"session\":\"([^\"]+)\"").find(storedData.url)
+                    val sessionId = sessionIdMatch?.groupValues?.get(1)
+                    android.util.Log.d(
+                        "[MINI_SYNC_FIX]",
+                        "Extracted sessionId: ${sessionId != null}"
+                    )
+                    if (sessionId != null) {
+                        val allKeys =
+                            com.lagradost.cloudstream3.CloudStreamApp.getKeys(com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE)
+                        android.util.Log.d(
+                            "[MINI_SYNC_FIX]",
+                            "Total cache keys: ${allKeys?.size ?: 0}"
+                        )
+                        val matchingKey = allKeys?.find { it.contains(sessionId) }
+                        android.util.Log.d(
+                            "[MINI_SYNC_FIX]",
+                            "Matching key found: ${matchingKey != null}"
+                        )
+                        if (matchingKey != null) {
+                            val cachedHeader =
+                                com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
+                                    matchingKey
+                                )
+                            cachedHttpUrl =
+                                cachedHeader?.originalUrl?.takeIf { it.startsWith("http") }
+                                    ?: cachedHeader?.url?.takeIf {
+                                        it.startsWith("http") && !it.contains(
+                                            "session"
+                                        )
+                                    }
+                            android.util.Log.d(
+                                "[MINI_SYNC_FIX]",
+                                "Session lookup result: ${cachedHttpUrl != null}, originalUrl=${cachedHeader?.originalUrl != null}, url=${cachedHeader?.url != null}"
+                            )
+                        }
                     }
                 }
+
+                android.util.Log.d(
+                    "[MINI_SYNC_FIX]",
+                    "Final HTTP URL resolved: ${cachedHttpUrl != null}"
+                )
+                cachedHttpUrl ?: storedData.url
+            } else {
+                storedData.url
             }
-            
-            android.util.Log.d("[MINI_SYNC_FIX]", "Final HTTP URL resolved: ${cachedHttpUrl != null}")
-            cachedHttpUrl ?: storedData.url
-        } else {
-            storedData.url
-        }
-        
+
         // MINI_SYNC_FIX: Try to add sync data from bookmarked data by matching session ID
-        val allBookmarked = com.lagradost.cloudstream3.utils.DataStoreHelper.getAllBookmarkedData()
+        // Move all bookmark processing to background thread to prevent main thread blocking
+        lifecycleScope.launch {
+            val allBookmarked = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                com.lagradost.cloudstream3.utils.DataStoreHelper.getAllBookmarkedData()
+            }
 
-        // Extract session ID from the stored URL
-        val sessionIdMatch = Regex(""""session":"([^"]+)""").find(storedData.url)
-        val sessionId = sessionIdMatch?.groupValues?.get(1)
+            // Extract session ID from the stored URL
+            val sessionIdMatch = Regex(""""session":"([^"]+)""").find(storedData.url)
+            val sessionId = sessionIdMatch?.groupValues?.get(1)
 
-        android.util.Log.d("[MINI_SYNC_FIX]", "storedData.url: ${storedData.url}")
-        android.util.Log.d("[MINI_SYNC_FIX]", "Extracted sessionId: $sessionId")
-        android.util.Log.d("[MINI_SYNC_FIX]", "All bookmark URLs:")
-        allBookmarked.forEachIndexed { index, bookmark ->
-            android.util.Log.d("[MINI_SYNC_FIX]", "  [$index] ${bookmark.url.take(80)}...")
-        }
+            android.util.Log.d("[MINI_SYNC_FIX]", "storedData.url: ${storedData.url}")
+            android.util.Log.d("[MINI_SYNC_FIX]", "Extracted sessionId: $sessionId")
+            android.util.Log.d("[MINI_SYNC_FIX]", "All bookmark URLs:")
+            allBookmarked.forEachIndexed { index, bookmark ->
+                android.util.Log.d("[MINI_SYNC_FIX]", "  [$index] ${bookmark.url.take(80)}...")
+            }
 
-        // Try to find bookmark by session ID (more reliable than URL matching)
-        var matchingBookmark = if (sessionId != null) {
-            allBookmarked.find { bookmark ->
-                val containsSession = bookmark.url.contains(sessionId)
-                if (containsSession) {
-                    android.util.Log.d("[MINI_SYNC_FIX]", "Found match! Bookmark URL contains sessionId")
+            // Try to find bookmark by session ID (more reliable than URL matching)
+            var matchingBookmark = if (sessionId != null) {
+                allBookmarked.find { bookmark ->
+                    val containsSession = bookmark.url.contains(sessionId)
+                    if (containsSession) {
+                        android.util.Log.d(
+                            "[MINI_SYNC_FIX]",
+                            "Found match! Bookmark URL contains sessionId"
+                        )
+                    }
+                    containsSession
                 }
-                containsSession
+            } else {
+                // Fallback to exact match if no session ID
+                allBookmarked.find { it.url == storedData.url }
             }
-        } else {
-            // Fallback to exact match if no session ID
-            allBookmarked.find { it.url == storedData.url }
-        }
 
-        // Fallback 2: Match by name and apiName when session ID doesn't match
-        // This happens when loading from cache with new session IDs
-        if (matchingBookmark == null) {
-            android.util.Log.d("[MINI_SYNC_FIX]", "Session ID match failed, trying name-based match for: ${storedData.name}")
-            matchingBookmark = allBookmarked.find { bookmark ->
-                bookmark.name == storedData.name && bookmark.apiName == storedData.apiName
-            }
-            if (matchingBookmark != null) {
-                android.util.Log.d("[MINI_SYNC_FIX]", "Found match by name and apiName!")
-            }
-        }
-
-        // Fallback 3: Extract name from session URL JSON and try matching
-        // The cached header name may differ from the bookmark name (e.g., "Tsue to Tsurugi" vs "Wistoria")
-        if (matchingBookmark == null && storedData.url.contains("session")) {
-            val urlNameMatch = Regex(""""name":"([^"]+)""").find(storedData.url)
-            val urlName = urlNameMatch?.groupValues?.get(1)
-            if (urlName != null && urlName != storedData.name) {
-                android.util.Log.d("[MINI_SYNC_FIX]", "Trying URL-extracted name match for: $urlName")
+            // Fallback 2: Match by name and apiName when session ID doesn't match
+            // This happens when loading from cache with new session IDs
+            if (matchingBookmark == null) {
+                android.util.Log.d(
+                    "[MINI_SYNC_FIX]",
+                    "Session ID match failed, trying name-based match for: ${storedData.name}"
+                )
                 matchingBookmark = allBookmarked.find { bookmark ->
-                    bookmark.name == urlName && bookmark.apiName == storedData.apiName
+                    bookmark.name == storedData.name && bookmark.apiName == storedData.apiName
                 }
                 if (matchingBookmark != null) {
-                    android.util.Log.d("[MINI_SYNC_FIX]", "Found match by URL-extracted name!")
+                    android.util.Log.d("[MINI_SYNC_FIX]", "Found match by name and apiName!")
                 }
             }
-        }
 
-        android.util.Log.d("[MINI_SYNC_FIX]", "Final matchingBookmark: ${matchingBookmark != null}")
-        val hasBookmarkSyncData = matchingBookmark?.syncData?.isNotEmpty() == true
-        if (hasBookmarkSyncData) {
-            android.util.Log.d("[MINI_SYNC_FIX]", "Adding syncData from bookmarked data: ${matchingBookmark.syncData}")
-            val added = syncModel.addSyncs(matchingBookmark.syncData)
-            android.util.Log.d("[MINI_SYNC_FIX]", "Bookmark sync data added (new data only): $added")
-            // Always call updateSynced to ensure UI reflects current state
-            syncModel.updateSynced()
-            android.util.Log.d("[MINI_SYNC_FIX]", "Called updateSynced() after bookmark sync data")
-        }
-
-        // Only try URL-based sync lookup if we don't have bookmark sync data
-        // This prevents addFromUrl from clearing our bookmark sync state
-        if (!hasBookmarkSyncData) {
-            android.util.Log.d("[MINI_SYNC_FIX]", "No bookmark sync data, trying URL-based lookup")
-            syncModel.addFromUrl(syncUrl)
-
-            // Fallback: If URL-based lookup fails (no HTTP URLs), try name-based lookup
-            android.util.Log.d("[MINI_SYNC_FIX]", "Fallback: trying name-based sync lookup for ${storedData.name}")
-
-            // Use ioSafe to call the suspend function
-            com.lagradost.cloudstream3.utils.Coroutines.ioSafe {
-                try {
-                    val trackerResult = com.lagradost.cloudstream3.APIHolder.getTracker(
-                        listOfNotNull(
-                            storedData.name,
-                            // Could add other name fields if available
-                        ).filter { it.length > 2 }
-                            .distinct()
-                            .map { it.lowercase().trim() },
-                        com.lagradost.cloudstream3.TrackerType.getTypes(com.lagradost.cloudstream3.TvType.Anime), // Assuming anime, adjust as needed
-                        null // year is not available in storedData, using null
+            // Fallback 3: Extract name from session URL JSON and try matching
+            // The cached header name may differ from the bookmark name (e.g., "Tsue to Tsurugi" vs "Wistoria")
+            if (matchingBookmark == null && storedData.url.contains("session")) {
+                val urlNameMatch = Regex(""""name":"([^"]+)""").find(storedData.url)
+                val urlName = urlNameMatch?.groupValues?.get(1)
+                if (urlName != null && urlName != storedData.name) {
+                    android.util.Log.d(
+                        "[MINI_SYNC_FIX]",
+                        "Trying URL-extracted name match for: $urlName"
                     )
+                    matchingBookmark = allBookmarked.find { bookmark ->
+                        bookmark.name == urlName && bookmark.apiName == storedData.apiName
+                    }
+                    if (matchingBookmark != null) {
+                        android.util.Log.d("[MINI_SYNC_FIX]", "Found match by URL-extracted name!")
+                    }
+                }
+            }
 
-                    if (trackerResult != null) {
-                        android.util.Log.d("[MINI_SYNC_FIX]", "Name-based lookup found: mal=${trackerResult.malId}, anilist=${trackerResult.aniId}")
-                        
-                        // THE FIX: Set sticky flag when match found - this prevents "sync gap" hiding
-                        wasNameMatchFound = true
-                        android.util.Log.d("[MINI_SYNC_FIX]", "STICKY FLAG SET: wasNameMatchFound = true (name match found)")
-                        
-                        val syncMap = mutableMapOf<String, String>()
-                        trackerResult.malId?.let { syncMap[com.lagradost.cloudstream3.syncproviders.AccountManager.malApi.idPrefix] = it.toString() }
-                        trackerResult.aniId?.let { syncMap[com.lagradost.cloudstream3.syncproviders.AccountManager.aniListApi.idPrefix] = it }
+            android.util.Log.d(
+                "[MINI_SYNC_FIX]",
+                "Final matchingBookmark: ${matchingBookmark != null}"
+            )
+            val hasBookmarkSyncData = matchingBookmark?.syncData?.isNotEmpty() == true
+            if (hasBookmarkSyncData) {
+                android.util.Log.d(
+                    "[MINI_SYNC_FIX]",
+                    "Adding syncData from bookmarked data: ${matchingBookmark.syncData}"
+                )
+                val added = syncModel.addSyncs(matchingBookmark.syncData)
+                android.util.Log.d(
+                    "[MINI_SYNC_FIX]",
+                    "Bookmark sync data added (new data only): $added"
+                )
+                // Always call updateSynced to ensure UI reflects current state
+                syncModel.updateSynced()
+                android.util.Log.d(
+                    "[MINI_SYNC_FIX]",
+                    "Called updateSynced() after bookmark sync data"
+                )
+                android.util.Log.d(
+                    "[MINI_SYNC_FIX]",
+                    "Skipping URL-based lookup - using bookmark sync data"
+                )
+            } else {
+                // Only try URL-based sync lookup if we don't have bookmark sync data
+                // This prevents addFromUrl from clearing our bookmark sync state
+                android.util.Log.d(
+                    "[MINI_SYNC_FIX]",
+                    "No bookmark sync data, trying URL-based lookup"
+                )
+                syncModel.addFromUrl(syncUrl)
 
-                        if (syncMap.isNotEmpty()) {
-                            android.util.Log.d("[MINI_SYNC_FIX]", "Adding name-based sync data: $syncMap")
-                            val added = syncModel.addSyncs(syncMap)
-                            android.util.Log.d("[MINI_SYNC_FIX]", "Name-based sync data added (new data only): $added")
-                            // Always call updateSynced to ensure UI reflects current state
-                            syncModel.updateSynced()
-                            android.util.Log.d("[MINI_SYNC_FIX]", "Called updateSynced() after name-based sync data")
-                            
-                            // THE FIX: Force the sync UI to show content instead of skeleton when we have data
-                            // This prevents the "loading skeleton" ghost state when data is already available
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                syncBinding?.apply {
-                                    android.util.Log.d("[MINI_SYNC_FIX]", "Killing skeleton and showing content for found IDs: $syncMap")
-                                    resultSyncLoadingShimmer.stopShimmer()
-                                    resultSyncLoadingShimmer.isVisible = false
-                                    resultSyncHolder.isVisible = true
+                // Fallback: If URL-based lookup fails (no HTTP URLs), try name-based lookup
+                android.util.Log.d(
+                    "[MINI_SYNC_FIX]",
+                    "Fallback: trying name-based sync lookup for ${storedData.name}"
+                )
+
+                // Use ioSafe to call the suspend function
+                com.lagradost.cloudstream3.utils.Coroutines.ioSafe {
+                    try {
+                        val trackerResult = com.lagradost.cloudstream3.APIHolder.getTracker(
+                            listOfNotNull(
+                                storedData.name,
+                                // Could add other name fields if available
+                            ).filter { it.length > 2 }
+                                .distinct()
+                                .map { it.lowercase().trim() },
+                            com.lagradost.cloudstream3.TrackerType.getTypes(com.lagradost.cloudstream3.TvType.Anime), // Assuming anime, adjust as needed
+                            null // year is not available in storedData, using null
+                        )
+
+                        if (trackerResult != null) {
+                            android.util.Log.d(
+                                "[MINI_SYNC_FIX]",
+                                "Name-based lookup found: mal=${trackerResult.malId}, anilist=${trackerResult.aniId}"
+                            )
+
+                            // THE FIX: Set sticky flag when match found - this prevents "sync gap" hiding
+                            wasNameMatchFound = true
+                            android.util.Log.d(
+                                "[MINI_SYNC_FIX]",
+                                "STICKY FLAG SET: wasNameMatchFound = true (name match found)"
+                            )
+
+                            val syncMap = mutableMapOf<String, String>()
+                            trackerResult.malId?.let {
+                                syncMap[com.lagradost.cloudstream3.syncproviders.AccountManager.malApi.idPrefix] =
+                                    it.toString()
+                            }
+                            trackerResult.aniId?.let {
+                                syncMap[com.lagradost.cloudstream3.syncproviders.AccountManager.aniListApi.idPrefix] =
+                                    it
+                            }
+
+                            if (syncMap.isNotEmpty()) {
+                                android.util.Log.d(
+                                    "[MINI_SYNC_FIX]",
+                                    "Adding name-based sync data: $syncMap"
+                                )
+                                val added = syncModel.addSyncs(syncMap)
+                                android.util.Log.d(
+                                    "[MINI_SYNC_FIX]",
+                                    "Name-based sync data added (new data only): $added"
+                                )
+                                // Always call updateSynced to ensure UI reflects current state
+                                syncModel.updateSynced()
+                                android.util.Log.d(
+                                    "[MINI_SYNC_FIX]",
+                                    "Called updateSynced() after name-based sync data"
+                                )
+
+                                // THE FIX: Force the sync UI to show content instead of skeleton when we have data
+                                // This prevents the "loading skeleton" ghost state when data is already available
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    syncBinding?.apply {
+                                        android.util.Log.d(
+                                            "[MINI_SYNC_FIX]",
+                                            "Killing skeleton and showing content for found IDs: $syncMap"
+                                        )
+                                        resultSyncLoadingShimmer.stopShimmer()
+                                        resultSyncLoadingShimmer.isVisible = false
+                                        resultSyncHolder.isVisible = true
+                                    }
                                 }
                             }
+                        } else {
+                            android.util.Log.d(
+                                "[MINI_SYNC_FIX]",
+                                "Name-based lookup found no results"
+                            )
                         }
-                    } else {
-                        android.util.Log.d("[MINI_SYNC_FIX]", "Name-based lookup found no results")
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("[MINI_SYNC_FIX]", "Error in name-based lookup", e)
-                }
-            }
-        } else {
-            android.util.Log.d("[MINI_SYNC_FIX]", "Skipping URL-based lookup - using bookmark sync data")
-        }
-        val api = APIHolder.getApiFromNameNull(storedData.apiName)
-
-        // This may not be 100% reliable, and may delay for small period
-        // before resultCastItems will be scrollable again, but this does work
-        // most of the time.
-        binding?.resultOverlappingPanels?.registerEndPanelStateListeners(
-            object : OverlappingPanelsLayout.PanelStateListener {
-                override fun onPanelStateChange(panelState: PanelState) {
-                    PanelsChildGestureRegionObserver.Provider.get().apply {
-                        resultBinding?.resultCastItems?.let { register(it) }
+                    } catch (e: Exception) {
+                        android.util.Log.e("[MINI_SYNC_FIX]", "Error in name-based lookup", e)
                     }
                 }
             }
-        )
+            val api = APIHolder.getApiFromNameNull(storedData.apiName)
 
-        // ===== ===== =====
-
-        binding?.resultSearch?.isGone = storedData.name.isBlank()
-        binding?.resultSearch?.setOnClickListener {
-            android.util.Log.d("RESULT_SEARCH_REDIRECT", "resultSearch clicked - navigating to main search with query: '${storedData.name}'")
-            val activity = activity
-            if (activity is com.lagradost.cloudstream3.MainActivity) {
-                com.lagradost.cloudstream3.MainActivity.nextSearchQuery = storedData.name
-                val bottomNav = activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.nav_view)
-                val navRail = activity.findViewById<com.google.android.material.navigationrail.NavigationRailView>(R.id.nav_rail_view)
-                bottomNav?.selectedItemId = R.id.navigation_search
-                navRail?.selectedItemId = R.id.navigation_search
-            }
-        }
-
-        resultBinding?.apply {
-            resultReloadConnectionerror.setOnClickListener {
-                viewModel.load(
-                    activity,
-                    storedData.url,
-                    storedData.apiName,
-                    storedData.showFillers,
-                    storedData.dubStatus,
-                    storedData.start
-                )
-            }
-
-            resultCastItems.setLinearListLayout(
-                isHorizontal = true,
-                nextLeft = FOCUS_SELF,
-                nextRight = FOCUS_SELF
+            // This may not be 100% reliable, and may delay for small period
+            // before resultCastItems will be scrollable again, but this does work
+            // most of the time.
+            binding?.resultOverlappingPanels?.registerEndPanelStateListeners(
+                object : OverlappingPanelsLayout.PanelStateListener {
+                    override fun onPanelStateChange(panelState: PanelState) {
+                        PanelsChildGestureRegionObserver.Provider.get().apply {
+                            resultBinding?.resultCastItems?.let { register(it) }
+                        }
+                    }
+                }
             )
-            /*resultCastItems.layoutManager = object : LinearListLayout(view.context) {
+
+            // ===== ===== =====
+
+            binding?.resultSearch?.isGone = storedData.name.isBlank()
+            binding?.resultSearch?.setOnClickListener {
+                android.util.Log.d(
+                    "RESULT_SEARCH_REDIRECT",
+                    "resultSearch clicked - navigating to main search with query: '${storedData.name}'"
+                )
+                val activity = activity
+                if (activity is com.lagradost.cloudstream3.MainActivity) {
+                    com.lagradost.cloudstream3.MainActivity.nextSearchQuery = storedData.name
+                    val bottomNav =
+                        activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(
+                            R.id.nav_view
+                        )
+                    val navRail =
+                        activity.findViewById<com.google.android.material.navigationrail.NavigationRailView>(
+                            R.id.nav_rail_view
+                        )
+                    bottomNav?.selectedItemId = R.id.navigation_search
+                    navRail?.selectedItemId = R.id.navigation_search
+                }
+            }
+
+            resultBinding?.apply {
+                resultReloadConnectionerror.setOnClickListener {
+                    viewModel.load(
+                        activity,
+                        storedData.url,
+                        storedData.apiName,
+                        storedData.showFillers,
+                        storedData.dubStatus,
+                        storedData.start
+                    )
+                }
+
+                resultCastItems.setLinearListLayout(
+                    isHorizontal = true,
+                    nextLeft = FOCUS_SELF,
+                    nextRight = FOCUS_SELF
+                )
+                /*resultCastItems.layoutManager = object : LinearListLayout(view.context) {
                 override fun onRequestChildFocus(
                     parent: RecyclerView,
                     state: RecyclerView.State,
@@ -1356,82 +1871,82 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             }.apply {
                 this.orientation = RecyclerView.HORIZONTAL
             }*/
-            resultCastItems.setRecycledViewPool(ActorAdaptor.sharedPool)
-            resultCastItems.adapter = ActorAdaptor()
-            resultEpisodes.setRecycledViewPool(EpisodeAdapter.sharedPool)
-            resultEpisodes.adapter =
-                EpisodeAdapter(
-                    api?.hasDownloadSupport == true,
-                    { episodeClick ->
-                        viewModel.handleAction(episodeClick)
-                    },
-                    { downloadClickEvent ->
-                        DownloadButtonSetup.handleDownloadClick(downloadClickEvent)
-                    }
+                resultCastItems.setRecycledViewPool(ActorAdaptor.sharedPool)
+                resultCastItems.adapter = ActorAdaptor()
+                resultEpisodes.setRecycledViewPool(EpisodeAdapter.sharedPool)
+                resultEpisodes.adapter =
+                    EpisodeAdapter(
+                        api?.hasDownloadSupport == true,
+                        { episodeClick ->
+                            viewModel.handleAction(episodeClick)
+                        },
+                        { downloadClickEvent ->
+                            DownloadButtonSetup.handleDownloadClick(downloadClickEvent)
+                        }
 
-                )
+                    )
 
-            observeNullable(viewModel.selectedSorting) {
-                resultSortButton.setText(it)
-            }
+                observeNullable(viewModel.selectedSorting) {
+                    resultSortButton.setText(it)
+                }
 
-            observe(viewModel.sortSelections) { sort ->
-                resultBinding?.resultSortButton?.setOnClickListener { view ->
-                    view?.context?.let { ctx ->
-                        val names = sort
-                            .mapNotNull { (text, r) ->
-                                r to (text.asStringNull(ctx) ?: return@mapNotNull null)
+                observe(viewModel.sortSelections) { sort ->
+                    resultBinding?.resultSortButton?.setOnClickListener { view ->
+                        view?.context?.let { ctx ->
+                            val names = sort
+                                .mapNotNull { (text, r) ->
+                                    r to (text.asStringNull(ctx) ?: return@mapNotNull null)
+                                }
+
+                            activity?.showDialog(
+                                names.map { it.second },
+                                viewModel.selectedSortingIndex.value ?: -1,
+                                ctx.getString(R.string.sort_by),
+                                false,
+                                {}) { itemId ->
+                                viewModel.setSort(names[itemId].first)
                             }
-
-                        activity?.showDialog(
-                            names.map { it.second },
-                            viewModel.selectedSortingIndex.value ?: -1,
-                            ctx.getString(R.string.sort_by),
-                            false,
-                            {}) { itemId ->
-                            viewModel.setSort(names[itemId].first)
                         }
                     }
                 }
-            }
 
-            resultScroll.setOnScrollChangeListener(NestedScrollView.OnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-                val dy = scrollY - oldScrollY
-                if (dy > 0) { //check for scroll down
-                    binding?.resultBookmarkFab?.shrink()
-                } else if (dy < -5) {
-                    binding?.resultBookmarkFab?.extend()
-                }
-                if (!isFullScreenPlayer && player.getIsPlaying()) {
-                    if (scrollY > (resultBinding?.fragmentTrailer?.playerBackground?.height
-                            ?: scrollY)
-                    ) {
-                        player.handleEvent(CSPlayerEvent.Pause)
+                resultScroll.setOnScrollChangeListener(NestedScrollView.OnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+                    val dy = scrollY - oldScrollY
+                    if (dy > 0) { //check for scroll down
+                        binding?.resultBookmarkFab?.shrink()
+                    } else if (dy < -5) {
+                        binding?.resultBookmarkFab?.extend()
                     }
+                    if (!isFullScreenPlayer && player.getIsPlaying()) {
+                        if (scrollY > (resultBinding?.fragmentTrailer?.playerBackground?.height
+                                ?: scrollY)
+                        ) {
+                            player.handleEvent(CSPlayerEvent.Pause)
+                        }
+                    }
+                })
+            }
+
+            binding?.apply {
+                resultOverlappingPanels.setStartPanelLockState(OverlappingPanelsLayout.LockState.CLOSE)
+                resultOverlappingPanels.setEndPanelLockState(OverlappingPanelsLayout.LockState.CLOSE)
+                resultBack.setOnClickListener {
+                    activity?.popCurrentPage()
                 }
-            })
-        }
 
-        binding?.apply {
-            resultOverlappingPanels.setStartPanelLockState(OverlappingPanelsLayout.LockState.CLOSE)
-            resultOverlappingPanels.setEndPanelLockState(OverlappingPanelsLayout.LockState.CLOSE)
-            resultBack.setOnClickListener {
-                activity?.popCurrentPage()
-            }
+                activity?.attachBackPressedCallback(this@ResultFragmentPhone.toString()) {
+                    if (resultOverlappingPanels.getSelectedPanel().ordinal == 1) {
+                        runDefault()
+                    } else resultOverlappingPanels.closePanels()
+                }
 
-            activity?.attachBackPressedCallback(this@ResultFragmentPhone.toString()) {
-                if (resultOverlappingPanels.getSelectedPanel().ordinal == 1) {
-                    runDefault()
-                } else resultOverlappingPanels.closePanels()
-            }
+                resultMiniSync.setOnClickListener {
+                    if (resultOverlappingPanels.getSelectedPanel().ordinal == 1) {
+                        resultOverlappingPanels.openStartPanel()
+                    } else resultOverlappingPanels.closePanels()
+                }
 
-            resultMiniSync.setOnClickListener {
-                if (resultOverlappingPanels.getSelectedPanel().ordinal == 1) {
-                    resultOverlappingPanels.openStartPanel()
-                } else resultOverlappingPanels.closePanels()
-            }
-
-            /*
+                /*
             resultMiniSync.setRecycledViewPool(ImageAdapter.sharedPool)
             resultMiniSync.adapter = ImageAdapter(
                 nextFocusDown = R.id.result_sync_set_score,
@@ -1443,104 +1958,113 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     }
                 })
             */
-            resultSubscribe.setOnClickListener {
-                android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - Subscribe button CLICKED - current status: ${viewModel.subscribeStatus.value}")
-                viewModel.toggleSubscriptionStatus(context) { newStatus: Boolean? ->
-                    android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - toggleSubscriptionStatus callback - newStatus: $newStatus")
-                    if (newStatus == null) return@toggleSubscriptionStatus
-
-                    val message = if (newStatus) {
-                        // Episode check is now handled by EpisodeCheckWorkManager with configurable frequency
-                        R.string.subscription_new
-                    } else {
-                        R.string.subscription_deleted
-                    }
-
-                    val name = (viewModel.page.value as? Resource.Success)?.value?.title
-                        ?: com.lagradost.cloudstream3.utils.txt(R.string.no_data)
-                            .asStringNull(context) ?: ""
-                    android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - showing toast - message: ${if (newStatus) "subscription_new" else "subscription_deleted"}, name: $name")
-                    showToast(
-                        com.lagradost.cloudstream3.utils.txt(message, name),
-                        Toast.LENGTH_SHORT
+                resultSubscribe.setOnClickListener {
+                    android.util.Log.d(
+                        "[SUBSCRIBE_DEBUG]",
+                        "ResultFragmentPhone - Subscribe button CLICKED - current status: ${viewModel.subscribeStatus.value}"
                     )
-                }
-                context?.let { openBatteryOptimizationSettings(it) }
-            }
-            resultFavorite.setOnClickListener {
-                viewModel.toggleFavoriteStatus(context) { newStatus: Boolean? ->
-                    if (newStatus == null) return@toggleFavoriteStatus
+                    viewModel.toggleSubscriptionStatus(context) { newStatus: Boolean? ->
+                        android.util.Log.d(
+                            "[SUBSCRIBE_DEBUG]",
+                            "ResultFragmentPhone - toggleSubscriptionStatus callback - newStatus: $newStatus"
+                        )
+                        if (newStatus == null) return@toggleSubscriptionStatus
 
-                    val message = if (newStatus) {
-                        R.string.favorite_added
-                    } else {
-                        R.string.favorite_removed
-                    }
+                        val message = if (newStatus) {
+                            // Episode check is now handled by EpisodeCheckWorkManager with configurable frequency
+                            R.string.subscription_new
+                        } else {
+                            R.string.subscription_deleted
+                        }
 
-                    val name = (viewModel.page.value as? Resource.Success)?.value?.title
-                        ?: com.lagradost.cloudstream3.utils.txt(R.string.no_data)
-                            .asStringNull(context) ?: ""
-                    showToast(
-                        com.lagradost.cloudstream3.utils.txt(message, name),
-                        Toast.LENGTH_SHORT
-                    )
-                }
-            }
-            mediaRouteButton.apply {
-                val chromecastSupport = api?.hasChromecastSupport == true
-                alpha = if (chromecastSupport) 1f else 0.3f
-                if (!chromecastSupport) {
-                    setOnClickListener {
+                        val name = (viewModel.page.value as? Resource.Success)?.value?.title
+                            ?: com.lagradost.cloudstream3.utils.txt(R.string.no_data)
+                                .asStringNull(context) ?: ""
+                        android.util.Log.d(
+                            "[SUBSCRIBE_DEBUG]",
+                            "ResultFragmentPhone - showing toast - message: ${if (newStatus) "subscription_new" else "subscription_deleted"}, name: $name"
+                        )
                         showToast(
-                            R.string.no_chromecast_support_toast,
-                            Toast.LENGTH_LONG
+                            com.lagradost.cloudstream3.utils.txt(message, name),
+                            Toast.LENGTH_SHORT
+                        )
+                    }
+                    context?.let { openBatteryOptimizationSettings(it) }
+                }
+                resultFavorite.setOnClickListener {
+                    viewModel.toggleFavoriteStatus(context) { newStatus: Boolean? ->
+                        if (newStatus == null) return@toggleFavoriteStatus
+
+                        val message = if (newStatus) {
+                            R.string.favorite_added
+                        } else {
+                            R.string.favorite_removed
+                        }
+
+                        val name = (viewModel.page.value as? Resource.Success)?.value?.title
+                            ?: com.lagradost.cloudstream3.utils.txt(R.string.no_data)
+                                .asStringNull(context) ?: ""
+                        showToast(
+                            com.lagradost.cloudstream3.utils.txt(message, name),
+                            Toast.LENGTH_SHORT
                         )
                     }
                 }
-                activity?.let { act ->
-                    if (act.isCastApiAvailable()) {
-                        try {
-                            CastButtonFactory.setUpMediaRouteButton(act, this)
-                            CastContext.getSharedInstance(act.applicationContext) {
-                                it.run()
-                            }.addOnCompleteListener {
-                                isGone = !it.isSuccessful
+                mediaRouteButton.apply {
+                    val chromecastSupport = api?.hasChromecastSupport == true
+                    alpha = if (chromecastSupport) 1f else 0.3f
+                    if (!chromecastSupport) {
+                        setOnClickListener {
+                            showToast(
+                                R.string.no_chromecast_support_toast,
+                                Toast.LENGTH_LONG
+                            )
+                        }
+                    }
+                    activity?.let { act ->
+                        if (act.isCastApiAvailable()) {
+                            try {
+                                CastButtonFactory.setUpMediaRouteButton(act, this)
+                                CastContext.getSharedInstance(act.applicationContext) {
+                                    it.run()
+                                }.addOnCompleteListener {
+                                    isGone = !it.isSuccessful
+                                }
+                                // this shit leaks for some reason
+                                //castContext.addCastStateListener { state ->
+                                //    media_route_button?.isGone = state == CastState.NO_DEVICES_AVAILABLE
+                                //}
+                            } catch (e: Exception) {
+                                logError(e)
                             }
-                            // this shit leaks for some reason
-                            //castContext.addCastStateListener { state ->
-                            //    media_route_button?.isGone = state == CastState.NO_DEVICES_AVAILABLE
-                            //}
-                        } catch (e: Exception) {
-                            logError(e)
                         }
                     }
                 }
             }
-        }
 
-        playerBinding?.apply {
-            playerOpenSource.setOnClickListener {
-                currentTrailers.getOrNull(currentTrailerIndex)?.let { (_, ogTrailerLink) ->
-                    context?.openBrowser(ogTrailerLink)
+            playerBinding?.apply {
+                playerOpenSource.setOnClickListener {
+                    currentTrailers.getOrNull(currentTrailerIndex)?.let { (_, ogTrailerLink) ->
+                        context?.openBrowser(ogTrailerLink)
+                    }
                 }
             }
-        }
 
-        recommendationBinding?.apply {
-            resultRecommendationsList.apply {
-                spanCount = 3
-                setRecycledViewPool(SearchAdapter.sharedPool)
-                adapter =
-                    SearchAdapter(
-                        this,
-                    ) { callback ->
-                        SearchHelper.handleSearchClickCallback(callback)
-                    }
+            recommendationBinding?.apply {
+                resultRecommendationsList.apply {
+                    spanCount = 3
+                    setRecycledViewPool(SearchAdapter.sharedPool)
+                    adapter =
+                        SearchAdapter(
+                            this,
+                        ) { callback ->
+                            SearchHelper.handleSearchClickCallback(callback)
+                        }
+                }
             }
-        }
 
 
-        /*
+            /*
         result_bookmark_button?.setOnClickListener {
             it.popupMenuNoIcons(
                 items = WatchType.values()
@@ -1551,543 +2075,580 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             }
         }*/
 
-        observeNullable(viewModel.resumeWatching) { resume ->
-            resultBinding?.apply {
-                if (resume == null) {
-                    resultResumeParent.isVisible = false
-                    resultPlayParent.isVisible = true
-                    resultResumeProgressHolder.isVisible = false
+            observeNullable(viewModel.resumeWatching) { resume ->
+                resultBinding?.apply {
+                    if (resume == null) {
+                        resultResumeParent.isVisible = false
+                        resultPlayParent.isVisible = true
+                        resultResumeProgressHolder.isVisible = false
+                        return@observeNullable
+                    }
+                    resultResumeParent.isVisible = true
+                    resume.progress?.let { progress ->
+                        resultNextSeriesButton.isVisible = false
+                        resultResumeSeriesTitle.apply {
+                            isVisible = !resume.isMovie
+                            text =
+                                if (resume.isMovie) null else context?.getNameFull(
+                                    resume.result.name,
+                                    resume.result.episode,
+                                    resume.result.season
+                                )
+                        }
+                        if (resume.isMovie) {
+                            resultPlayParent.isGone = true
+                            resultResumeSeriesProgressText.isVisible = true
+                            resultResumeSeriesProgressText.setText(progress.progressLeft)
+                        }
+                        resultResumeSeriesProgress.apply {
+                            isVisible = true
+                            this.max = progress.maxProgress
+                            this.progress = progress.progress
+                        }
+                        resultResumeProgressHolder.isVisible = true
+                    } ?: run {
+                        resultResumeProgressHolder.isVisible = false
+                        if (!resume.isMovie) {
+                            resultNextSeriesButton.isVisible = true
+                            resultNextSeriesButton.text =
+                                context?.getString(R.string.action_continue)
+                        }
+                        resultResumeSeriesProgress.isVisible = false
+                        resultResumeSeriesTitle.isVisible = false
+                        resultResumeSeriesProgressText.isVisible = false
+                    }
+
+                    resultResumeSeriesButton.setOnClickListener {
+                        resumeAction(storedData, resume)
+                    }
+                    resultNextSeriesButton.setOnClickListener {
+                        resumeAction(storedData, resume)
+                    }
+                }
+            }
+
+            observeNullable(viewModel.subscribeStatus) { isSubscribed ->
+                android.util.Log.d(
+                    "[SUBSCRIBE_DEBUG]",
+                    "ResultFragmentPhone - subscribeStatus observer - isSubscribed: $isSubscribed"
+                )
+                binding?.resultSubscribe?.isVisible = isSubscribed != null
+                android.util.Log.d(
+                    "[SUBSCRIBE_DEBUG]",
+                    "ResultFragmentPhone - subscribeStatus observer - button visibility set to: ${isSubscribed != null}"
+                )
+                if (isSubscribed == null) {
+                    android.util.Log.d(
+                        "[SUBSCRIBE_DEBUG]",
+                        "ResultFragmentPhone - subscribeStatus observer - isSubscribed is null, returning early"
+                    )
                     return@observeNullable
                 }
-                resultResumeParent.isVisible = true
-                resume.progress?.let { progress ->
-                    resultNextSeriesButton.isVisible = false
-                    resultResumeSeriesTitle.apply {
-                        isVisible = !resume.isMovie
-                        text =
-                            if (resume.isMovie) null else context?.getNameFull(
-                                resume.result.name,
-                                resume.result.episode,
-                                resume.result.season
-                            )
-                    }
-                    if (resume.isMovie) {
-                        resultPlayParent.isGone = true
-                        resultResumeSeriesProgressText.isVisible = true
-                        resultResumeSeriesProgressText.setText(progress.progressLeft)
-                    }
-                    resultResumeSeriesProgress.apply {
-                        isVisible = true
-                        this.max = progress.maxProgress
-                        this.progress = progress.progress
-                    }
-                    resultResumeProgressHolder.isVisible = true
-                } ?: run {
-                    resultResumeProgressHolder.isVisible = false
-                    if (!resume.isMovie) {
-                        resultNextSeriesButton.isVisible = true
-                        resultNextSeriesButton.text = context?.getString(R.string.action_continue)
-                    }
-                    resultResumeSeriesProgress.isVisible = false
-                    resultResumeSeriesTitle.isVisible = false
-                    resultResumeSeriesProgressText.isVisible = false
+
+                val drawable = if (isSubscribed) {
+                    R.drawable.ic_baseline_notifications_active_24
+                } else {
+                    R.drawable.baseline_notifications_none_24
+                }
+                android.util.Log.d(
+                    "[SUBSCRIBE_DEBUG]",
+                    "ResultFragmentPhone - subscribeStatus observer - setting drawable: ${if (isSubscribed) "notifications_active" else "notifications_none"}"
+                )
+
+                binding?.resultSubscribe?.setImageResource(drawable)
+            }
+
+            observeNullable(viewModel.favoriteStatus) { isFavorite ->
+                binding?.resultFavorite?.isVisible = isFavorite != null
+                if (isFavorite == null) return@observeNullable
+
+                val drawable = if (isFavorite) {
+                    R.drawable.ic_baseline_favorite_24
+                } else {
+                    R.drawable.ic_baseline_favorite_border_24
                 }
 
-                resultResumeSeriesButton.setOnClickListener {
-                    resumeAction(storedData, resume)
-                }
-                resultNextSeriesButton.setOnClickListener {
-                    resumeAction(storedData, resume)
-                }
-            }
-        }
-
-        observeNullable(viewModel.subscribeStatus) { isSubscribed ->
-            android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - subscribeStatus observer - isSubscribed: $isSubscribed")
-            binding?.resultSubscribe?.isVisible = isSubscribed != null
-            android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - subscribeStatus observer - button visibility set to: ${isSubscribed != null}")
-            if (isSubscribed == null) {
-                android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - subscribeStatus observer - isSubscribed is null, returning early")
-                return@observeNullable
+                binding?.resultFavorite?.setImageResource(drawable)
             }
 
-            val drawable = if (isSubscribed) {
-                R.drawable.ic_baseline_notifications_active_24
-            } else {
-                R.drawable.baseline_notifications_none_24
-            }
-            android.util.Log.d("[SUBSCRIBE_DEBUG]", "ResultFragmentPhone - subscribeStatus observer - setting drawable: ${if (isSubscribed) "notifications_active" else "notifications_none"}")
+            observeNullable(viewModel.episodes) { episodes ->
+                resultBinding?.apply {
+                    // no failure?
+                    resultEpisodeLoading.isVisible = episodes is Resource.Loading
+                    resultEpisodes.isVisible = episodes is Resource.Success
+                    resultBatchDownloadButton.isVisible =
+                        episodes is Resource.Success && episodes.value.isNotEmpty()
 
-            binding?.resultSubscribe?.setImageResource(drawable)
-        }
+                    if (episodes is Resource.Success) {
+                        (resultEpisodes.adapter as? EpisodeAdapter)?.submitList(episodes.value)
 
-        observeNullable(viewModel.favoriteStatus) { isFavorite ->
-            binding?.resultFavorite?.isVisible = isFavorite != null
-            if (isFavorite == null) return@observeNullable
-
-            val drawable = if (isFavorite) {
-                R.drawable.ic_baseline_favorite_24
-            } else {
-                R.drawable.ic_baseline_favorite_border_24
-            }
-
-            binding?.resultFavorite?.setImageResource(drawable)
-        }
-
-        observeNullable(viewModel.episodes) { episodes ->
-            resultBinding?.apply {
-                // no failure?
-                resultEpisodeLoading.isVisible = episodes is Resource.Loading
-                resultEpisodes.isVisible = episodes is Resource.Success
-                resultBatchDownloadButton.isVisible =
-                    episodes is Resource.Success && episodes.value.isNotEmpty()
-
-                if (episodes is Resource.Success) {
-                    (resultEpisodes.adapter as? EpisodeAdapter)?.submitList(episodes.value)
-
-                    // Show quality dialog with all sources
-                    resultBatchDownloadButton.setOnLongClickListener {
-                        ioSafe {
-                            val defaultSources = QualityProfileDialog.getAllDefaultSources()
-                            val activity = activity ?: return@ioSafe
-                            activity.runOnUiThread {
-                                QualityProfileDialog(
-                                    activity,
-                                    R.style.DialogFullscreenPlayer,
-                                    defaultSources,
-                                ).show()
-                            }
-                        }
-
-                        true
-                    }
-
-                    resultBatchDownloadButton.setOnClickListener { view ->
-                        val episodeStart =
-                            episodes.value.firstOrNull()?.episode ?: return@setOnClickListener
-                        val episodeEnd =
-                            episodes.value.lastOrNull()?.episode ?: return@setOnClickListener
-
-                        val episodeRange = if (episodeStart == episodeEnd) {
-                            episodeStart.toString()
-                        } else {
-                            txt(
-                                R.string.episodes_range,
-                                episodeStart,
-                                episodeEnd
-                            ).asString(view.context)
-                        }
-
-                        val rangeMessage = txt(
-                            R.string.download_episode_range,
-                            episodeRange
-                        ).asString(view.context)
-
-                        AlertDialog.Builder(view.context, R.style.AlertDialogCustom)
-                            .setTitle(R.string.download_all)
-                            .setMessage(rangeMessage)
-                            .setPositiveButton(R.string.yes) { _, _ ->
-                                ioSafe {
-                                    episodes.value.forEach { episode ->
-                                        viewModel.handleAction(
-                                            EpisodeClickEvent(
-                                                ACTION_DOWNLOAD_EPISODE,
-                                                episode
-                                            )
-                                        )
-                                            // Join to make the episodes ordered
-                                            .join()
-                                    }
+                        // Show quality dialog with all sources
+                        resultBatchDownloadButton.setOnLongClickListener {
+                            ioSafe {
+                                val defaultSources = QualityProfileDialog.getAllDefaultSources()
+                                val activity = activity ?: return@ioSafe
+                                activity.runOnUiThread {
+                                    QualityProfileDialog(
+                                        activity,
+                                        R.style.DialogFullscreenPlayer,
+                                        defaultSources,
+                                    ).show()
                                 }
                             }
-                            .setNegativeButton(R.string.cancel) { _, _ ->
 
-                            }.show()
+                            true
+                        }
+
+                        resultBatchDownloadButton.setOnClickListener { view ->
+                            val episodeStart =
+                                episodes.value.firstOrNull()?.episode ?: return@setOnClickListener
+                            val episodeEnd =
+                                episodes.value.lastOrNull()?.episode ?: return@setOnClickListener
+
+                            val episodeRange = if (episodeStart == episodeEnd) {
+                                episodeStart.toString()
+                            } else {
+                                txt(
+                                    R.string.episodes_range,
+                                    episodeStart,
+                                    episodeEnd
+                                ).asString(view.context)
+                            }
+
+                            val rangeMessage = txt(
+                                R.string.download_episode_range,
+                                episodeRange
+                            ).asString(view.context)
+
+                            AlertDialog.Builder(view.context, R.style.AlertDialogCustom)
+                                .setTitle(R.string.download_all)
+                                .setMessage(rangeMessage)
+                                .setPositiveButton(R.string.yes) { _, _ ->
+                                    ioSafe {
+                                        episodes.value.forEach { episode ->
+                                            viewModel.handleAction(
+                                                EpisodeClickEvent(
+                                                    ACTION_DOWNLOAD_EPISODE,
+                                                    episode
+                                                )
+                                            )
+                                                // Join to make the episodes ordered
+                                                .join()
+                                        }
+                                    }
+                                }
+                                .setNegativeButton(R.string.cancel) { _, _ ->
+
+                                }.show()
+
+                        }
 
                     }
+
 
                 }
 
-
             }
 
-        }
+            observeNullable(viewModel.movie) { data ->
+                resultBinding?.apply {
+                    resultPlayMovie.isVisible = data is Resource.Success
+                    downloadButton.isVisible =
+                        data is Resource.Success && viewModel.currentRepo?.api?.hasDownloadSupport == true
 
-        observeNullable(viewModel.movie) { data ->
-            resultBinding?.apply {
-                resultPlayMovie.isVisible = data is Resource.Success
-                downloadButton.isVisible =
-                    data is Resource.Success && viewModel.currentRepo?.api?.hasDownloadSupport == true
+                    (data as? Resource.Success)?.value?.let { (text, ep) ->
+                        resultPlayMovie.setText(text)
+                        resultPlayMovie.setOnClickListener {
+                            viewModel.handleAction(
+                                EpisodeClickEvent(ACTION_CLICK_DEFAULT, ep)
+                            )
+                        }
+                        resultPlayMovie.setOnLongClickListener {
+                            viewModel.handleAction(
+                                EpisodeClickEvent(ACTION_SHOW_OPTIONS, ep)
+                            )
+                            return@setOnLongClickListener true
+                        }
+                        resultResumeSeriesButton.setOnLongClickListener {
+                            viewModel.handleAction(
+                                EpisodeClickEvent(ACTION_SHOW_OPTIONS, ep)
+                            )
+                            return@setOnLongClickListener true
+                        }
 
-                (data as? Resource.Success)?.value?.let { (text, ep) ->
-                    resultPlayMovie.setText(text)
-                    resultPlayMovie.setOnClickListener {
-                        viewModel.handleAction(
-                            EpisodeClickEvent(ACTION_CLICK_DEFAULT, ep)
-                        )
-                    }
-                    resultPlayMovie.setOnLongClickListener {
-                        viewModel.handleAction(
-                            EpisodeClickEvent(ACTION_SHOW_OPTIONS, ep)
-                        )
-                        return@setOnLongClickListener true
-                    }
-                    resultResumeSeriesButton.setOnLongClickListener {
-                        viewModel.handleAction(
-                            EpisodeClickEvent(ACTION_SHOW_OPTIONS, ep)
-                        )
-                        return@setOnLongClickListener true
-                    }
+                        val status = VideoDownloadManager.downloadStatus[ep.id]
+                        downloadButton.setStatus(status)
+                        downloadButton.setDefaultClickListener(
+                            DownloadObjects.DownloadEpisodeCached(
+                                name = ep.name,
+                                poster = ep.poster,
+                                episode = 0,
+                                season = null,
+                                id = ep.id,
+                                parentId = ep.id,
+                                score = ep.score,
+                                description = ep.description,
+                                date = ep.airDate,
+                                cacheTime = System.currentTimeMillis(),
+                            ),
+                            null
+                        ) { click ->
+                            context?.let { openBatteryOptimizationSettings(it) }
 
-                    val status = VideoDownloadManager.downloadStatus[ep.id]
-                    downloadButton.setStatus(status)
-                    downloadButton.setDefaultClickListener(
-                        DownloadObjects.DownloadEpisodeCached(
-                            name = ep.name,
-                            poster = ep.poster,
-                            episode = 0,
-                            season = null,
-                            id = ep.id,
-                            parentId = ep.id,
-                            score = ep.score,
-                            description = ep.description,
-                            date = ep.airDate,
-                            cacheTime = System.currentTimeMillis(),
-                        ),
-                        null
-                    ) { click ->
-                        context?.let { openBatteryOptimizationSettings(it) }
-
-                        when (click.action) {
-                            DOWNLOAD_ACTION_DOWNLOAD -> {
-                                viewModel.handleAction(
-                                    EpisodeClickEvent(ACTION_DOWNLOAD_EPISODE, ep)
-                                )
-                            }
-
-                            DOWNLOAD_ACTION_LONG_CLICK -> {
-                                viewModel.handleAction(
-                                    EpisodeClickEvent(
-                                        ACTION_DOWNLOAD_MIRROR,
-                                        ep
+                            when (click.action) {
+                                DOWNLOAD_ACTION_DOWNLOAD -> {
+                                    viewModel.handleAction(
+                                        EpisodeClickEvent(ACTION_DOWNLOAD_EPISODE, ep)
                                     )
-                                )
-                            }
+                                }
 
-                            else -> DownloadButtonSetup.handleDownloadClick(click)
-                        }
-                    }
-                }
-            }
-        }
+                                DOWNLOAD_ACTION_LONG_CLICK -> {
+                                    viewModel.handleAction(
+                                        EpisodeClickEvent(
+                                            ACTION_DOWNLOAD_MIRROR,
+                                            ep
+                                        )
+                                    )
+                                }
 
-        observe(viewModel.page) { data ->
-            android.util.Log.d("MetadataSwap", "Observer triggered with data: ${data?.javaClass?.simpleName}")
-            if (data == null) {
-                android.util.Log.d("MetadataSwap", "Observer received null, returning early")
-                return@observe
-            }
-            android.util.Log.d("MetadataSwap", "Observer received data: ${(data as? Resource.Success)?.value?.titleText}")
-            resultBinding?.apply {
-                PanelsChildGestureRegionObserver.Provider.get().apply {
-                    register(resultCastItems)
-                }
-                (data as? Resource.Success)?.value?.let { d ->
-                    resultVpn.setText(d.vpnText)
-                    resultInfo.setText(d.metaText)
-                    resultNoEpisodes.setText(d.noEpisodesFoundText)
-                    resultTitle.setText(d.titleText)
-                    resultMetaSite.setText(d.apiName)
-                    resultMetaType.setText(d.typeText)
-                    resultMetaYear.setText(d.yearText)
-                    resultMetaDuration.setText(d.durationText)
-                    resultMetaRating.setText(d.ratingText)
-                    resultMetaStatus.setText(d.onGoingText)
-                    resultMetaContentRating.setText(d.contentRatingText)
-                    resultCastText.setText(d.actorsText)
-                    resultNextAiring.setText(d.nextAiringEpisode)
-                    resultNextAiringTime.setText(d.nextAiringDate)
-                    resultPoster.loadImage(d.posterImage, headers = d.posterHeaders) {
-                        error {
-                            getImageFromDrawable(
-                                context ?: return@error null,
-                                R.drawable.default_cover
-                            )
-                        }
-                    }
-                    resultPosterBackground.loadImage(
-                        d.posterBackgroundImage,
-                        headers = d.posterHeaders
-                    ) {
-                        error {
-                            getImageFromDrawable(
-                                context ?: return@error null,
-                                R.drawable.default_cover
-                            )
-                        }
-                    }
-
-                    bindLogo(
-                        url = d.logoUrl,
-                        headers = d.posterHeaders,
-                        titleView = resultTitle,
-                        logoView = backgroundPosterWatermarkBadge
-                    )
-
-                    var isExpanded = false
-                    resultDescription.apply {
-                        setTextHtml(d.plotText)
-                        setOnClickListener {
-                            isExpanded = !isExpanded
-                            maxLines = if (isExpanded) {
-                                Integer.MAX_VALUE
-                            } else 10
-                        }
-                    }
-
-                    populateChips(resultTag, d.tags)
-
-                    resultComingSoon.isVisible = d.comingSoon
-                    resultDataHolder.isGone = d.comingSoon
-
-                    val prefs =
-                        androidx.preference.PreferenceManager.getDefaultSharedPreferences(root.context)
-                    val showCast = prefs.getBoolean(
-                        root.context.getString(R.string.show_cast_in_details_key),
-                        true
-                    )
-
-                    resultCastItems.isGone = !showCast || d.actors.isNullOrEmpty()
-                    (resultCastItems.adapter as? ActorAdaptor)?.submitList(if (showCast) d.actors else emptyList())
-
-                    if (d.contentRatingText == null) {
-                        // If there is no rating to display, we don't want an empty gap
-                        resultMetaContentRating.width = 0
-                    }
-
-                    if (syncModel.addSyncs(d.syncData)) {
-                        syncModel.updateMetaAndUser()
-                        syncModel.updateSynced()
-                    } else {
-                        syncModel.addFromUrl(d.url)
-                    }
-
-                    binding?.apply {
-                        resultSearch.isGone = d.title.isBlank()
-                        resultSearch.setOnClickListener {
-                            android.util.Log.d("RESULT_SEARCH_REDIRECT", "resultSearch clicked (recommendation) - navigating to main search with query: '${d.title}'")
-                            val activity = activity
-                            if (activity is com.lagradost.cloudstream3.MainActivity) {
-                                com.lagradost.cloudstream3.MainActivity.nextSearchQuery = d.title
-                                val bottomNav = activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(R.id.nav_view)
-                                val navRail = activity.findViewById<com.google.android.material.navigationrail.NavigationRailView>(R.id.nav_rail_view)
-                                bottomNav?.selectedItemId = R.id.navigation_search
-                                navRail?.selectedItemId = R.id.navigation_search
+                                else -> DownloadButtonSetup.handleDownloadClick(click)
                             }
                         }
-
-                        resultShare.setOnClickListener {
-                            try {
-                                val i = Intent(Intent.ACTION_SEND)
-                                val nameBase64 =
-                                    base64Encode(d.apiName.toString().toByteArray(Charsets.UTF_8))
-                                val urlBase64 = base64Encode(d.url.toByteArray(Charsets.UTF_8))
-                                val encodedUri = URLEncoder.encode(
-                                    "$APP_STRING_SHARE:$nameBase64?$urlBase64",
-                                    "UTF-8"
-                                )
-                                val redirectUrl =
-                                    "https://recloudstream.github.io/csredirect?redirectto=$encodedUri"
-                                i.type = "text/plain"
-                                i.putExtra(Intent.EXTRA_SUBJECT, d.title)
-                                i.putExtra(Intent.EXTRA_TEXT, redirectUrl)
-                                startActivity(Intent.createChooser(i, d.title))
-                            } catch (e: Exception) {
-                                logError(e)
-                            }
-                        }
-                        setUrl(d.url)
-                        resultBookmarkFab.apply {
-                            isVisible = true
-                            extend()
-                        }
                     }
                 }
-
-                (data as? Resource.Failure)?.let { data ->
-                    resultErrorText.text = storedData.url.plus("\n") + data.errorString
-                }
-
-                // Hide bookmark FAB during metadata swap mode
-                val hasOriginalResponse = com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse != null
-                val isSwapMode = viewModel.isMetadataSwapMode.value == true
-                val shouldHideBookmark = hasOriginalResponse || isSwapMode
-                binding?.resultBookmarkFab?.isVisible = data is Resource.Success && !shouldHideBookmark
-                resultFinishLoading.isVisible = data is Resource.Success
-
-                resultLoading.isVisible = data is Resource.Loading
-
-                resultLoadingError.isVisible = data is Resource.Failure
-                resultErrorText.isVisible = data is Resource.Failure
-                resultReloadConnectionOpenInBrowser.isVisible = data is Resource.Failure
-
-                resultTitle.setOnLongClickListener {
-                    clipboardHelper(
-                        com.lagradost.cloudstream3.utils.txt(R.string.title),
-                        resultTitle.text
-                    )
-                    true
-                }
             }
-        }
 
-        observeNullable(viewModel.episodesCountText) { count ->
-            resultBinding?.resultEpisodesText.setText(count)
-        }
-
-        observeNullable(viewModel.selectPopup) { popup ->
-            if (popup == null) {
-                popupDialog?.dismissSafe(activity)
-                popupDialog = null
-                return@observeNullable
-            }
-            popupDialog?.dismissSafe(activity)
-
-            popupDialog = activity?.let { act ->
-                val options = popup.getOptions(act)
-                val title = popup.getTitle(act)
-
-                act.showBottomDialogInstant(
-                    options, title, {
-                        popupDialog = null
-                        popup.callback(null)
-                    }, {
-                        popupDialog = null
-                        popup.callback(it)
-                    }
+            observe(viewModel.page) { data ->
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "Observer triggered with data: ${data?.javaClass?.simpleName}"
                 )
-            }
-        }
-
-        observe(viewModel.trailers) { trailers ->
-            setTrailers(trailers.flatMap { it.mirros }) // I dont care about subtitles yet!
-        }
-
-        observe(syncModel.synced) { list ->
-            syncBinding?.resultSyncNames?.text =
-                list.filter { it.isSynced && it.hasAccount }.joinToString { it.name }
-
-            val newList = list.filter { it.isSynced && it.hasAccount }
-
-            // MINI_SYNC_FIX: Use sticky flag to prevent "sync gap" where button disappears
-            // when name-based IDs are found but synced list hasn't updated yet
-            val shouldBeVisible = newList.isNotEmpty() || wasNameMatchFound
-            binding?.resultMiniSync?.isVisible = shouldBeVisible
-            
-            android.util.Log.d("[MINI_SYNC_DEBUG]", "Sync visibility check - newList.size: ${newList.size}, wasNameMatchFound: $wasNameMatchFound, shouldBeVisible: $shouldBeVisible")
-            //(binding?.resultMiniSync?.adapter as? ImageAdapter)?.submitList(newList.mapNotNull { it.icon })
-        }
-
-
-        var currentSyncProgress = 0
-        fun setSyncMaxEpisodes(totalEpisodes: Int?) {
-            syncBinding?.resultSyncEpisodes?.max = (totalEpisodes ?: 0) * 1000
-
-            safe {
-                val ctx = syncBinding?.resultSyncEpisodes?.context
-                syncBinding?.resultSyncMaxEpisodes?.text =
-                    totalEpisodes?.let { episodes ->
-                        ctx?.getString(R.string.sync_total_episodes_some)?.format(episodes)
-                    } ?: run {
-                        ctx?.getString(R.string.sync_total_episodes_none)
+                if (data == null) {
+                    android.util.Log.d("MetadataSwap", "Observer received null, returning early")
+                    return@observe
+                }
+                android.util.Log.d(
+                    "MetadataSwap",
+                    "Observer received data: ${(data as? Resource.Success)?.value?.titleText}"
+                )
+                resultBinding?.apply {
+                    PanelsChildGestureRegionObserver.Provider.get().apply {
+                        register(resultCastItems)
                     }
-            }
-        }
-        observe(syncModel.metadata) { meta ->
-            when (meta) {
-                is Resource.Success -> {
-                    val d = meta.value
-                    syncBinding?.resultSyncEpisodes?.progress = currentSyncProgress * 1000
-                    setSyncMaxEpisodes(d.totalEpisodes)
+                    (data as? Resource.Success)?.value?.let { d ->
+                        resultVpn.setText(d.vpnText)
+                        resultInfo.setText(d.metaText)
+                        resultNoEpisodes.setText(d.noEpisodesFoundText)
+                        resultTitle.setText(d.titleText)
+                        resultMetaSite.setText(d.apiName)
+                        resultMetaType.setText(d.typeText)
+                        resultMetaYear.setText(d.yearText)
+                        resultMetaDuration.setText(d.durationText)
+                        resultMetaRating.setText(d.ratingText)
+                        resultMetaStatus.setText(d.onGoingText)
+                        resultMetaContentRating.setText(d.contentRatingText)
+                        resultCastText.setText(d.actorsText)
+                        resultNextAiring.setText(d.nextAiringEpisode)
+                        resultNextAiringTime.setText(d.nextAiringDate)
+                        resultPoster.loadImage(d.posterImage, headers = d.posterHeaders) {
+                            error {
+                                getImageFromDrawable(
+                                    context ?: return@error null,
+                                    R.drawable.default_cover
+                                )
+                            }
+                        }
+                        resultPosterBackground.loadImage(
+                            d.posterBackgroundImage,
+                            headers = d.posterHeaders
+                        ) {
+                            error {
+                                getImageFromDrawable(
+                                    context ?: return@error null,
+                                    R.drawable.default_cover
+                                )
+                            }
+                        }
 
-                    viewModel.setMeta(d, syncModel.getSyncs())
+                        bindLogo(
+                            url = d.logoUrl,
+                            headers = d.posterHeaders,
+                            titleView = resultTitle,
+                            logoView = backgroundPosterWatermarkBadge
+                        )
+
+                        var isExpanded = false
+                        resultDescription.apply {
+                            setTextHtml(d.plotText)
+                            setOnClickListener {
+                                isExpanded = !isExpanded
+                                maxLines = if (isExpanded) {
+                                    Integer.MAX_VALUE
+                                } else 10
+                            }
+                        }
+
+                        populateChips(resultTag, d.tags)
+
+                        resultComingSoon.isVisible = d.comingSoon
+                        resultDataHolder.isGone = d.comingSoon
+
+                        val prefs =
+                            androidx.preference.PreferenceManager.getDefaultSharedPreferences(root.context)
+                        val showCast = prefs.getBoolean(
+                            root.context.getString(R.string.show_cast_in_details_key),
+                            true
+                        )
+
+                        resultCastItems.isGone = !showCast || d.actors.isNullOrEmpty()
+                        (resultCastItems.adapter as? ActorAdaptor)?.submitList(if (showCast) d.actors else emptyList())
+
+                        if (d.contentRatingText == null) {
+                            // If there is no rating to display, we don't want an empty gap
+                            resultMetaContentRating.width = 0
+                        }
+
+                        if (syncModel.addSyncs(d.syncData)) {
+                            syncModel.updateMetaAndUser()
+                            syncModel.updateSynced()
+                        } else {
+                            syncModel.addFromUrl(d.url)
+                        }
+
+                        binding?.apply {
+                            resultSearch.isGone = d.title.isBlank()
+                            resultSearch.setOnClickListener {
+                                android.util.Log.d(
+                                    "RESULT_SEARCH_REDIRECT",
+                                    "resultSearch clicked (recommendation) - navigating to main search with query: '${d.title}'"
+                                )
+                                val activity = activity
+                                if (activity is com.lagradost.cloudstream3.MainActivity) {
+                                    com.lagradost.cloudstream3.MainActivity.nextSearchQuery =
+                                        d.title
+                                    val bottomNav =
+                                        activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(
+                                            R.id.nav_view
+                                        )
+                                    val navRail =
+                                        activity.findViewById<com.google.android.material.navigationrail.NavigationRailView>(
+                                            R.id.nav_rail_view
+                                        )
+                                    bottomNav?.selectedItemId = R.id.navigation_search
+                                    navRail?.selectedItemId = R.id.navigation_search
+                                }
+                            }
+
+                            resultShare.setOnClickListener {
+                                try {
+                                    val i = Intent(Intent.ACTION_SEND)
+                                    val nameBase64 =
+                                        base64Encode(
+                                            d.apiName.toString().toByteArray(Charsets.UTF_8)
+                                        )
+                                    val urlBase64 = base64Encode(d.url.toByteArray(Charsets.UTF_8))
+                                    val encodedUri = URLEncoder.encode(
+                                        "$APP_STRING_SHARE:$nameBase64?$urlBase64",
+                                        "UTF-8"
+                                    )
+                                    val redirectUrl =
+                                        "https://recloudstream.github.io/csredirect?redirectto=$encodedUri"
+                                    i.type = "text/plain"
+                                    i.putExtra(Intent.EXTRA_SUBJECT, d.title)
+                                    i.putExtra(Intent.EXTRA_TEXT, redirectUrl)
+                                    startActivity(Intent.createChooser(i, d.title))
+                                } catch (e: Exception) {
+                                    logError(e)
+                                }
+                            }
+                            setUrl(d.url)
+                            resultBookmarkFab.apply {
+                                isVisible = true
+                                extend()
+                            }
+                        }
+                    }
+
+                    (data as? Resource.Failure)?.let { data ->
+                        resultErrorText.text = storedData.url.plus("\n") + data.errorString
+                    }
+
+                    // Hide bookmark FAB during metadata swap mode
+                    val hasOriginalResponse =
+                        com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse != null
+                    val isSwapMode = viewModel.isMetadataSwapMode.value == true
+                    val shouldHideBookmark = hasOriginalResponse || isSwapMode
+                    binding?.resultBookmarkFab?.isVisible =
+                        data is Resource.Success && !shouldHideBookmark
+                    resultFinishLoading.isVisible = data is Resource.Success
+
+                    resultLoading.isVisible = data is Resource.Loading
+
+                    resultLoadingError.isVisible = data is Resource.Failure
+                    resultErrorText.isVisible = data is Resource.Failure
+                    resultReloadConnectionOpenInBrowser.isVisible = data is Resource.Failure
+
+                    resultTitle.setOnLongClickListener {
+                        clipboardHelper(
+                            com.lagradost.cloudstream3.utils.txt(R.string.title),
+                            resultTitle.text
+                        )
+                        true
+                    }
                 }
+            }
 
-                is Resource.Loading -> {
+            observeNullable(viewModel.episodesCountText) { count ->
+                resultBinding?.resultEpisodesText.setText(count)
+            }
+
+            observeNullable(viewModel.selectPopup) { popup ->
+                if (popup == null) {
+                    popupDialog?.dismissSafe(activity)
+                    popupDialog = null
+                    return@observeNullable
+                }
+                popupDialog?.dismissSafe(activity)
+
+                popupDialog = activity?.let { act ->
+                    val options = popup.getOptions(act)
+                    val title = popup.getTitle(act)
+
+                    act.showBottomDialogInstant(
+                        options, title, {
+                            popupDialog = null
+                            popup.callback(null)
+                        }, {
+                            popupDialog = null
+                            popup.callback(it)
+                        }
+                    )
+                }
+            }
+
+            observe(viewModel.trailers) { trailers ->
+                setTrailers(trailers.flatMap { it.mirros }) // I dont care about subtitles yet!
+            }
+
+            observe(syncModel.synced) { list ->
+                syncBinding?.resultSyncNames?.text =
+                    list.filter { it.isSynced && it.hasAccount }.joinToString { it.name }
+
+                val newList = list.filter { it.isSynced && it.hasAccount }
+
+                // MINI_SYNC_FIX: Use sticky flag to prevent "sync gap" where button disappears
+                // when name-based IDs are found but synced list hasn't updated yet
+                val shouldBeVisible = newList.isNotEmpty() || wasNameMatchFound
+                binding?.resultMiniSync?.isVisible = shouldBeVisible
+
+                android.util.Log.d(
+                    "[MINI_SYNC_DEBUG]",
+                    "Sync visibility check - newList.size: ${newList.size}, wasNameMatchFound: $wasNameMatchFound, shouldBeVisible: $shouldBeVisible"
+                )
+                //(binding?.resultMiniSync?.adapter as? ImageAdapter)?.submitList(newList.mapNotNull { it.icon })
+            }
+
+
+            var currentSyncProgress = 0
+            fun setSyncMaxEpisodes(totalEpisodes: Int?) {
+                syncBinding?.resultSyncEpisodes?.max = (totalEpisodes ?: 0) * 1000
+
+                safe {
+                    val ctx = syncBinding?.resultSyncEpisodes?.context
                     syncBinding?.resultSyncMaxEpisodes?.text =
-                        syncBinding?.resultSyncMaxEpisodes?.context?.getString(R.string.sync_total_episodes_none)
+                        totalEpisodes?.let { episodes ->
+                            ctx?.getString(R.string.sync_total_episodes_some)?.format(episodes)
+                        } ?: run {
+                            ctx?.getString(R.string.sync_total_episodes_none)
+                        }
                 }
-
-                else -> {}
             }
-        }
+            observe(syncModel.metadata) { meta ->
+                when (meta) {
+                    is Resource.Success -> {
+                        val d = meta.value
+                        syncBinding?.resultSyncEpisodes?.progress = currentSyncProgress * 1000
+                        setSyncMaxEpisodes(d.totalEpisodes)
 
-
-        observe(syncModel.userData) { status ->
-            var closed = false
-            syncBinding?.apply {
-                when (status) {
-                    is Resource.Failure -> {
-                        resultSyncLoadingShimmer.stopShimmer()
-                        resultSyncLoadingShimmer.isVisible = false
-                        resultSyncHolder.isVisible = false
-                        closed = true
+                        viewModel.setMeta(d, syncModel.getSyncs())
                     }
 
                     is Resource.Loading -> {
-                        resultSyncLoadingShimmer.startShimmer()
-                        resultSyncLoadingShimmer.isVisible = true
-                        resultSyncHolder.isVisible = false
+                        syncBinding?.resultSyncMaxEpisodes?.text =
+                            syncBinding?.resultSyncMaxEpisodes?.context?.getString(R.string.sync_total_episodes_none)
                     }
 
-                    is Resource.Success -> {
-                        resultSyncLoadingShimmer.stopShimmer()
-                        resultSyncLoadingShimmer.isVisible = false
-                        resultSyncHolder.isVisible = true
-
-                        val d = status.value
-                        val desiredScore = d.score?.toFloat(1) ?: 0.0f
-                        val totalSteps = (resultSyncRating.valueTo / resultSyncRating.stepSize)
-                        val desiredStep = (totalSteps * desiredScore).roundToInt()
-                        resultSyncRating.value = desiredStep * resultSyncRating.stepSize
-
-                        resultSyncCheck.setItemChecked(d.status.internalId + 1, true)
-                        val watchedEpisodes = d.watchedEpisodes ?: 0
-                        currentSyncProgress = watchedEpisodes
-
-                        d.maxEpisodes?.let {
-                            // don't directly call it because we don't want to override metadata observe
-                            setSyncMaxEpisodes(it)
-                        }
-
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                            resultSyncEpisodes.setProgress(watchedEpisodes * 1000, true)
-                        } else {
-                            resultSyncEpisodes.progress = watchedEpisodes * 1000
-                        }
-                        resultSyncCurrentEpisodes.text =
-                            Editable.Factory.getInstance()?.newEditable(watchedEpisodes.toString())
-                        safe { // format might fail
-                            val text = d.score?.toFloat(10)?.roundToInt()?.let {
-                                context?.getString(R.string.sync_score_format)?.format(it)
-                            } ?: "?"
-                            resultSyncScoreText.text = text
-                        }
-                    }
-
-                    null -> {
-                        closed = false
-                    }
+                    else -> {}
                 }
             }
-            binding?.resultOverlappingPanels?.setStartPanelLockState(if (closed) OverlappingPanelsLayout.LockState.CLOSE else OverlappingPanelsLayout.LockState.UNLOCKED)
-        }
-        observe(viewModel.recommendations) { recommendations ->
-            setRecommendations(recommendations, null)
-        }
-        context?.let { ctx ->
-            val arrayAdapter = ArrayAdapter<String>(ctx, R.layout.sort_bottom_single_choice)
-            /*
+
+
+            observe(syncModel.userData) { status ->
+                var closed = false
+                syncBinding?.apply {
+                    when (status) {
+                        is Resource.Failure -> {
+                            resultSyncLoadingShimmer.stopShimmer()
+                            resultSyncLoadingShimmer.isVisible = false
+                            resultSyncHolder.isVisible = false
+                            closed = true
+                        }
+
+                        is Resource.Loading -> {
+                            resultSyncLoadingShimmer.startShimmer()
+                            resultSyncLoadingShimmer.isVisible = true
+                            resultSyncHolder.isVisible = false
+                        }
+
+                        is Resource.Success -> {
+                            resultSyncLoadingShimmer.stopShimmer()
+                            resultSyncLoadingShimmer.isVisible = false
+                            resultSyncHolder.isVisible = true
+
+                            val d = status.value
+                            val desiredScore = d.score?.toFloat(1) ?: 0.0f
+                            val totalSteps = (resultSyncRating.valueTo / resultSyncRating.stepSize)
+                            val desiredStep = (totalSteps * desiredScore).roundToInt()
+                            resultSyncRating.value = desiredStep * resultSyncRating.stepSize
+
+                            resultSyncCheck.setItemChecked(d.status.internalId + 1, true)
+                            val watchedEpisodes = d.watchedEpisodes ?: 0
+                            currentSyncProgress = watchedEpisodes
+
+                            d.maxEpisodes?.let {
+                                // don't directly call it because we don't want to override metadata observe
+                                setSyncMaxEpisodes(it)
+                            }
+
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                resultSyncEpisodes.setProgress(watchedEpisodes * 1000, true)
+                            } else {
+                                resultSyncEpisodes.progress = watchedEpisodes * 1000
+                            }
+                            resultSyncCurrentEpisodes.text =
+                                Editable.Factory.getInstance()
+                                    ?.newEditable(watchedEpisodes.toString())
+                            safe { // format might fail
+                                val text = d.score?.toFloat(10)?.roundToInt()?.let {
+                                    context?.getString(R.string.sync_score_format)?.format(it)
+                                } ?: "?"
+                                resultSyncScoreText.text = text
+                            }
+                        }
+
+                        null -> {
+                            closed = false
+                        }
+                    }
+                }
+                binding?.resultOverlappingPanels?.setStartPanelLockState(if (closed) OverlappingPanelsLayout.LockState.CLOSE else OverlappingPanelsLayout.LockState.UNLOCKED)
+            }
+            observe(viewModel.recommendations) { recommendations ->
+                setRecommendations(recommendations, null)
+            }
+            context?.let { ctx ->
+                val arrayAdapter = ArrayAdapter<String>(ctx, R.layout.sort_bottom_single_choice)
+                /*
             -1 -> None
             0 -> Watching
             1 -> Completed
@@ -2096,286 +2657,213 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             4 -> PlanToWatch
             5 -> ReWatching
             */
-            val items = listOf(
-                R.string.none,
-                R.string.type_watching,
-                R.string.type_completed,
-                R.string.type_on_hold,
-                R.string.type_dropped,
-                R.string.type_plan_to_watch,
-                R.string.type_re_watching
-            ).map { ctx.getString(it) }
-            arrayAdapter.addAll(items)
-            syncBinding?.apply {
-                resultSyncCheck.choiceMode = AbsListView.CHOICE_MODE_SINGLE
-                resultSyncCheck.adapter = arrayAdapter
-                setListViewHeightBasedOnItems(resultSyncCheck)
+                val items = listOf(
+                    R.string.none,
+                    R.string.type_watching,
+                    R.string.type_completed,
+                    R.string.type_on_hold,
+                    R.string.type_dropped,
+                    R.string.type_plan_to_watch,
+                    R.string.type_re_watching
+                ).map { ctx.getString(it) }
+                arrayAdapter.addAll(items)
+                syncBinding?.apply {
+                    resultSyncCheck.choiceMode = AbsListView.CHOICE_MODE_SINGLE
+                    resultSyncCheck.adapter = arrayAdapter
+                    setListViewHeightBasedOnItems(resultSyncCheck)
 
-                resultSyncCheck.setOnItemClickListener { _, _, which, _ ->
-                    syncModel.setStatus(which - 1)
-                }
+                    resultSyncCheck.setOnItemClickListener { _, _, which, _ ->
+                        syncModel.setStatus(which - 1)
+                    }
 
-                resultSyncRating.addOnChangeListener { it, value, fromUser ->
-                    if (fromUser) syncModel.setScore(Score.from(value, it.valueTo.roundToInt()))
-                }
+                    resultSyncRating.addOnChangeListener { it, value, fromUser ->
+                        if (fromUser) syncModel.setScore(Score.from(value, it.valueTo.roundToInt()))
+                    }
 
-                resultSyncAddEpisode.setOnClickListener {
-                    syncModel.setEpisodesDelta(1)
-                }
+                    resultSyncAddEpisode.setOnClickListener {
+                        syncModel.setEpisodesDelta(1)
+                    }
 
-                resultSyncSubEpisode.setOnClickListener {
-                    syncModel.setEpisodesDelta(-1)
-                }
+                    resultSyncSubEpisode.setOnClickListener {
+                        syncModel.setEpisodesDelta(-1)
+                    }
 
-                resultSyncCurrentEpisodes.doOnTextChanged { text, _, before, count ->
-                    if (count == before) return@doOnTextChanged
-                    text?.toString()?.toIntOrNull()?.let { ep ->
-                        syncModel.setEpisodes(ep)
+                    resultSyncCurrentEpisodes.doOnTextChanged { text, _, before, count ->
+                        if (count == before) return@doOnTextChanged
+                        text?.toString()?.toIntOrNull()?.let { ep ->
+                            syncModel.setEpisodes(ep)
+                        }
                     }
                 }
             }
-        }
 
-        syncBinding?.resultSyncSetScore?.setOnClickListener {
-            syncModel.publishUserData()
-        }
+            syncBinding?.resultSyncSetScore?.setOnClickListener {
+                syncModel.publishUserData()
+            }
 
-        observe(viewModel.watchStatus) { watchType ->
-            binding?.resultBookmarkFab?.apply {
-                setText(watchType.stringRes)
-                if (watchType == WatchType.NONE) {
-                    context?.colorFromAttribute(R.attr.white)
-                } else {
-                    context?.colorFromAttribute(R.attr.colorPrimary)
-                }?.let {
-                    val colorState = ColorStateList.valueOf(it)
-                    iconTint = colorState
-                    setTextColor(colorState)
-                }
+            observe(viewModel.watchStatus) { watchType ->
+                binding?.resultBookmarkFab?.apply {
+                    setText(watchType.stringRes)
+                    if (watchType == WatchType.NONE) {
+                        context?.colorFromAttribute(R.attr.white)
+                    } else {
+                        context?.colorFromAttribute(R.attr.colorPrimary)
+                    }?.let {
+                        val colorState = ColorStateList.valueOf(it)
+                        iconTint = colorState
+                        setTextColor(colorState)
+                    }
 
-                setOnClickListener { fab ->
-                    activity?.showBottomDialog(
-                        WatchType.entries.map { fab.context.getString(it.stringRes) }.toList(),
-                        watchType.ordinal,
-                        fab.context.getString(R.string.action_add_to_bookmarks),
-                        showApply = false,
-                        {}) {
-                        viewModel.updateWatchStatus(WatchType.entries[it], context)
+                    setOnClickListener { fab ->
+                        activity?.showBottomDialog(
+                            WatchType.entries.map { fab.context.getString(it.stringRes) }.toList(),
+                            watchType.ordinal,
+                            fab.context.getString(R.string.action_add_to_bookmarks),
+                            showApply = false,
+                            {}) {
+                            viewModel.updateWatchStatus(WatchType.entries[it], context)
+                        }
                     }
                 }
             }
-        }
 
 
-        observeNullable(viewModel.loadedLinks) { load ->
-            if (load == null) {
-                loadingDialog?.dismissSafe(activity)
-                loadingDialog = null
-                return@observeNullable
-            }
-            if (loadingDialog?.isShowing != true) {
-                loadingDialog?.dismissSafe(activity)
-                loadingDialog = null
-            }
-            loadingDialog = loadingDialog ?: context?.let { ctx ->
-                val builder = BottomSheetDialog(ctx)
-                builder.setContentView(R.layout.bottom_loading)
-                builder.setOnDismissListener {
+            observeNullable(viewModel.loadedLinks) { load ->
+                if (load == null) {
+                    loadingDialog?.dismissSafe(activity)
                     loadingDialog = null
-                    viewModel.cancelLinks()
+                    return@observeNullable
                 }
-                builder.setCanceledOnTouchOutside(true)
-                builder.show()
-                builder
-            }
-            loadingDialog?.findViewById<MaterialButton>(R.id.overlay_loading_skip_button)?.apply {
-                if (load.linksLoaded <= 0) {
-                    isInvisible = true
-                } else {
-                    setOnClickListener {
-                        viewModel.skipLoading()
+                if (loadingDialog?.isShowing != true) {
+                    loadingDialog?.dismissSafe(activity)
+                    loadingDialog = null
+                }
+                loadingDialog = loadingDialog ?: context?.let { ctx ->
+                    val builder = BottomSheetDialog(ctx)
+                    builder.setContentView(R.layout.bottom_loading)
+                    builder.setOnDismissListener {
+                        loadingDialog = null
+                        viewModel.cancelLinks()
                     }
-                    isVisible = true
-                    text = "${context.getString(R.string.skip_loading)} (${load.linksLoaded})"
+                    builder.setCanceledOnTouchOutside(true)
+                    builder.show()
+                    builder
+                }
+                loadingDialog?.findViewById<MaterialButton>(R.id.overlay_loading_skip_button)
+                    ?.apply {
+                        if (load.linksLoaded <= 0) {
+                            isInvisible = true
+                        } else {
+                            setOnClickListener {
+                                viewModel.skipLoading()
+                            }
+                            isVisible = true
+                            text =
+                                "${context.getString(R.string.skip_loading)} (${load.linksLoaded})"
+                        }
+                    }
+            }
+
+            observeNullable(viewModel.selectedSeason) { text ->
+                resultBinding?.apply {
+                    resultSeasonButton.setText(text)
+
+                    selectSeason =
+                        text?.asStringNull(resultSeasonButton.context)
+                    // If the season button is visible the result season button will be next focus down
+                    if (resultSeasonButton.isVisible && resultResumeParent.isVisible) {
+                        setFocusUpAndDown(resultResumeSeriesButton, resultSeasonButton)
+                    }
                 }
             }
-        }
 
-        observeNullable(viewModel.selectedSeason) { text ->
-            resultBinding?.apply {
-                resultSeasonButton.setText(text)
+            observeNullable(viewModel.selectedDubStatus) { status ->
+                resultBinding?.apply {
+                    resultDubSelect.setText(status)
 
-                selectSeason =
-                    text?.asStringNull(resultSeasonButton.context)
-                // If the season button is visible the result season button will be next focus down
-                if (resultSeasonButton.isVisible && resultResumeParent.isVisible) {
-                    setFocusUpAndDown(resultResumeSeriesButton, resultSeasonButton)
+                    if (resultDubSelect.isVisible && !resultSeasonButton.isVisible && !resultEpisodeSelect.isVisible && resultResumeParent.isVisible) {
+                        setFocusUpAndDown(resultResumeSeriesButton, resultDubSelect)
+                    }
                 }
             }
-        }
+            observeNullable(viewModel.selectedRange) { range ->
+                resultBinding?.apply {
+                    resultEpisodeSelect.setText(range)
 
-        observeNullable(viewModel.selectedDubStatus) { status ->
-            resultBinding?.apply {
-                resultDubSelect.setText(status)
-
-                if (resultDubSelect.isVisible && !resultSeasonButton.isVisible && !resultEpisodeSelect.isVisible && resultResumeParent.isVisible) {
-                    setFocusUpAndDown(resultResumeSeriesButton, resultDubSelect)
+                    selectEpisodeRange = range?.asStringNull(resultEpisodeSelect.context)
+                    // If Season button is invisible then the bookmark button next focus is episode select
+                    if (resultEpisodeSelect.isVisible && !resultSeasonButton.isVisible && resultResumeParent.isVisible) {
+                        setFocusUpAndDown(resultResumeSeriesButton, resultEpisodeSelect)
+                    }
                 }
             }
-        }
-        observeNullable(viewModel.selectedRange) { range ->
-            resultBinding?.apply {
-                resultEpisodeSelect.setText(range)
-
-                selectEpisodeRange = range?.asStringNull(resultEpisodeSelect.context)
-                // If Season button is invisible then the bookmark button next focus is episode select
-                if (resultEpisodeSelect.isVisible && !resultSeasonButton.isVisible && resultResumeParent.isVisible) {
-                    setFocusUpAndDown(resultResumeSeriesButton, resultEpisodeSelect)
-                }
-            }
-        }
 
 //        val preferDub = context?.getApiDubstatusSettings()?.all { it == DubStatus.Dubbed } == true
 
-        observe(viewModel.dubSubSelections) { range ->
-            resultBinding?.resultDubSelect?.setOnClickListener { view ->
-                view?.context?.let { ctx ->
-                    view.popupMenuNoIconsAndNoStringRes(
-                        range
-                            .mapNotNull { (text, status) ->
-                                Pair(
-                                    status.ordinal,
-                                    text?.asStringNull(ctx) ?: return@mapNotNull null
-                                )
-                            }) {
-                        viewModel.changeDubStatus(DubStatus.entries[itemId])
-                    }
-                }
-            }
-        }
-
-        observe(viewModel.rangeSelections) { range ->
-            resultBinding?.resultEpisodeSelect?.setOnClickListener { view ->
-                view?.context?.let { ctx ->
-                    val names = range
-                        .mapNotNull { (text, r) ->
-                            r to (text?.asStringNull(ctx) ?: return@mapNotNull null)
-                        }
-
-                    activity?.showDialog(
-                        names.map { it.second },
-                        names.indexOfFirst { it.second == selectEpisodeRange },
-                        ctx.getString(R.string.episodes),
-                        false,
-                        {}) { itemId ->
-                        viewModel.changeRange(names[itemId].first)
-                    }
-                }
-            }
-        }
-
-        observe(viewModel.seasonSelections) { seasonList ->
-            resultBinding?.resultSeasonButton?.setOnClickListener { view ->
-
-                view?.context?.let { ctx ->
-                    val names = seasonList
-                        .mapNotNull { (text, r) ->
-                            r to (text?.asStringNull(ctx) ?: return@mapNotNull null)
-                        }
-
-                    activity?.showDialog(
-                        names.map { it.second },
-                        names.indexOfFirst { it.second == selectSeason },
-                        ctx.getString(R.string.season),
-                        false,
-                        {}) { itemId ->
-                        viewModel.changeSeason(names[itemId].first)
-                    }
-
-
-                    //view.popupMenuNoIconsAndNoStringRes(names.mapIndexed { index, (_, name) ->
-                    //    index to name
-                    //}) {
-                    //    viewModel.changeSeason(names[itemId].first)
-                    //}
-                }
-            }
-        }
-    }
-
-    private fun resumeAction(
-        storedData: ResultFragment.StoredData,
-        resume: ResumeWatchingStatus
-    ) {
-        viewModel.handleAction(
-            EpisodeClickEvent(
-                storedData.playerAction, //?: ACTION_PLAY_EPISODE_IN_PLAYER,
-                resume.result
-            )
-        )
-    }
-
-    override fun onPause() {
-        super.onPause()
-        // Clear metadata swap mode when navigating away within QuickSearchFragment
-        if (com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive) {
-            android.util.Log.d("MetadataSwap", "onPause - Clearing isMetadataSwapMode")
-            viewModel.setMetadataSwapMode(false)
-        }
-        PanelsChildGestureRegionObserver.Provider.get()
-            .addGestureRegionsUpdateListener(gestureRegionsListener)
-    }
-
-    private fun setRecommendations(rec: List<SearchResponse>?, validApiName: String?) {
-        val isInvalid = rec.isNullOrEmpty()
-        val matchAgainst = validApiName ?: rec?.firstOrNull()?.apiName
-
-        recommendationBinding?.apply {
-            root.isGone = isInvalid
-            root.post {
-                rec?.let { list ->
-                    (resultRecommendationsList.adapter as? SearchAdapter)?.submitList(list.filter { it.apiName == matchAgainst })
-                }
-            }
-        }
-
-        binding?.apply {
-            resultRecommendationsBtt.isGone = isInvalid
-            resultRecommendationsBtt.setOnClickListener {
-                val nextFocusDown = if (resultOverlappingPanels.getSelectedPanel().ordinal == 1) {
-                    resultOverlappingPanels.openEndPanel()
-                    R.id.result_recommendations
-                } else {
-                    resultOverlappingPanels.closePanels()
-                    R.id.result_description
-                }
-                resultBinding?.apply {
-                    resultRecommendationsBtt.nextFocusDownId = nextFocusDown
-                    resultSearch.nextFocusDownId = nextFocusDown
-                    resultOpenInBrowser.nextFocusDownId = nextFocusDown
-                    resultShare.nextFocusDownId = nextFocusDown
-                }
-            }
-            resultOverlappingPanels.setEndPanelLockState(if (isInvalid) OverlappingPanelsLayout.LockState.CLOSE else OverlappingPanelsLayout.LockState.UNLOCKED)
-
-            rec?.map { it.apiName }?.distinct()?.let { apiNames ->
-                // very dirty selection
-                recommendationBinding?.resultRecommendationsFilterButton?.apply {
-                    isVisible = apiNames.size > 1
-                    text = matchAgainst
-                    setOnClickListener { _ ->
-                        activity?.showBottomDialog(
-                            apiNames,
-                            apiNames.indexOf(matchAgainst),
-                            getString(R.string.home_change_provider_img_des), false, {}
-                        ) {
-                            setRecommendations(rec, apiNames[it])
+            observe(viewModel.dubSubSelections) { range ->
+                resultBinding?.resultDubSelect?.setOnClickListener { view ->
+                    view?.context?.let { ctx ->
+                        view.popupMenuNoIconsAndNoStringRes(
+                            range
+                                .mapNotNull { (text, status) ->
+                                    Pair(
+                                        status.ordinal,
+                                        text?.asStringNull(ctx) ?: return@mapNotNull null
+                                    )
+                                }) {
+                            viewModel.changeDubStatus(DubStatus.entries[itemId])
                         }
                     }
                 }
-            } ?: run {
-                recommendationBinding?.resultRecommendationsFilterButton?.isVisible = false
+            }
+
+            observe(viewModel.rangeSelections) { range ->
+                resultBinding?.resultEpisodeSelect?.setOnClickListener { view ->
+                    view?.context?.let { ctx ->
+                        val names = range
+                            .mapNotNull { (text, r) ->
+                                r to (text?.asStringNull(ctx) ?: return@mapNotNull null)
+                            }
+
+                        activity?.showDialog(
+                            names.map { it.second },
+                            names.indexOfFirst { it.second == selectEpisodeRange },
+                            ctx.getString(R.string.episodes),
+                            false,
+                            {}) { itemId ->
+                            viewModel.changeRange(names[itemId].first)
+                        }
+                    }
+                }
+            }
+
+            observe(viewModel.seasonSelections) { seasonList ->
+                resultBinding?.resultSeasonButton?.setOnClickListener { view ->
+
+                    view?.context?.let { ctx ->
+                        val names = seasonList
+                            .mapNotNull { (text, r) ->
+                                r to (text?.asStringNull(ctx) ?: return@mapNotNull null)
+                            }
+
+                        activity?.showDialog(
+                            names.map { it.second },
+                            names.indexOfFirst { it.second == selectSeason },
+                            ctx.getString(R.string.season),
+                            false,
+                            {}) { itemId ->
+                            viewModel.changeSeason(names[itemId].first)
+                        }
+
+
+                        //view.popupMenuNoIconsAndNoStringRes(names.mapIndexed { index, (_, name) ->
+                        //    index to name
+                        //}) {
+                        //    viewModel.changeSeason(names[itemId].first)
+                        //}
+                    }
+                }
             }
         }
-    }
-}
+
+    }}

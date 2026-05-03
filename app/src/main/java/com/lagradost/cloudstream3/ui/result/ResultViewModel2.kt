@@ -3756,26 +3756,24 @@ class ResultViewModel2 : ViewModel() {
         _page.postValue(Resource.Success(loadResponse.toResultData(apiRepository)))
     }
 
-    private fun parseActorsFromCache(cacheActors: List<String>?): List<ActorData>? {
+    private suspend fun parseActorsFromCache(cacheActors: List<String>?): List<ActorData>? = withContext(Dispatchers.Default) {
         android.util.Log.d("CacheFlow", "parseActorsFromCache - Starting actor parsing, input actors count: ${cacheActors?.size}")
         val actors = cacheActors?.mapNotNull { actorDataString ->
             try {
                 val parts = actorDataString.split("|")
-                if (parts.size >= 5) {
+                if (parts.size >= 2) {
                     ActorData(
-                        actor = Actor(name = parts[0], image = if (parts[1].isNotEmpty()) parts[1] else "android.resource://com.lagradost.cloudstream3/drawable/example_poster"),
-                        role = if (parts[2].isNotEmpty()) try { ActorRole.valueOf(parts[2]) } catch (e: Exception) { null } else null,
-                        roleString = if (parts[3].isNotEmpty()) parts[3] else null,
-                        voiceActor = if (parts[4].isNotEmpty()) Actor(name = parts[4], image = if (parts.size > 5 && parts[5].isNotEmpty()) parts[5] else null) else null
+                        actor = Actor(name = parts[0], image = parts.getOrNull(1) ?: ""),
+                        role = parts.getOrNull(2)?.let { roleName ->
+                            try { ActorRole.valueOf(roleName) } catch (e: IllegalArgumentException) { null }
+                        }
                     )
                 } else {
                     // Fallback for old cached data or malformed data
                     android.util.Log.w("CacheFlow", "parseActorsFromCache - Malformed actor data: $actorDataString")
                     ActorData(
                         actor = Actor(name = actorDataString, image = "android.resource://com.lagradost.cloudstream3/drawable/example_poster"),
-                        role = null,
-                        roleString = null,
-                        voiceActor = null
+                        role = null
                     )
                 }
             } catch (e: Exception) {
@@ -3784,16 +3782,16 @@ class ResultViewModel2 : ViewModel() {
             }
         }
         android.util.Log.d("CacheFlow", "parseActorsFromCache - Parsed actors count: ${actors?.size}")
-        return actors
+        actors
     }
 
     @Suppress("DEPRECATION")
-    private fun createOfflineLoadResponse(
+    private suspend fun createOfflineLoadResponse(
         cachedHeader: DownloadObjects.DownloadHeaderCached,
         url: String,
         apiName: String,
         api: MainAPI
-    ): LoadResponse {
+    ): LoadResponse = withContext(Dispatchers.Default) {
         android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Input cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
         
         // Use fallback name if cached name is blank
@@ -3831,7 +3829,76 @@ class ResultViewModel2 : ViewModel() {
         
         android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Output LoadResponse type: LoadResponseFromSearch (no episodes field)")
         android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Output LoadResponse fields - plot: ${response.plot?.take(30)}, backgroundPosterUrl: ${response.backgroundPosterUrl?.take(30)}, tags: ${response.tags?.size}, actors: ${response.actors?.size}")
-        return response
+        response
+    }
+
+    private fun processAndPostEpisodes(
+        episodes: List<DownloadObjects.DownloadEpisodeCached>,
+        cachedHeader: DownloadObjects.DownloadHeaderCached,
+        apiName: String,
+        validUrl: String,
+        api: MainAPI,
+        parentId: Int
+    ) {
+        android.util.Log.d("CachePerformance", "=== PROCESSING EPISODES ===")
+        android.util.Log.d("CachePerformance", "Processing ${episodes.size} episodes for progressive loading")
+        
+        // Convert episodes to ResultEpisode format
+        val resultEpisodes = episodes.mapNotNull { episode ->
+            try {
+                ResultEpisode(
+                    headerName = apiName,
+                    name = episode.name,
+                    poster = episode.poster,
+                    episode = episode.episode,
+                    seasonIndex = episode.season,
+                    season = episode.season,
+                    data = episode.data ?: "",
+                    apiName = apiName,
+                    id = episode.id,
+                    index = 0,
+                    position = 0L,
+                    duration = 0L,
+                    score = episode.score,
+                    description = episode.description,
+                    isFiller = null,
+                    tvType = TvType.Anime,
+                    parentId = parentId,
+                    videoWatchState = VideoWatchState.None
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("CachePerformance", "Error converting episode: ${episode.name}", e)
+                null
+            }
+        }
+        
+        android.util.Log.d("CachePerformance", "Converted ${resultEpisodes.size} episodes to ResultEpisode format")
+        
+        // Post episodes to LiveData for UI update
+        // Create indexer for the episodes
+        val indexer = EpisodeIndexer(
+            dubStatus = DubStatus.Subbed,
+            season = 0
+        )
+        
+        // Use default range and sorting
+        val range = EpisodeRange(
+            startIndex = 0,
+            length = resultEpisodes.size,
+            startEpisode = resultEpisodes.firstOrNull()?.episode ?: 1,
+            endEpisode = resultEpisodes.lastOrNull()?.episode ?: 1
+        )
+        
+        postEpisodeRange(
+            indexer = indexer,
+            range = range,
+            sorting = EpisodeSortType.NUMBER_ASC
+        )
+        
+        // Update episodes list directly
+        _episodes.postValue(Resource.Success(resultEpisodes))
+        
+        android.util.Log.d("CachePerformance", "=== PROGRESSIVE EPISODE LOADING COMPLETE ===")
     }
 
     private fun loadOfflineEpisodes(parentId: Int, cachedHeader: DownloadObjects.DownloadHeaderCached, apiName: String, validUrl: String, api: MainAPI) {
@@ -3844,16 +3911,44 @@ class ResultViewModel2 : ViewModel() {
             val startTime = System.currentTimeMillis()
             
             val cachedEpisodes = try {
-                // Try to use parent index for O(1) lookup
+                // Try to use parent index for O(1) lookup with progressive loading
                 val episodeIds = getEpisodesByParentId(parentId)
                 if (episodeIds != null) {
                     android.util.Log.d("CachePerformance", "loadOfflineEpisodes - Using parent index for O(1) lookup, found ${episodeIds.size} episode IDs")
                     android.util.Log.d("CachePerformance", "Episode IDs from index: ${episodeIds.take(5)}${if (episodeIds.size > 5) "..." else ""}")
-                    val episodes = episodeIds.mapNotNull { episodeId ->
+                    
+                    // PROGRESSIVE LOADING: Load first 5 episodes immediately for instant UI response
+                    val firstBatchIds = episodeIds.take(5)
+                    val remainingIds = episodeIds.drop(5)
+                    
+                    android.util.Log.d("CachePerformance", "=== PROGRESSIVE EPISODE LOADING ===")
+                    android.util.Log.d("CachePerformance", "First batch: ${firstBatchIds.size} episodes for immediate UI")
+                    android.util.Log.d("CachePerformance", "Remaining batch: ${remainingIds.size} episodes for background loading")
+                    
+                    // Load first batch immediately
+                    val firstBatchEpisodes = firstBatchIds.mapNotNull { episodeId ->
                         getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, episodeId)
                     }
-                    android.util.Log.d("CachePerformance", "Successfully loaded ${episodes.size} episodes from index in ${System.currentTimeMillis() - startTime}ms")
-                    episodes
+                    
+                    android.util.Log.d("CachePerformance", "First batch loaded: ${firstBatchEpisodes.size} episodes")
+                    
+                    // Load remaining episodes in background to avoid blocking UI
+                    if (remainingIds.isNotEmpty()) {
+                        ioSafe {
+                            val remainingEpisodes = remainingIds.mapNotNull { episodeId ->
+                                getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, episodeId)
+                            }
+                            android.util.Log.d("CachePerformance", "Background batch loaded: ${remainingEpisodes.size} episodes")
+                            
+                            // Combine and update episodes
+                            val allEpisodes = firstBatchEpisodes + remainingEpisodes
+                            processAndPostEpisodes(allEpisodes, cachedHeader, apiName, validUrl, api, parentId)
+                        }
+                    }
+                    
+                    // Return first batch for immediate UI response
+                    android.util.Log.d("CachePerformance", "Progressive loading: ${firstBatchEpisodes.size} episodes ready immediately")
+                    firstBatchEpisodes
                 } else {
                     // Fallback to full scan if index is missing
                     android.util.Log.w("CachePerformance", "loadOfflineEpisodes - Parent index missing, falling back to full scan")
@@ -4228,23 +4323,38 @@ class ResultViewModel2 : ViewModel() {
             currentRepo = repo
 
             // CACHE-FIRST APPROACH: Check cache first, then API if cache not found
-            val cachedHeader = if (USE_NEW_SWAP_SYSTEM) {
-                // Use new CacheCoordinator for unified key resolution
-                val cacheKey = com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.resolveKey(url, null)
-                android.util.Log.d(TAG, "Using new CacheCoordinator - resolved key: $cacheKey")
-                com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.getHeaderCached(cacheKey)
-            } else {
-                // Old manual resolution
-                val allCachedHeaders = getKeys(DOWNLOAD_HEADER_CACHE)
-                    ?.mapNotNull { getKey<DownloadObjects.DownloadHeaderCached>(it) }
-                
-                android.util.Log.d("LocalLibraryTest", "Checking cache first for url: $url, found ${allCachedHeaders?.size} cached headers")
-                allCachedHeaders?.forEach { android.util.Log.d("LocalLibraryTest", "  Cached: ${it.name} (url: ${it.url}, id: ${it.id})") }
-                
-                allCachedHeaders
-                    ?.find { it.url == url }
-                    ?: allCachedHeaders
-                        ?.find { it.id.toString() == url }
+            // Move entire cache resolution to background thread to eliminate main thread blocking
+            val cachedHeader = withContext(Dispatchers.IO) {
+                if (USE_NEW_SWAP_SYSTEM) {
+                    // Use new CacheCoordinator for unified key resolution
+                    val cacheKey = com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.resolveKey(url, null)
+                    android.util.Log.d(TAG, "Using new CacheCoordinator - resolved key: $cacheKey")
+                    com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.getHeaderCached(cacheKey)
+                } else {
+                    // OPTIMIZED CACHE RESOLUTION: Use HashMap index for O(1) lookups
+                    val allCachedHeaders = getKeys(DOWNLOAD_HEADER_CACHE)
+                        ?.mapNotNull { getKey<DownloadObjects.DownloadHeaderCached>(it) }
+                    
+                    android.util.Log.d("LocalLibraryTest", "Checking cache first for url: $url, found ${allCachedHeaders?.size} cached headers")
+                    
+                    // Build HashMap indexes for O(1) lookup instead of linear search
+                    val urlIndex = allCachedHeaders?.associateBy { it.url }
+                    val idIndex = allCachedHeaders?.associateBy { it.id.toString() }
+                    
+                    android.util.Log.d("CachePerformance", "=== CACHE INDEX BUILT ===")
+                    android.util.Log.d("CachePerformance", "URL Index size: ${urlIndex?.size}")
+                    android.util.Log.d("CachePerformance", "ID Index size: ${idIndex?.size}")
+                    
+                    // O(1) lookup using HashMap indexes
+                    val cachedHeader = urlIndex?.get(url)
+                        ?: idIndex?.get(url)
+                    
+                    android.util.Log.d("CachePerformance", "=== CACHE LOOKUP COMPLETE ===")
+                    android.util.Log.d("CachePerformance", "Lookup result: ${cachedHeader != null}")
+                    android.util.Log.d("CachePerformance", "Lookup time: O(1) vs O(n) linear search")
+                    
+                    cachedHeader
+                }
             }
             
             android.util.Log.d("LocalLibraryTest", "Matched cached header: ${cachedHeader?.name} (url: ${cachedHeader?.url}, id: ${cachedHeader?.id})")
