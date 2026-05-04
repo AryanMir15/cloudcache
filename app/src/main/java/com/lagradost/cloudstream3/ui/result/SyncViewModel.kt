@@ -75,8 +75,23 @@ class SyncViewModel : ViewModel() {
     }
 
     fun updateSynced() {
-        Log.i(TAG, "updateSynced")
-        _currentSynced.postValue(getMissing())
+        Log.i(TAG, "updateSynced - current syncs: ${syncs.keys}")
+        val missing = getMissing()
+        Log.i(TAG, "updateSynced - getMissing result: ${missing.map { "${it.name}(isSynced=${it.isSynced})" }}")
+        
+        // CRASH PROTECTION: Only update if Fragment is still attached to prevent data loss during crashes
+        if (_currentSynced.value != null) {
+            // Use setValue on main thread for immediate updates, postValue on background thread
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                _currentSynced.value = missing
+                Log.i(TAG, "updateSynced - _currentSynced.value set (main thread) to ${missing.size} items")
+            } else {
+                _currentSynced.postValue(missing)
+                Log.i(TAG, "updateSynced - _currentSynced.postValue called (background thread) with ${missing.size} items")
+            }
+        } else {
+            Log.w(TAG, "updateSynced - SKIPPED: _currentSynced.value is null, possible Fragment crash in progress")
+        }
     }
 
     private fun addSync(idPrefix: String, id: String): Boolean {
@@ -94,11 +109,16 @@ class SyncViewModel : ViewModel() {
     }
 
     fun addSyncs(map: Map<String, String>?): Boolean {
+        Log.i(TAG, "addSyncs called with: $map")
+        Log.i(TAG, "addSyncs current syncs map: $syncs")
         var isValid = false
 
         map?.forEach { (prefix, id) ->
-            isValid = addSync(prefix, id) || isValid
+            val added = addSync(prefix, id)
+            Log.i(TAG, "addSyncs - addSync($prefix, $id) returned: $added")
+            isValid = added || isValid
         }
+        Log.i(TAG, "addSyncs final result: $isValid, syncs now: $syncs")
         return isValid
     }
 
@@ -114,9 +134,22 @@ class SyncViewModel : ViewModel() {
 
     fun addFromUrl(url: String?) = ioSafe {
         Log.i(TAG, "addFromUrl = $url")
-
-        if (url == null || hasAddedFromUrl.contains(url)) return@ioSafe
-        if (!url.startsWith("http")) return@ioSafe
+        Log.i(TAG, "hasAddedFromUrl contains url: ${hasAddedFromUrl.contains(url)}")
+        Log.i(TAG, "hasAddedFromUrl size: ${hasAddedFromUrl.size}")
+        Log.i(TAG, "url starts with http: ${url?.startsWith("http")}")
+        
+        if (url == null) {
+            Log.i(TAG, "addFromUrl - url is null, returning")
+            return@ioSafe
+        }
+        if (hasAddedFromUrl.contains(url)) {
+            Log.i(TAG, "addFromUrl - url already added, returning")
+            return@ioSafe
+        }
+        if (!url.startsWith("http")) {
+            Log.i(TAG, "addFromUrl - url doesn't start with http, returning")
+            return@ioSafe
+        }
 
         SyncUtil.getIdsFromUrl(url)?.let { (malId, aniListId) ->
             hasAddedFromUrl.add(url)
@@ -220,13 +253,27 @@ class SyncViewModel : ViewModel() {
         }
 
     fun updateUserData() = ioSafe {
-        Log.i(TAG, "updateUserData")
+        Log.i(TAG, "updateUserData - syncs size: ${syncs.size}, syncs: $syncs")
         _userDataResponse.postValue(Resource.Loading())
 
+        var triedApis = 0
+        var successApi: String? = null
         val status = syncs.firstNotNullOfOrNull { (prefix, id) ->
-            repos.firstOrNull { it.idPrefix == prefix }
-                ?.status(id)?.getOrNull()
+            triedApis++
+            Log.i(TAG, "updateUserData - trying $prefix with id $id")
+            val repo = repos.firstOrNull { it.idPrefix == prefix }
+            Log.i(TAG, "updateUserData - repo for $prefix: ${repo != null}")
+            val result = repo?.status(id)
+            Log.i(TAG, "updateUserData - status result for $prefix: isSuccess=${result?.isSuccess}, isFailure=${result?.isFailure}")
+            val statusValue = result?.getOrNull()
+            if (statusValue != null) {
+                successApi = prefix
+                Log.i(TAG, "updateUserData - SUCCESS for $prefix")
+            }
+            statusValue
         }
+
+        Log.i(TAG, "updateUserData - tried $triedApis APIs, success: $successApi, status is null: ${status == null}")
 
         if (status == null) {
             _userDataResponse.postValue(Resource.Failure(false, "No data"))

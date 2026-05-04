@@ -13,6 +13,8 @@ import android.os.Build
 import android.util.Rational
 import androidx.annotation.RequiresApi
 import androidx.annotation.StringRes
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import androidx.preference.PreferenceManager
 import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.R
@@ -93,8 +95,16 @@ object PlayerPipHelper {
         event: CSPlayerEvent
     ): RemoteAction {
         val text = activity.getString(title)
+        // Use ContextCompat.getDrawable for proper theme resolution
+        val drawable = ContextCompat.getDrawable(activity, id)
+        val icon = if (drawable != null) {
+            Icon.createWithBitmap(drawable.toBitmap())
+        } else {
+            // Fallback to original method if drawable is null
+            Icon.createWithResource(activity, id)
+        }
         return RemoteAction(
-            Icon.createWithResource(activity, id),
+            icon,
             text,
             text,
             getPen(activity, event.value)

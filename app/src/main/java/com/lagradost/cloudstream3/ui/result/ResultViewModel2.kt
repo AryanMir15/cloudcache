@@ -531,7 +531,8 @@ class ResultViewModel2 : ViewModel() {
     private var currentRange: EpisodeRange? = null
     private var currentShowFillers: Boolean = false
     var currentRepo: APIRepository? = null
-    private var currentId: Int? = null
+    // FIX: Made currentId internal to allow access from ResultFragmentPhone for cache updates
+    internal var currentId: Int? = null
     private var fillers: HashSet<Int> = hashSetOf()
     private var generator: IGenerator? = null
     private var preferDubStatus: DubStatus? = null
@@ -1832,6 +1833,8 @@ class ResultViewModel2 : ViewModel() {
                                                 cacheTime = System.currentTimeMillis(),
                                                 hasCustomPoster = false,
                                                 hasSwappedMetadata = false,
+                                                // FIX: Include syncData when caching headers
+                                                syncData = response?.syncData,
                                                 id = parentId
                                             )
                                         )
@@ -3817,7 +3820,8 @@ class ResultViewModel2 : ViewModel() {
             recommendations = null,
             actors = actors,
             comingSoon = false,
-            syncData = mutableMapOf(),
+            // FIX: Restore syncData from cached header
+            syncData = cachedHeader.syncData?.toMutableMap() ?: mutableMapOf(),
             posterHeaders = null,
             backgroundPosterUrl = cachedHeader.backgroundPosterUrl,
             logoUrl = cachedHeader.logoUrl,

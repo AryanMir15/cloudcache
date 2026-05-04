@@ -109,6 +109,11 @@ import java.net.URLEncoder
 import kotlin.math.roundToInt
 
 open class ResultFragmentPhone : FullScreenPlayer() {
+    // FIX: Track registration state to prevent infinite loops
+    private var isCastItemsRegistered = false
+    // FIX: Track panel state listener registration to prevent multiple registrations
+    private var isPanelStateListenerRegistered = false
+    
     private val gestureRegionsListener =
         object : PanelsChildGestureRegionObserver.GestureRegionsListener {
             override fun onGestureRegionsUpdate(gestureRegions: List<Rect>) {
@@ -152,6 +157,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        android.util.Log.d("[GESTURE_DEBUG]", "onCreate - registering resultCastItems")
         PanelsChildGestureRegionObserver.Provider.get().apply {
             resultBinding?.resultCastItems?.let { register(it) }
         }
@@ -262,12 +268,17 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     }
 
     override fun onDestroyView() {
+        android.util.Log.d("[GESTURE_DEBUG]", "onDestroyView - unregistering gesture regions")
         PanelsChildGestureRegionObserver.Provider.get().let { obs ->
             resultBinding?.resultCastItems?.let {
                 obs.unregister(it)
+                android.util.Log.d("[GESTURE_DEBUG]", "onDestroyView - unregistered resultCastItems")
+                isCastItemsRegistered = false
             }
+            isPanelStateListenerRegistered = false
 
             obs.removeGestureRegionsUpdateListener(gestureRegionsListener)
+            android.util.Log.d("[GESTURE_DEBUG]", "onDestroyView - removed gesture regions listener")
         }
 
         updateUIEvent -= ::updateUI
@@ -1037,6 +1048,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         afterPluginsLoadedEvent += ::reloadViewModel
         activity?.setNavigationBarColorCompat(R.attr.primaryBlackBackground)
         super.onResume()
+        android.util.Log.d("[GESTURE_DEBUG]", "onResume - adding gesture regions listener")
         PanelsChildGestureRegionObserver.Provider.get()
             .addGestureRegionsUpdateListener(gestureRegionsListener)
 
@@ -1057,6 +1069,16 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
     override fun onStop() {
         afterPluginsLoadedEvent -= ::reloadViewModel
+        // FIX: Unregister gesture regions to prevent multiple registrations
+        android.util.Log.d("[GESTURE_DEBUG]", "onStop - unregistering gesture regions")
+        PanelsChildGestureRegionObserver.Provider.get().let { obs ->
+            resultBinding?.resultCastItems?.let {
+                obs.unregister(it)
+                android.util.Log.d("[GESTURE_DEBUG]", "onStop - unregistered resultCastItems")
+                isCastItemsRegistered = false
+            }
+            isPanelStateListenerRegistered = false
+        }
         super.onStop()
     }
 
@@ -1160,6 +1182,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             "[MINI_SYNC_FIX]",
             "Reset wasNameMatchFound to false for new entry: ${storedData.name}"
         )
+
+        // FIX: Clear sync model state to ensure fresh data load on cached entries
+        syncModel.clear()
+        android.util.Log.d("[MINI_SYNC_FIX]", "Cleared sync model state for new entry")
 
         android.util.Log.d("MetadataSwap", "===== COMPREHENSIVE DEBUG START =====")
         android.util.Log.d("MetadataSwap", "storedData.name: ${storedData.name}")
@@ -1610,169 +1636,206 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
         // MINI_SYNC_FIX: Try to add sync data from bookmarked data by matching session ID
         // Move all bookmark processing to background thread to prevent main thread blocking
-        lifecycleScope.launch {
-            val allBookmarked = withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val allBookmarked = kotlinx.coroutines.runBlocking {
+            withContext(kotlinx.coroutines.Dispatchers.IO) {
                 com.lagradost.cloudstream3.utils.DataStoreHelper.getAllBookmarkedData()
             }
+        }
 
-            // Extract session ID from the stored URL
-            val sessionIdMatch = Regex(""""session":"([^"]+)""").find(storedData.url)
-            val sessionId = sessionIdMatch?.groupValues?.get(1)
+        // Extract session ID from the stored URL
+        val sessionIdMatch = Regex(""""session":"([^"]+)""").find(storedData.url)
+        val sessionId = sessionIdMatch?.groupValues?.get(1)
 
-            android.util.Log.d("[MINI_SYNC_FIX]", "storedData.url: ${storedData.url}")
-            android.util.Log.d("[MINI_SYNC_FIX]", "Extracted sessionId: $sessionId")
-            android.util.Log.d("[MINI_SYNC_FIX]", "All bookmark URLs:")
-            allBookmarked.forEachIndexed { index, bookmark ->
-                android.util.Log.d("[MINI_SYNC_FIX]", "  [$index] ${bookmark.url.take(80)}...")
-            }
+        android.util.Log.d("[MINI_SYNC_FIX]", "storedData.url: ${storedData.url}")
+        android.util.Log.d("[MINI_SYNC_FIX]", "Extracted sessionId: $sessionId")
+        android.util.Log.d("[MINI_SYNC_FIX]", "All bookmark URLs:")
+        allBookmarked.forEachIndexed { index, bookmark ->
+            android.util.Log.d("[MINI_SYNC_FIX]", "  [$index] ${bookmark.url.take(80)}...")
+        }
 
-            // Try to find bookmark by session ID (more reliable than URL matching)
-            var matchingBookmark = if (sessionId != null) {
-                allBookmarked.find { bookmark ->
-                    val containsSession = bookmark.url.contains(sessionId)
-                    if (containsSession) {
-                        android.util.Log.d(
-                            "[MINI_SYNC_FIX]",
-                            "Found match! Bookmark URL contains sessionId"
-                        )
-                    }
-                    containsSession
-                }
-            } else {
-                // Fallback to exact match if no session ID
-                allBookmarked.find { it.url == storedData.url }
-            }
-
-            // Fallback 2: Match by name and apiName when session ID doesn't match
-            // This happens when loading from cache with new session IDs
-            if (matchingBookmark == null) {
-                android.util.Log.d(
-                    "[MINI_SYNC_FIX]",
-                    "Session ID match failed, trying name-based match for: ${storedData.name}"
-                )
-                matchingBookmark = allBookmarked.find { bookmark ->
-                    bookmark.name == storedData.name && bookmark.apiName == storedData.apiName
-                }
-                if (matchingBookmark != null) {
-                    android.util.Log.d("[MINI_SYNC_FIX]", "Found match by name and apiName!")
-                }
-            }
-
-            // Fallback 3: Extract name from session URL JSON and try matching
-            // The cached header name may differ from the bookmark name (e.g., "Tsue to Tsurugi" vs "Wistoria")
-            if (matchingBookmark == null && storedData.url.contains("session")) {
-                val urlNameMatch = Regex(""""name":"([^"]+)""").find(storedData.url)
-                val urlName = urlNameMatch?.groupValues?.get(1)
-                if (urlName != null && urlName != storedData.name) {
+        // Try to find bookmark by session ID (more reliable than URL matching)
+        var matchingBookmark = if (sessionId != null) {
+            allBookmarked.find { bookmark ->
+                val containsSession = bookmark.url.contains(sessionId)
+                if (containsSession) {
                     android.util.Log.d(
                         "[MINI_SYNC_FIX]",
-                        "Trying URL-extracted name match for: $urlName"
+                        "Found match! Bookmark URL contains sessionId"
                     )
-                    matchingBookmark = allBookmarked.find { bookmark ->
-                        bookmark.name == urlName && bookmark.apiName == storedData.apiName
-                    }
-                    if (matchingBookmark != null) {
-                        android.util.Log.d("[MINI_SYNC_FIX]", "Found match by URL-extracted name!")
-                    }
                 }
+                containsSession
             }
+        } else {
+            // Fallback to exact match if no session ID
+            allBookmarked.find { it.url == storedData.url }
+        }
 
+        // Fallback 2: Match by name and apiName when session ID doesn't match
+        // This happens when loading from cache with new session IDs
+        if (matchingBookmark == null) {
             android.util.Log.d(
                 "[MINI_SYNC_FIX]",
-                "Final matchingBookmark: ${matchingBookmark != null}"
+                "Session ID match failed, trying name-based match for: ${storedData.name}"
             )
-            val hasBookmarkSyncData = matchingBookmark?.syncData?.isNotEmpty() == true
-            if (hasBookmarkSyncData) {
-                android.util.Log.d(
-                    "[MINI_SYNC_FIX]",
-                    "Adding syncData from bookmarked data: ${matchingBookmark.syncData}"
-                )
-                val added = syncModel.addSyncs(matchingBookmark.syncData)
-                android.util.Log.d(
-                    "[MINI_SYNC_FIX]",
-                    "Bookmark sync data added (new data only): $added"
-                )
-                // Always call updateSynced to ensure UI reflects current state
-                syncModel.updateSynced()
-                android.util.Log.d(
-                    "[MINI_SYNC_FIX]",
-                    "Called updateSynced() after bookmark sync data"
-                )
-                android.util.Log.d(
-                    "[MINI_SYNC_FIX]",
-                    "Skipping URL-based lookup - using bookmark sync data"
-                )
-            } else {
-                // Only try URL-based sync lookup if we don't have bookmark sync data
-                // This prevents addFromUrl from clearing our bookmark sync state
-                android.util.Log.d(
-                    "[MINI_SYNC_FIX]",
-                    "No bookmark sync data, trying URL-based lookup"
-                )
-                syncModel.addFromUrl(syncUrl)
+            matchingBookmark = allBookmarked.find { bookmark ->
+                bookmark.name == storedData.name && bookmark.apiName == storedData.apiName
+            }
+            if (matchingBookmark != null) {
+                android.util.Log.d("[MINI_SYNC_FIX]", "Found match by name and apiName!")
+            }
+        }
 
-                // Fallback: If URL-based lookup fails (no HTTP URLs), try name-based lookup
+        // Fallback 3: Extract name from session URL JSON and try matching
+        // The cached header name may differ from the bookmark name (e.g., "Tsue to Tsurugi" vs "Wistoria")
+        if (matchingBookmark == null && storedData.url.contains("session")) {
+            val urlNameMatch = Regex(""""name":"([^"]+)""").find(storedData.url)
+            val urlName = urlNameMatch?.groupValues?.get(1)
+            if (urlName != null && urlName != storedData.name) {
                 android.util.Log.d(
                     "[MINI_SYNC_FIX]",
-                    "Fallback: trying name-based sync lookup for ${storedData.name}"
+                    "Trying URL-extracted name match for: $urlName"
                 )
+                matchingBookmark = allBookmarked.find { bookmark ->
+                    bookmark.name == urlName && bookmark.apiName == storedData.apiName
+                }
+                if (matchingBookmark != null) {
+                    android.util.Log.d("[MINI_SYNC_FIX]", "Found match by URL-extracted name!")
+                }
+            }
+        }
 
-                // Use ioSafe to call the suspend function
-                com.lagradost.cloudstream3.utils.Coroutines.ioSafe {
-                    try {
-                        val trackerResult = com.lagradost.cloudstream3.APIHolder.getTracker(
-                            listOfNotNull(
-                                storedData.name,
-                                // Could add other name fields if available
-                            ).filter { it.length > 2 }
-                                .distinct()
-                                .map { it.lowercase().trim() },
-                            com.lagradost.cloudstream3.TrackerType.getTypes(com.lagradost.cloudstream3.TvType.Anime), // Assuming anime, adjust as needed
-                            null // year is not available in storedData, using null
+        android.util.Log.d(
+            "[MINI_SYNC_FIX]",
+            "Final matchingBookmark: ${matchingBookmark != null}"
+        )
+        val hasBookmarkSyncData = matchingBookmark?.syncData?.isNotEmpty() == true
+        if (hasBookmarkSyncData) {
+            android.util.Log.d(
+                "[MINI_SYNC_FIX]",
+                "Adding syncData from bookmarked data: ${matchingBookmark.syncData}"
+            )
+            
+            // THE FIX: Set sticky flag when bookmark sync data is found - this prevents "sync gap" hiding
+            wasNameMatchFound = true
+            android.util.Log.d(
+                "[MINI_SYNC_FIX]",
+                "STICKY FLAG SET: wasNameMatchFound = true (bookmark sync data found)"
+            )
+            
+            val added = syncModel.addSyncs(matchingBookmark.syncData)
+            android.util.Log.d(
+                "[MINI_SYNC_FIX]",
+                "Bookmark sync data added (new data only): $added"
+            )
+            
+            // ATOMIC FIX: Force immediate UI update on main thread to prevent race condition
+            // CRITICAL: Also call updateMetaAndUser() because the calls at lines 2444-2445
+            // are NEVER reached when d.syncData is empty (addSyncs returns false for empty data)
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    syncModel.updateMetaAndUser()
+                    syncModel.updateSynced()
+                    android.util.Log.d(
+                        "[MINI_SYNC_FIX]",
+                        "ATOMIC UPDATE: updateMetaAndUser() and updateSynced() called on main thread after bookmark sync data"
+                    )
+                }
+            }
+            
+            android.util.Log.d(
+                "[MINI_SYNC_FIX]",
+                "Called updateMetaAndUser() and updateSynced() after bookmark sync data"
+            )
+            android.util.Log.d(
+                "[MINI_SYNC_FIX]",
+                "Skipping URL-based lookup - using bookmark sync data"
+            )
+        } else {
+            // Only try URL-based sync lookup if we don't have bookmark sync data
+            // This prevents addFromUrl from clearing our bookmark sync state
+            android.util.Log.d(
+                "[MINI_SYNC_FIX]",
+                "No bookmark sync data, trying URL-based lookup"
+            )
+            syncModel.addFromUrl(syncUrl)
+
+            // Fallback: If URL-based lookup fails (no HTTP URLs), try name-based lookup
+            android.util.Log.d(
+                "[MINI_SYNC_FIX]",
+                "Fallback: trying name-based sync lookup for ${storedData.name}"
+            )
+
+            // Use ioSafe to call the suspend function
+            com.lagradost.cloudstream3.utils.Coroutines.ioSafe {
+                try {
+                    val trackerResult = com.lagradost.cloudstream3.APIHolder.getTracker(
+                        listOfNotNull(
+                            storedData.name,
+                            // Could add other name fields if available
+                        ).filter { it.length > 2 }
+                            .distinct()
+                            .map { it.lowercase().trim() },
+                        com.lagradost.cloudstream3.TrackerType.getTypes(com.lagradost.cloudstream3.TvType.Anime), // Assuming anime, adjust as needed
+                        null // year is not available in storedData, using null
+                    )
+
+                    if (trackerResult != null) {
+                        android.util.Log.d(
+                            "[MINI_SYNC_FIX]",
+                            "Name-based lookup found: mal=${trackerResult.malId}, anilist=${trackerResult.aniId}"
                         )
 
-                        if (trackerResult != null) {
+                        // THE FIX: Set sticky flag when match found - this prevents "sync gap" hiding
+                        wasNameMatchFound = true
+                        android.util.Log.d(
+                            "[MINI_SYNC_FIX]",
+                            "STICKY FLAG SET: wasNameMatchFound = true (name match found)"
+                        )
+
+                        val syncMap = mutableMapOf<String, String>()
+                        trackerResult.malId?.let {
+                            syncMap[com.lagradost.cloudstream3.syncproviders.AccountManager.malApi.idPrefix] =
+                                it.toString()
+                        }
+                        trackerResult.aniId?.let {
+                            syncMap[com.lagradost.cloudstream3.syncproviders.AccountManager.aniListApi.idPrefix] =
+                                it
+                        }
+
+                        if (syncMap.isNotEmpty()) {
                             android.util.Log.d(
                                 "[MINI_SYNC_FIX]",
-                                "Name-based lookup found: mal=${trackerResult.malId}, anilist=${trackerResult.aniId}"
+                                "Adding name-based sync data: $syncMap"
                             )
-
-                            // THE FIX: Set sticky flag when match found - this prevents "sync gap" hiding
-                            wasNameMatchFound = true
+                            val added = syncModel.addSyncs(syncMap)
                             android.util.Log.d(
                                 "[MINI_SYNC_FIX]",
-                                "STICKY FLAG SET: wasNameMatchFound = true (name match found)"
+                                "Name-based sync data added (new data only): $added"
+                            )
+                            
+                            // ATOMIC FIX: Force immediate UI update on main thread to prevent race condition
+                            // This ensures newList is populated before visibility check runs
+                            // CRITICAL: Also call updateMetaAndUser() because the calls at lines 2444-2445
+                            // are NEVER reached when d.syncData is empty (addSyncs returns false for empty data)
+                            kotlinx.coroutines.runBlocking {
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    syncModel.updateMetaAndUser()
+                                    syncModel.updateSynced()
+                                    android.util.Log.d(
+                                        "[MINI_SYNC_FIX]",
+                                        "ATOMIC UPDATE: updateMetaAndUser() and updateSynced() called on main thread after name-based sync data"
+                                    )
+                                }
+                            }
+                            
+                            android.util.Log.d(
+                                "[MINI_SYNC_FIX]",
+                                "Called updateMetaAndUser() and updateSynced() after name-based sync data"
                             )
 
-                            val syncMap = mutableMapOf<String, String>()
-                            trackerResult.malId?.let {
-                                syncMap[com.lagradost.cloudstream3.syncproviders.AccountManager.malApi.idPrefix] =
-                                    it.toString()
-                            }
-                            trackerResult.aniId?.let {
-                                syncMap[com.lagradost.cloudstream3.syncproviders.AccountManager.aniListApi.idPrefix] =
-                                    it
-                            }
-
-                            if (syncMap.isNotEmpty()) {
-                                android.util.Log.d(
-                                    "[MINI_SYNC_FIX]",
-                                    "Adding name-based sync data: $syncMap"
-                                )
-                                val added = syncModel.addSyncs(syncMap)
-                                android.util.Log.d(
-                                    "[MINI_SYNC_FIX]",
-                                    "Name-based sync data added (new data only): $added"
-                                )
-                                // Always call updateSynced to ensure UI reflects current state
-                                syncModel.updateSynced()
-                                android.util.Log.d(
-                                    "[MINI_SYNC_FIX]",
-                                    "Called updateSynced() after name-based sync data"
-                                )
-
-                                // THE FIX: Force the sync UI to show content instead of skeleton when we have data
-                                // This prevents the "loading skeleton" ghost state when data is already available
+                            // THE FIX: Force the sync UI to show content instead of skeleton when we have data
+                            // This prevents the "loading skeleton" ghost state when data is already available
+                            kotlinx.coroutines.runBlocking {
                                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                                     syncBinding?.apply {
                                         android.util.Log.d(
@@ -1785,45 +1848,64 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                     }
                                 }
                             }
-                        } else {
-                            android.util.Log.d(
-                                "[MINI_SYNC_FIX]",
-                                "Name-based lookup found no results"
-                            )
                         }
-                    } catch (e: Exception) {
-                        android.util.Log.e("[MINI_SYNC_FIX]", "Error in name-based lookup", e)
+                    } else {
+                        android.util.Log.d(
+                            "[MINI_SYNC_FIX]",
+                            "Name-based lookup found no results"
+                        )
                     }
+                } catch (e: Exception) {
+                    android.util.Log.e("[MINI_SYNC_FIX]", "Error in name-based lookup", e)
                 }
             }
-            val api = APIHolder.getApiFromNameNull(storedData.apiName)
+        }
+        val api = APIHolder.getApiFromNameNull(storedData.apiName)
 
             // This may not be 100% reliable, and may delay for small period
-            // before resultCastItems will be scrollable again, but this does work
-            // most of the time.
+        // before resultCastItems will be scrollable again, but this does work
+        // most of the time.
+        // FIX: Only register panel state listener once to prevent infinite loop
+        if (!isPanelStateListenerRegistered) {
             binding?.resultOverlappingPanels?.registerEndPanelStateListeners(
                 object : OverlappingPanelsLayout.PanelStateListener {
                     override fun onPanelStateChange(panelState: PanelState) {
+                        android.util.Log.d("[PANEL_DEBUG]", "Panel state changed to: $panelState")
                         PanelsChildGestureRegionObserver.Provider.get().apply {
-                            resultBinding?.resultCastItems?.let { register(it) }
+                            resultBinding?.resultCastItems?.let { 
+                                // FIX: Only register if not already registered to prevent infinite loop
+                                if (!isCastItemsRegistered) {
+                                    try {
+                                        register(it)
+                                        isCastItemsRegistered = true
+                                        android.util.Log.d("[PANEL_DEBUG]", "Registered resultCastItems for panel state: $panelState")
+                                    } catch (e: Exception) {
+                                        android.util.Log.d("[PANEL_DEBUG]", "resultCastItems registration failed: ${e.message}")
+                                    }
+                                } else {
+                                    android.util.Log.d("[PANEL_DEBUG]", "resultCastItems already registered, skipping")
+                                }
+                            }
                         }
                     }
                 }
             )
+            isPanelStateListenerRegistered = true
+        }
 
-            // ===== ===== =====
+        // ===== ===== =====
 
-            binding?.resultSearch?.isGone = storedData.name.isBlank()
-            binding?.resultSearch?.setOnClickListener {
-                android.util.Log.d(
-                    "RESULT_SEARCH_REDIRECT",
-                    "resultSearch clicked - navigating to main search with query: '${storedData.name}'"
-                )
-                val activity = activity
-                if (activity is com.lagradost.cloudstream3.MainActivity) {
-                    com.lagradost.cloudstream3.MainActivity.nextSearchQuery = storedData.name
-                    val bottomNav =
-                        activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(
+        binding?.resultSearch?.isGone = storedData.name.isBlank()
+        binding?.resultSearch?.setOnClickListener {
+            android.util.Log.d(
+                "RESULT_SEARCH_REDIRECT",
+                "resultSearch clicked - navigating to main search with query: '${storedData.name}'"
+            )
+            val activity = activity
+            if (activity is com.lagradost.cloudstream3.MainActivity) {
+                com.lagradost.cloudstream3.MainActivity.nextSearchQuery = storedData.name
+                val bottomNav =
+                    activity.findViewById<com.google.android.material.bottomnavigation.BottomNavigationView>(
                             R.id.nav_view
                         )
                     val navRail =
@@ -1941,9 +2023,31 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 }
 
                 resultMiniSync.setOnClickListener {
+                    android.util.Log.d("[SYNC_CLICK_DEBUG]", "resultMiniSync clicked - panel state: ${resultOverlappingPanels.getSelectedPanel().ordinal}")
                     if (resultOverlappingPanels.getSelectedPanel().ordinal == 1) {
-                        resultOverlappingPanels.openStartPanel()
-                    } else resultOverlappingPanels.closePanels()
+                        android.util.Log.d("[SYNC_CLICK_DEBUG]", "Opening start panel")
+                        // FIX: Check if we need to refresh sync data when opening from cache
+                        // If we have sync IDs but userData is null/loading, trigger a refresh
+                        val hasSyncIds = syncModel.getSyncs().isNotEmpty()
+                        val userData = syncModel.userData.value
+                        val needsRefresh = hasSyncIds && (userData == null || userData is Resource.Loading || userData is Resource.Failure)
+                        if (needsRefresh) {
+                            android.util.Log.d("[MINI_SYNC_FIX]", "Sync data needs refresh - has IDs but user data is: ${userData?.javaClass?.simpleName ?: "null"}")
+                            syncModel.updateUserData()
+                            syncModel.updateSynced()
+                        } else {
+                            android.util.Log.d("[MINI_SYNC_FIX]", "Sync data OK - hasSyncIds=$hasSyncIds, userData=${userData?.javaClass?.simpleName ?: "null"}")
+                        }
+                        // FIX: Unlock panel and defer open until after layout pass
+                        resultOverlappingPanels.setStartPanelLockState(OverlappingPanelsLayout.LockState.UNLOCKED)
+                        resultOverlappingPanels.requestLayout()
+                        resultOverlappingPanels.post {
+                            resultOverlappingPanels.openStartPanel()
+                        }
+                    } else {
+                        android.util.Log.d("[SYNC_CLICK_DEBUG]", "Closing panels")
+                        resultOverlappingPanels.closePanels()
+                    }
                 }
 
                 /*
@@ -2408,7 +2512,68 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                             resultMetaContentRating.width = 0
                         }
 
-                        if (syncModel.addSyncs(d.syncData)) {
+                        // FIX: Always process sync data from API response, even if some IDs already exist
+                        // This ensures we get all sync providers (simkl, kitsu) from the response
+                        val hadNewSyncData = syncModel.addSyncs(d.syncData)
+                        if (hadNewSyncData || d.syncData.isNotEmpty()) {
+                            android.util.Log.d("[MINI_SYNC_FIX]", "Processing API sync data - new: $hadNewSyncData, total: ${d.syncData}")
+                            
+                            // FIX: Update the cache with full sync data so cached loads have complete data
+                            viewModel.currentRepo?.updateCacheSyncData(d.url, d.syncData)
+                            
+                            // FIX: Also update offline cache (DownloadHeaderCached) with sync data
+                            // This ensures offline/cached loads have complete sync data
+                            try {
+                                if (d.syncData.isNotEmpty()) {
+                                    android.util.Log.d("[MINI_SYNC_FIX]", "OFFLINE_CACHE_DEBUG: url=${d.url}, syncData=${d.syncData}")
+                                    
+                                    // FIX: Search ALL cache entries to find matching URL
+                                    // The cache key may be url, parentId, or session-based - we need to find the right one
+                                    val allKeys = com.lagradost.cloudstream3.CloudStreamApp.getKeys(com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE) ?: emptySet()
+                                    android.util.Log.d("[MINI_SYNC_FIX]", "OFFLINE_CACHE_DEBUG: total cache keys=${allKeys.size}")
+                                    
+                                    var updatedCount = 0
+                                    for (key in allKeys) {
+                                        val header = com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
+                                            com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
+                                            key
+                                        )
+                                        // Match by URL (handle both direct URL and session URL)
+                                        if (header?.url == d.url) {
+                                            com.lagradost.cloudstream3.CloudStreamApp.setKey(
+                                                com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
+                                                key,
+                                                header.copy(syncData = d.syncData)
+                                            )
+                                            updatedCount++
+                                            android.util.Log.d("[MINI_SYNC_FIX]", "OFFLINE_CACHE_DEBUG: Updated cache entry with key=$key")
+                                        }
+                                    }
+                                    
+                                    if (updatedCount > 0) {
+                                        android.util.Log.d("[MINI_SYNC_FIX]", "Updated $updatedCount offline cache entries with sync data for url: ${d.url}")
+                                    } else {
+                                        // Try direct URL lookup as fallback (for new cache entries)
+                                        val directHeader = com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
+                                            com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
+                                            d.url
+                                        )
+                                        if (directHeader != null) {
+                                            com.lagradost.cloudstream3.CloudStreamApp.setKey(
+                                                com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
+                                                d.url,
+                                                directHeader.copy(syncData = d.syncData)
+                                            )
+                                            android.util.Log.d("[MINI_SYNC_FIX]", "Updated offline cache with sync data using direct URL key")
+                                        } else {
+                                            android.util.Log.d("[MINI_SYNC_FIX]", "OFFLINE_CACHE_DEBUG: No matching cache entry found for url: ${d.url}")
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                android.util.Log.e("[MINI_SYNC_FIX]", "Failed to update offline cache: ${e.message}")
+                            }
+                            
                             syncModel.updateMetaAndUser()
                             syncModel.updateSynced()
                         } else {
@@ -2564,9 +2729,11 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 }
             }
             observe(syncModel.metadata) { meta ->
+                android.util.Log.d("[SYNC_METADATA_DEBUG]", "Metadata observer fired: ${meta?.javaClass?.simpleName}")
                 when (meta) {
                     is Resource.Success -> {
                         val d = meta.value
+                        android.util.Log.d("[SYNC_METADATA_DEBUG]", "Metadata Success - totalEpisodes: ${d.totalEpisodes}, publicScore: ${d.publicScore}")
                         syncBinding?.resultSyncEpisodes?.progress = currentSyncProgress * 1000
                         setSyncMaxEpisodes(d.totalEpisodes)
 
@@ -2574,16 +2741,24 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     }
 
                     is Resource.Loading -> {
+                        android.util.Log.d("[SYNC_METADATA_DEBUG]", "Metadata Loading")
                         syncBinding?.resultSyncMaxEpisodes?.text =
                             syncBinding?.resultSyncMaxEpisodes?.context?.getString(R.string.sync_total_episodes_none)
                     }
 
-                    else -> {}
+                    is Resource.Failure -> {
+                        android.util.Log.d("[SYNC_METADATA_DEBUG]", "Metadata Failure: ${meta.errorString}")
+                    }
+
+                    null -> {
+                        android.util.Log.d("[SYNC_METADATA_DEBUG]", "Metadata null")
+                    }
                 }
             }
 
 
             observe(syncModel.userData) { status ->
+                android.util.Log.d("[SYNC_USERDATA_DEBUG]", "UserData observer fired: ${status?.javaClass?.simpleName}")
                 var closed = false
                 syncBinding?.apply {
                     when (status) {
@@ -2866,4 +3041,4 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             }
         }
 
-    }}
+    }

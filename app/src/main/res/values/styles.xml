@@ -34,7 +34,12 @@
             @style/CustomCastExpandedController
         </item>
         <item name="castMiniControllerStyle">@style/CustomCastMiniController</item>
-        <!--<item name="mediaRouteButtonTint">?attr/colorPrimary</item>-->
+        <item name="mediaRouteButtonTint">?attr/colorPrimary</item>
+        
+        <!-- Cast SDK required theme attributes -->
+        <item name="colorControlNormal">?attr/textColor</item>
+        <item name="colorControlActivated">?attr/colorPrimary</item>
+        <item name="colorControlHighlight">?attr/colorAccent</item>
 
         <!-- Preference -->
         <item name="android:textColor">?attr/textColor</item>
@@ -1029,8 +1034,8 @@
         </item>
         <item name="castSkipNextButtonDrawable">@drawable/cast_ic_expanded_controller_skip_next
         </item>
-        <item name="castRewind30ButtonDrawable">@drawable/go_back_30</item>
-        <item name="castForward30ButtonDrawable">@drawable/go_forward_30</item>
+        <item name="castRewind30ButtonDrawable">@drawable/netflix_skip_back</item>
+        <item name="castForward30ButtonDrawable">@drawable/netflix_skip_forward</item>
     </style>
 
     <style name="CustomCastMiniController" parent="CastMiniController">

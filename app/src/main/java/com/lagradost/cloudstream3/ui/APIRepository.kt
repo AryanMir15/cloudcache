@@ -121,6 +121,37 @@ class APIRepository(val api: MainAPI) {
         }
     }
 
+    /**
+     * Updates the cached LoadResponse with new sync data.
+     * This ensures cached loads have the full sync data from API responses.
+     * FIX: Updates ALL matching entries to handle multiple cache entries with same URL.
+     */
+    fun updateCacheSyncData(url: String, syncData: Map<String, String>) {
+        if (syncData.isEmpty()) return
+        
+        val fixedUrl = api.fixUrl(url)
+        synchronized(cache) {
+            // FIX: Update ALL matching entries to ensure consistency
+            // The cache can have multiple entries with the same URL (e.g., from name-based lookup and API response)
+            var updatedCount = 0
+            for (i in cache.indices) {
+                if (cache[i].response.url == fixedUrl) {
+                    val existing = cache[i]
+                    // Merge new sync data with existing
+                    val mergedSyncData = existing.response.syncData.toMutableMap()
+                    mergedSyncData.putAll(syncData)
+                    
+                    // Update the response with merged sync data
+                    existing.response.syncData = mergedSyncData
+                    updatedCount++
+                }
+            }
+            if (updatedCount > 0) {
+                android.util.Log.d("[MINI_SYNC_FIX]", "Updated $updatedCount cache entries with sync data for: $fixedUrl, syncs: $syncData")
+            }
+        }
+    }
+
     suspend fun search(query: String, page: Int): Resource<SearchResponseList> {
         if (query.isEmpty())
             return Resource.Success(newSearchResponseList(emptyList()))

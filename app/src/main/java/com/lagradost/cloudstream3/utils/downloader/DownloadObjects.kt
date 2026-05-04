@@ -112,6 +112,8 @@ object DownloadObjects {
         @JsonProperty("hasSwappedMetadata") val hasSwappedMetadata: Boolean = false,
         @JsonProperty("swappedFields") val swappedFields: Set<String> = emptySet(),
         @JsonProperty("originalPoster") val originalPoster: String? = null,
+        // FIX: Add syncData field to cache sync data for offline loads
+        @JsonProperty("syncData") val syncData: Map<String, String>? = null,
         @JsonProperty("originalBanner") val originalBanner: String? = null,
         @JsonProperty("originalLogo") val originalLogo: String? = null,
         @JsonProperty("originalPlot") val originalPlot: String? = null,

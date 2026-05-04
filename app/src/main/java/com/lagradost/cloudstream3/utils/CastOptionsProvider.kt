@@ -28,8 +28,8 @@ class CastOptionsProvider : OptionsProvider {
             NotificationOptions.Builder()
                 .setTargetActivityClassName(name)
                 .setActions(buttonActions, compatButtonAction)
-                .setForward30DrawableResId(R.drawable.go_forward_30)
-                .setRewind30DrawableResId(R.drawable.go_back_30)
+                .setForward30DrawableResId(R.drawable.netflix_skip_forward)
+                .setRewind30DrawableResId(R.drawable.netflix_skip_back)
                 .setSkipStepMs(30000)
                 .build()
 
