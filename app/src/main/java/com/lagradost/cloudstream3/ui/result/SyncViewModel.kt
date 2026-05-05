@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.amap
 import com.lagradost.cloudstream3.mvvm.Resource
@@ -18,7 +19,13 @@ import com.lagradost.cloudstream3.syncproviders.SyncAPI
 import com.lagradost.cloudstream3.ui.SyncWatchType
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.SyncUtil
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.*
+import java.util.concurrent.atomic.AtomicBoolean
 
 
 data class CurrentSynced(
@@ -47,13 +54,21 @@ class SyncViewModel : ViewModel() {
     val userData: LiveData<Resource<SyncAPI.AbstractSyncStatus>?> = _userDataResponse
 
     // prefix, id
+    // [SIMKL_DEFINITIVE_FIX][PHASE3] Mutex-protected syncs map for thread safety
+    private val syncsMutex = Mutex()
     private val syncs = mutableMapOf<String, String>()
-    //private val _syncIds: MutableLiveData<MutableMap<String, String>> =
-    //    MutableLiveData(mutableMapOf())
-    //val syncIds: LiveData<MutableMap<String, String>> get() = _syncIds
+    
+    // [RACE_CONDITION_FIX] Track in-flight requests to prevent overlapping calls
+    private val isFetchingUserData = AtomicBoolean(false)
+    private var lastRequestedSyncs: Map<String, String> = emptyMap()
+
+    
+    // StateFlow for reactive sync updates
+    private val _syncsFlow = MutableStateFlow<Map<String, String>>(emptyMap())
+    val syncsFlow: StateFlow<Map<String, String>> = _syncsFlow
 
     fun getSyncs(): Map<String, String> {
-        return syncs
+        return syncs.toMap()
     }
 
     private val _currentSynced: MutableLiveData<List<CurrentSynced>> =
@@ -94,12 +109,23 @@ class SyncViewModel : ViewModel() {
         }
     }
 
-    private fun addSync(idPrefix: String, id: String): Boolean {
-        if (syncs[idPrefix] == id) return false
-        Log.i(TAG, "addSync $idPrefix = $id")
+    // [SIMKL_DEFINITIVE_FIX][PHASE3] Mutex-protected addSync for atomic updates
+    private suspend fun addSync(idPrefix: String, id: String): Boolean {
+        syncsMutex.withLock {
+            if (syncs[idPrefix] == id) return false
+            Log.i(TAG, "addSync $idPrefix = $id")
+            syncs[idPrefix] = id
+            _syncsFlow.value = syncs.toMap()
+            return true
+        }
+    }
 
+    // Keep non-suspend version for compatibility, but mark as blocking
+    private fun addSyncBlocking(idPrefix: String, id: String): Boolean {
+        if (syncs[idPrefix] == id) return false
+        Log.i(TAG, "addSyncBlocking $idPrefix = $id")
         syncs[idPrefix] = id
-        //_syncIds.postValue(syncs)
+        _syncsFlow.value = syncs.toMap()
         return true
     }
 
@@ -108,56 +134,94 @@ class SyncViewModel : ViewModel() {
         hasAddedFromUrl.clear()
     }
 
-    fun addSyncs(map: Map<String, String>?): Boolean {
+    // [SIMKL_DEFINITIVE_FIX][PHASE3] Thread-safe addSyncs with Mutex
+    suspend fun addSyncs(map: Map<String, String>?): Boolean {
         Log.i(TAG, "addSyncs called with: $map")
-        Log.i(TAG, "addSyncs current syncs map: $syncs")
+
+        return syncsMutex.withLock {
+            Log.i(TAG, "addSyncs current syncs map: $syncs")
+            var isValid = false
+
+            map?.forEach { (prefix, id) ->
+                if (syncs[prefix] != id) {
+                    Log.i(TAG, "addSyncs - adding $prefix = $id")
+                    syncs[prefix] = id
+                    isValid = true
+                }
+            }
+
+            if (isValid) {
+                _syncsFlow.value = syncs.toMap()
+            }
+
+            Log.i(TAG, "addSyncs final result: $isValid, syncs now: $syncs")
+            isValid
+        }
+    }
+
+    
+    // Non-blocking version for Java interop and legacy code
+    fun addSyncsBlocking(map: Map<String, String>?): Boolean {
+        Log.i(TAG, "addSyncsBlocking called with: $map")
+        Log.i(TAG, "addSyncsBlocking current syncs map: $syncs")
         var isValid = false
 
         map?.forEach { (prefix, id) ->
-            val added = addSync(prefix, id)
-            Log.i(TAG, "addSyncs - addSync($prefix, $id) returned: $added")
+            val added = addSyncBlocking(prefix, id)
+            Log.i(TAG, "addSyncsBlocking - addSync($prefix, $id) returned: $added")
             isValid = added || isValid
         }
-        Log.i(TAG, "addSyncs final result: $isValid, syncs now: $syncs")
+        Log.i(TAG, "addSyncsBlocking final result: $isValid, syncs now: $syncs")
         return isValid
     }
 
-    private fun setMalId(id: String?): Boolean {
+    // [SIMKL_DEFINITIVE_FIX][PHASE3] Suspend versions with Mutex protection
+    private suspend fun setMalId(id: String?): Boolean {
         return addSync(malApi.idPrefix, id ?: return false)
     }
 
-    private fun setAniListId(id: String?): Boolean {
+    private suspend fun setAniListId(id: String?): Boolean {
         return addSync(aniListApi.idPrefix, id ?: return false)
     }
 
     var hasAddedFromUrl: HashSet<String> = hashSetOf()
 
+    // [SIMKL_DEFINITIVE_FIX][PHASE3] Thread-safe addFromUrl with Mutex
     fun addFromUrl(url: String?) = ioSafe {
         Log.i(TAG, "addFromUrl = $url")
         Log.i(TAG, "hasAddedFromUrl contains url: ${hasAddedFromUrl.contains(url)}")
         Log.i(TAG, "hasAddedFromUrl size: ${hasAddedFromUrl.size}")
         Log.i(TAG, "url starts with http: ${url?.startsWith("http")}")
-        
+
         if (url == null) {
             Log.i(TAG, "addFromUrl - url is null, returning")
             return@ioSafe
         }
-        if (hasAddedFromUrl.contains(url)) {
-            Log.i(TAG, "addFromUrl - url already added, returning")
-            return@ioSafe
-        }
-        if (!url.startsWith("http")) {
-            Log.i(TAG, "addFromUrl - url doesn't start with http, returning")
-            return@ioSafe
+
+        syncsMutex.withLock {
+            if (hasAddedFromUrl.contains(url)) {
+                Log.i(TAG, "addFromUrl - url already added, returning")
+                return@ioSafe
+            }
+            if (!url.startsWith("http")) {
+                Log.i(TAG, "addFromUrl - url doesn't start with http, returning")
+                return@ioSafe
+            }
+            hasAddedFromUrl.add(url)
         }
 
         SyncUtil.getIdsFromUrl(url)?.let { (malId, aniListId) ->
-            hasAddedFromUrl.add(url)
+            var hasAdded = false
 
-            setMalId(malId)
-            setAniListId(aniListId)
-            updateSynced()
-            if (malId != null || aniListId != null) {
+            malId?.let { id ->
+                if (setMalId(id)) hasAdded = true
+            }
+            aniListId?.let { id ->
+                if (setAniListId(id)) hasAdded = true
+            }
+
+            if (hasAdded) {
+                updateSynced()
                 Log.i(TAG, "addFromUrl->updateMetaAndUser $malId $aniListId")
                 updateMetaAndUser()
             }
@@ -193,8 +257,46 @@ class SyncViewModel : ViewModel() {
 
         val user = userData.value
         if (user is Resource.Success) {
-            user.value.watchedEpisodes = episodes
-            _userDataResponse.postValue(Resource.Success(user.value))
+            // Create immutable copy with new episodes to ensure UI updates
+            val currentUser = user.value
+            val updatedUser = when (currentUser) {
+                is com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus -> {
+                    com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus(
+                        status = currentUser.status,
+                        score = currentUser.score,
+                        oldScore = currentUser.oldScore,
+                        watchedEpisodes = episodes,
+                        episodeConstructor = currentUser.episodeConstructor,
+                        isFavorite = currentUser.isFavorite,
+                        maxEpisodes = currentUser.maxEpisodes,
+                        oldEpisodes = currentUser.oldEpisodes,
+                        oldStatus = currentUser.oldStatus
+                    )
+                }
+                else -> {
+                    // For other sync providers, try to use copy if available, or fallback to modifying
+                    try {
+                        // Try to use reflection for copy() method if it's a data class
+                        val copyMethod = currentUser?.javaClass?.getMethod("copy")
+                        if (copyMethod != null) {
+                            val copy = copyMethod.invoke(currentUser)
+                            val episodesField = copy?.javaClass?.getDeclaredField("watchedEpisodes")
+                            episodesField?.isAccessible = true
+                            episodesField?.set(copy, episodes)
+                            copy as SyncAPI.AbstractSyncStatus
+                        } else {
+                            // Fallback: modify and post same reference (forces UI update)
+                            currentUser.watchedEpisodes = episodes
+                            currentUser
+                        }
+                    } catch (e: Exception) {
+                        // Fallback: modify and post same reference
+                        currentUser.watchedEpisodes = episodes
+                        currentUser
+                    }
+                }
+            }
+            _userDataResponse.postValue(Resource.Success(updatedUser))
         }
     }
 
@@ -202,8 +304,46 @@ class SyncViewModel : ViewModel() {
         Log.i(TAG, "setScore = $score")
         val user = userData.value
         if (user is Resource.Success) {
-            user.value.score = score
-            _userDataResponse.postValue(Resource.Success(user.value))
+            // Create immutable copy with new score to ensure UI updates
+            val currentUser = user.value
+            val updatedUser = when (currentUser) {
+                is com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus -> {
+                    com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus(
+                        status = currentUser.status,
+                        score = score,
+                        oldScore = currentUser.oldScore,
+                        watchedEpisodes = currentUser.watchedEpisodes,
+                        episodeConstructor = currentUser.episodeConstructor,
+                        isFavorite = currentUser.isFavorite,
+                        maxEpisodes = currentUser.maxEpisodes,
+                        oldEpisodes = currentUser.oldEpisodes,
+                        oldStatus = currentUser.oldStatus
+                    )
+                }
+                else -> {
+                    // For other sync providers, try to use copy if available, or fallback to modifying
+                    try {
+                        // Try to use reflection for copy() method if it's a data class
+                        val copyMethod = currentUser?.javaClass?.getMethod("copy")
+                        if (copyMethod != null) {
+                            val copy = copyMethod.invoke(currentUser)
+                            val scoreField = copy?.javaClass?.getDeclaredField("score")
+                            scoreField?.isAccessible = true
+                            scoreField?.set(copy, score)
+                            copy as SyncAPI.AbstractSyncStatus
+                        } else {
+                            // Fallback: modify and post same reference (forces UI update)
+                            currentUser.score = score
+                            currentUser
+                        }
+                    } catch (e: Exception) {
+                        // Fallback: modify and post same reference
+                        currentUser.score = score
+                        currentUser
+                    }
+                }
+            }
+            _userDataResponse.postValue(Resource.Success(updatedUser))
         }
     }
 
@@ -212,8 +352,47 @@ class SyncViewModel : ViewModel() {
         if (which < -1 || which > 5) return // validate input
         val user = userData.value
         if (user is Resource.Success) {
-            user.value.status = SyncWatchType.fromInternalId(which)
-            _userDataResponse.postValue(Resource.Success(user.value))
+            // Create immutable copy with new status to ensure UI updates
+            val currentUser = user.value
+            val newStatus = SyncWatchType.fromInternalId(which)
+            val updatedUser = when (currentUser) {
+                is com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus -> {
+                    com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus(
+                        status = newStatus,
+                        score = currentUser.score,
+                        oldScore = currentUser.oldScore,
+                        watchedEpisodes = currentUser.watchedEpisodes,
+                        episodeConstructor = currentUser.episodeConstructor,
+                        isFavorite = currentUser.isFavorite,
+                        maxEpisodes = currentUser.maxEpisodes,
+                        oldEpisodes = currentUser.oldEpisodes,
+                        oldStatus = currentUser.oldStatus
+                    )
+                }
+                else -> {
+                    // For other sync providers, try to use copy if available, or fallback to modifying
+                    try {
+                        // Try to use reflection for copy() method if it's a data class
+                        val copyMethod = currentUser?.javaClass?.getMethod("copy")
+                        if (copyMethod != null) {
+                            val copy = copyMethod.invoke(currentUser)
+                            val statusField = copy?.javaClass?.getDeclaredField("status")
+                            statusField?.isAccessible = true
+                            statusField?.set(copy, newStatus)
+                            copy as SyncAPI.AbstractSyncStatus
+                        } else {
+                            // Fallback: modify and post same reference (forces UI update)
+                            currentUser.status = newStatus
+                            currentUser
+                        }
+                    } catch (e: Exception) {
+                        // Fallback: modify and post same reference
+                        currentUser.status = newStatus
+                        currentUser
+                    }
+                }
+            }
+            _userDataResponse.postValue(Resource.Success(updatedUser))
         }
     }
 
@@ -252,33 +431,60 @@ class SyncViewModel : ViewModel() {
             }
         }
 
-    fun updateUserData() = ioSafe {
+    fun updateUserData() {
         Log.i(TAG, "updateUserData - syncs size: ${syncs.size}, syncs: $syncs")
-        _userDataResponse.postValue(Resource.Loading())
-
-        var triedApis = 0
-        var successApi: String? = null
-        val status = syncs.firstNotNullOfOrNull { (prefix, id) ->
-            triedApis++
-            Log.i(TAG, "updateUserData - trying $prefix with id $id")
-            val repo = repos.firstOrNull { it.idPrefix == prefix }
-            Log.i(TAG, "updateUserData - repo for $prefix: ${repo != null}")
-            val result = repo?.status(id)
-            Log.i(TAG, "updateUserData - status result for $prefix: isSuccess=${result?.isSuccess}, isFailure=${result?.isFailure}")
-            val statusValue = result?.getOrNull()
-            if (statusValue != null) {
-                successApi = prefix
-                Log.i(TAG, "updateUserData - SUCCESS for $prefix")
+        
+        // [RACE_CONDITION_FIX] Prevent overlapping calls
+        val currentSyncs = syncs.toMap()
+        if (isFetchingUserData.get()) {
+            // If same data is being fetched, skip entirely
+            if (currentSyncs == lastRequestedSyncs) {
+                Log.i(TAG, "updateUserData - SKIPPED: identical request already in progress")
+                return
             }
-            statusValue
         }
+        
+        // Try to acquire the flag - if already true, another call is in progress
+        if (!isFetchingUserData.compareAndSet(false, true)) {
+            Log.i(TAG, "updateUserData - SKIPPED: another request is in progress")
+            return
+        }
+        
+        lastRequestedSyncs = currentSyncs
+        
+        viewModelScope.launch {
+            try {
+                _userDataResponse.postValue(Resource.Loading())
 
-        Log.i(TAG, "updateUserData - tried $triedApis APIs, success: $successApi, status is null: ${status == null}")
+            var triedApis = 0
+            var successApi: String? = null
+            val status = syncs.firstNotNullOfOrNull { (prefix, id) ->
+                triedApis++
+                Log.i(TAG, "updateUserData - trying $prefix with id $id")
+                val repo = repos.firstOrNull { it.idPrefix == prefix }
+                Log.i(TAG, "updateUserData - repo for $prefix: ${repo != null}")
+                val result = repo?.status(id)
+                Log.i(TAG, "updateUserData - status result for $prefix: isSuccess=${result?.isSuccess}, isFailure=${result?.isFailure}")
+                val statusValue = result?.getOrNull()
+                if (statusValue != null) {
+                    successApi = prefix
+                    Log.i(TAG, "updateUserData - SUCCESS for $prefix")
+                }
+                statusValue
+            }
 
-        if (status == null) {
-            _userDataResponse.postValue(Resource.Failure(false, "No data"))
-        } else {
-            _userDataResponse.postValue(Resource.Success(status))
+            Log.i(TAG, "updateUserData - tried $triedApis APIs, success: $successApi, status is null: ${status == null}")
+
+                if (status == null) {
+                    _userDataResponse.postValue(Resource.Failure(false, "No data"))
+                } else {
+                    _userDataResponse.postValue(Resource.Success(status))
+                }
+            } finally {
+                // [RACE_CONDITION_FIX] Always release the flag
+                isFetchingUserData.set(false)
+                Log.i(TAG, "updateUserData - request completed, flag released")
+            }
         }
     }
 
@@ -337,13 +543,37 @@ class SyncViewModel : ViewModel() {
         return repos.firstOrNull { it.idPrefix == realName }?.idPrefix
     }
 
-    fun setSync(syncName: String, syncId: String) {
-        syncs.clear()
-        syncs[syncName] = syncId
+    // [SIMKL_DEFINITIVE_FIX][PHASE3] Thread-safe setSync with Mutex
+    suspend fun setSync(syncName: String, syncId: String) {
+        syncsMutex.withLock {
+            syncs.clear()
+            syncs[syncName] = syncId
+            _syncsFlow.value = syncs.toMap()
+        }
     }
 
-    fun clear() {
+    // Blocking version for compatibility
+    fun setSyncBlocking(syncName: String, syncId: String) {
         syncs.clear()
+        syncs[syncName] = syncId
+        _syncsFlow.value = syncs.toMap()
+    }
+
+    // [SIMKL_DEFINITIVE_FIX][PHASE3] Thread-safe clear with Mutex - named differently to avoid conflict with ViewModel.clear()
+    suspend fun clearAsync() {
+        syncsMutex.withLock {
+            syncs.clear()
+            _syncsFlow.value = emptyMap()
+        }
+        _metaResponse.postValue(null)
+        _currentSynced.postValue(getMissing())
+        _userDataResponse.postValue(null)
+    }
+
+    // Non-suspend version that must be used from non-coroutine contexts (overrides ViewModel.clear() is not allowed)
+    fun clearBlocking() {
+        syncs.clear()
+        _syncsFlow.value = emptyMap()
         _metaResponse.postValue(null)
         _currentSynced.postValue(getMissing())
         _userDataResponse.postValue(null)

@@ -39,9 +39,123 @@ import java.time.Instant
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.roundToInt
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
 import kotlin.time.toDuration
+
+/**
+ * Rate limiter for Simkl API - enforces 1 request per second per CLIENT_ID.
+ * [SIMKL_DEFINITIVE_FIX][PHASE4]
+ */
+private class RateLimiter(
+    private val permitsPerSecond: Int = 1,
+    private val minIntervalMs: Long = 1000L
+) {
+    private val lastRequestTime = AtomicLong(0)
+
+    suspend fun acquire() {
+        val now = System.currentTimeMillis()
+        val lastRequest = lastRequestTime.get()
+        val timeSinceLastRequest = now - lastRequest
+
+        if (timeSinceLastRequest < minIntervalMs) {
+            val waitTime = minIntervalMs - timeSinceLastRequest
+            android.util.Log.d("[SIMKL_RATE_LIMIT]", "Rate limiting: waiting ${waitTime}ms")
+            kotlinx.coroutines.delay(waitTime)
+        }
+
+        lastRequestTime.set(System.currentTimeMillis())
+    }
+
+    fun tryAcquire(): Boolean {
+        val now = System.currentTimeMillis()
+        val lastRequest = lastRequestTime.get()
+        val timeSinceLastRequest = now - lastRequest
+
+        return if (timeSinceLastRequest >= minIntervalMs) {
+            lastRequestTime.set(now)
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/**
+ * Error response handler with exponential backoff for Simkl API.
+ * Handles 429 (rate limit), 401 (auth), 500 (server) errors.
+ * [SIMKL_DEFINITIVE_FIX][PHASE5]
+ */
+private object ErrorHandler {
+    private const val MAX_RETRIES = 3
+    private val retryDelays = listOf(2000L, 4000L, 8000L) // 2s, 4s, 8s
+
+    data class ErrorResult<T>(
+        val data: T?,
+        val errorCode: Int?,
+        val isSuccess: Boolean
+    )
+
+    suspend fun <T> executeWithRetry(
+        rateLimiter: RateLimiter,
+        block: suspend () -> T?
+    ): ErrorResult<T> {
+        var lastException: Exception? = null
+
+        for (attempt in 0 until MAX_RETRIES) {
+            try {
+                // Apply rate limiting before each attempt
+                rateLimiter.acquire()
+
+                val result = block()
+                return ErrorResult(result, null, true)
+            } catch (e: Exception) {
+                lastException = e
+                val errorCode = extractErrorCode(e)
+
+                android.util.Log.e("[SIMKL_ERROR]", "API call failed (attempt ${attempt + 1}/$MAX_RETRIES): code=$errorCode", e)
+
+                when (errorCode) {
+                    429 -> {
+                        // Rate limit - use exponential backoff (Retry-After parsing removed for simplicity)
+                        val delay = retryDelays.getOrElse(attempt) { 5000L }
+                        android.util.Log.w("[SIMKL_ERROR]", "Rate limited (429), waiting ${delay}ms")
+                        kotlinx.coroutines.delay(delay)
+                    }
+                    401 -> {
+                        // Auth failure - don't retry, trigger reauth
+                        android.util.Log.e("[SIMKL_ERROR]", "Authentication failed (401), triggering reauth")
+                        return ErrorResult(null, 401, false)
+                    }
+                    in 500..599 -> {
+                        // Server error - exponential backoff
+                        val delay = retryDelays.getOrElse(attempt) { 8000L }
+                        android.util.Log.w("[SIMKL_ERROR]", "Server error ($errorCode), retrying in ${delay}ms")
+                        kotlinx.coroutines.delay(delay)
+                    }
+                    else -> {
+                        // Other errors - don't retry
+                        return ErrorResult(null, errorCode, false)
+                    }
+                }
+            }
+        }
+
+        // All retries exhausted
+        android.util.Log.e("[SIMKL_ERROR]", "All $MAX_RETRIES retries exhausted")
+        return ErrorResult(null, extractErrorCode(lastException), false)
+    }
+
+    private fun extractErrorCode(e: Exception?): Int? {
+        // Extract HTTP status code from exception message if available
+        val message = e?.message ?: return null
+        // Try to find status code patterns like "HTTP 429" or "Code: 429"
+        val codePattern = Regex("(HTTP|Code|code)[:\\s]*(\\d{3})").find(message)
+        return codePattern?.groupValues?.get(2)?.toIntOrNull()
+    }
+}
 
 class SimklApi : SyncAPI() {
     override var name = "Simkl"
@@ -65,6 +179,12 @@ class SimklApi : SyncAPI() {
      * may not always update based on testing.
      */
     private var lastScoreTime = -1L
+
+    /**
+     * Global rate limiter for Simkl API - 1 request per second per CLIENT_ID.
+     * [SIMKL_DEFINITIVE_FIX][PHASE4]
+     */
+    private val rateLimiter = RateLimiter(permitsPerSecond = 1, minIntervalMs = 1000L)
 
     private object SimklCache {
         private const val SIMKL_CACHE_KEY = "SIMKL_API_CACHE"
@@ -182,7 +302,70 @@ class SimklApi : SyncAPI() {
             return "https://wsrv.nl/?url=https://simkl.in/posters/${poster}_m.webp"
         }
 
-        private fun getUrlFromId(id: Int): String {
+        /**
+         * Score normalization utilities.
+         * Maps various score formats to Simkl's 1-10 scale.
+         * [SIMKL_DEFINITIVE_FIX][PHASE6]
+         */
+        object ScoreNormalization {
+            /**
+             * Normalize a score from any scale to Simkl's 1-10 scale.
+             * Examples:
+             * - AniList 80% -> Simkl 8
+             * - MAL 8/10 -> Simkl 8
+             * - 100-point scale: 75 -> Simkl 8
+             * - 5-star scale: 4 -> Simkl 8
+             */
+            fun normalizeToSimkl(score: Int, fromMax: Int): Int {
+                return when {
+                    fromMax <= 0 -> score.coerceIn(1, 10)
+                    fromMax == 10 -> score.coerceIn(1, 10) // Already 1-10 scale
+                    fromMax == 100 -> (score / 10.0).roundToInt().coerceIn(1, 10) // Percentage
+                    fromMax == 5 -> (score * 2).coerceIn(1, 10) // 5-star scale
+                    else -> ((score * 10.0) / fromMax).roundToInt().coerceIn(1, 10) // Proportional
+                }
+            }
+
+            /**
+             * Normalize from decimal score (e.g., 7.5/10 -> 8)
+             */
+            fun normalizeFromDecimal(score: Double, fromMax: Double = 10.0): Int {
+                return ((score * 10.0) / fromMax).roundToInt().coerceIn(1, 10)
+            }
+        }
+
+        /**
+         * Episode progress normalization utilities.
+         * Simkl tracks integer episodes only (watched/not watched).
+         * [SIMKL_DEFINITIVE_FIX][PHASE6]
+         */
+        object ProgressNormalization {
+            /**
+             * Convert fractional progress to integer episode count.
+             * Episode is considered watched if >50% completed.
+             * @param watchedEpisodes Number of fully watched episodes
+             * @param progressPercent Progress in current episode (0-100)
+             * @return Total episodes to report to Simkl
+             */
+            fun calculateEpisodeProgress(
+                watchedEpisodes: Int,
+                progressPercent: Float
+            ): Int {
+                return watchedEpisodes + if (progressPercent > 50) 1 else 0
+            }
+
+            /**
+             * Convert decimal episode progress (e.g., 5.7 = 5 episodes + 70% of next)
+             * to integer count for Simkl.
+             */
+            fun fromDecimalProgress(decimalProgress: Float): Int {
+                val whole = decimalProgress.toInt()
+                val fraction = decimalProgress - whole
+                return whole + if (fraction > 0.5f) 1 else 0
+            }
+        }
+
+        fun getUrlFromId(id: Int): String {
             return "https://simkl.com/shows/$id"
         }
 
@@ -796,23 +979,113 @@ class SimklApi : SyncAPI() {
         val oldStatus: String?
     ) : SyncAPI.AbstractSyncStatus()
 
+    /**
+     * Internal method to resolve Simkl ID from cross-references with timeout and fallback.
+     * Implements the refactor from SyncViewModel to provider level.
+     */
+    private suspend fun resolveSimklIdInternal(id: String, title: String? = null): String? {
+        return try {
+            kotlinx.coroutines.withTimeout<String?>(5000) {
+                android.util.Log.d("[SIMKL_ID_RESOLVE]", "Resolving ID: $id")
+                
+                // Check if ID is JSON cross-ref format (contains {)
+                if (id.contains("{")) {
+                    val realIds = readIdFromString(id)
+                    android.util.Log.d("[SIMKL_ID_RESOLVE]", "Cross-ref IDs detected: $realIds")
+                    
+                    // Try /search/id endpoint first
+                    val idMap = mutableMapOf<String, String>()
+                    realIds.forEach { (service, serviceId) ->
+                        when (service) {
+                            SimklSyncServices.Mal -> idMap["mal"] = serviceId
+                            SimklSyncServices.AniList -> idMap["anilist"] = serviceId
+                            else -> {}
+                        }
+                    }
+                    
+                    if (idMap.isNotEmpty()) {
+                        android.util.Log.d("[SIMKL_ID_RESOLVE]", "Trying /search/id with: $idMap")
+                        val results = searchById(idMap)
+                        val simklId = results?.firstOrNull()?.id
+                        
+                        if (simklId != null) {
+                            android.util.Log.d("[SIMKL_ID_RESOLVE]", "Resolved Simkl ID via /search/id: $simklId")
+                            return@withTimeout simklId.toString()
+                        } else {
+                            android.util.Log.w("[SIMKL_ID_RESOLVE]", "/search/id failed, trying title fallback")
+                            
+                            // Fallback to title search
+                            title?.let { searchTitle ->
+                                android.util.Log.d("[SIMKL_ID_RESOLVE]", "Trying title search for: $searchTitle")
+                                val searchResults = search(null, searchTitle)
+                                val titleSimklId = searchResults?.firstOrNull()?.id
+                                
+                                if (titleSimklId != null) {
+                                    android.util.Log.d("[SIMKL_ID_RESOLVE]", "Resolved Simkl ID via title search: $titleSimklId")
+                                    return@withTimeout titleSimklId.toString()
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Direct numeric ID - no resolution needed
+                    android.util.Log.d("[SIMKL_ID_RESOLVE]", "Direct numeric ID, no resolution needed: $id")
+                    return@withTimeout id
+                }
+                
+                android.util.Log.w("[SIMKL_ID_RESOLVE]", "All resolution methods failed")
+                null
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            android.util.Log.w("[SIMKL_ID_RESOLVE]", "Resolution timeout after 5 seconds, proceeding with tentative ID")
+            id // Return original ID as "tentative" for retry on next app launch
+        } catch (e: Exception) {
+            android.util.Log.e("[SIMKL_ID_RESOLVE]", "Resolution error: ${e.message}", e)
+            null
+        }
+    }
+
     override suspend fun status(auth: AuthData?, id: String): SyncAPI.AbstractSyncStatus? {
         if (auth == null) return null
+        
+        // [SIMKL_ID_REFACTOR] Resolve Simkl ID at provider level with fallback and timeout
+        val resolvedId = resolveSimklIdInternal(id)
+        val finalId = resolvedId ?: id
+        
+        android.util.Log.d("[SIMKL_ID_REFACTOR]", "Status called with id: $id, resolved to: $finalId")
+        
         val realIds = readIdFromString(id)
 
-        // Key which assumes all ids are the same each time :/
-        // This could be some sort of reference system to make multiple IDs
-        // point to the same key.
-        val idKey =
-            realIds.toList().map { "${it.first.originalName}=${it.second}" }.sorted().joinToString()
-
-        val cachedObject = SimklCache.getKey<MediaObject>(idKey)
-        val searchResult: MediaObject = cachedObject
-            ?: (searchByIds(realIds)?.firstOrNull()?.also { result ->
+        // [SIMKL_BUG_FIX] Check if id is a direct numeric Simkl ID (new format) or JSON cross-refs (old format)
+        val isDirectSimklId = finalId.toIntOrNull() != null
+        
+        val searchResult: MediaObject = if (isDirectSimklId) {
+            // New format: Direct Simkl ID - need to fetch metadata
+            android.util.Log.d("[SIMKL_ID_FIX]", "Using direct Simkl ID: $finalId")
+            val idKey = "simkl=$finalId"
+            val cachedObject = SimklCache.getKey<MediaObject>(idKey)
+            cachedObject ?: (searchByIds(mapOf(SimklSyncServices.Simkl to finalId))?.firstOrNull()?.also { result ->
                 val cacheTime =
                     if (result.hasEnded()) SimklCache.CacheTimes.OneMonth.value else SimklCache.CacheTimes.ThirtyMinutes.value
                 SimklCache.setKey(idKey, result, Duration.parse(cacheTime))
             }) ?: return null
+        } else {
+            // Old format: JSON cross-refs - use existing logic
+            android.util.Log.d("[SIMKL_ID_FIX]", "Using cross-ref IDs: $realIds")
+            
+            // Key which assumes all ids are the same each time :/
+            // This could be some sort of reference system to make multiple IDs
+            // point to the same key.
+            val idKey =
+                realIds.toList().map { "${it.first.originalName}=${it.second}" }.sorted().joinToString()
+
+            val cachedObject = SimklCache.getKey<MediaObject>(idKey)
+            cachedObject ?: (searchByIds(realIds)?.firstOrNull()?.also { result ->
+                val cacheTime =
+                    if (result.hasEnded()) SimklCache.CacheTimes.OneMonth.value else SimklCache.CacheTimes.ThirtyMinutes.value
+                SimklCache.setKey(idKey, result, Duration.parse(cacheTime))
+            }) ?: return null
+        }
 
         val episodeConstructor = SimklEpisodeConstructor(
             searchResult.ids?.simkl,
@@ -866,7 +1139,16 @@ class SimklApi : SyncAPI() {
         id: String,
         newStatus: AbstractSyncStatus
     ): Boolean {
-        val parsedId = readIdFromString(id)
+        // [SIMKL_BUG_FIX] Check if id is a direct numeric Simkl ID (new format) or JSON cross-refs (old format)
+        val isDirectSimklId = id.toIntOrNull() != null
+        val parsedId = if (isDirectSimklId) {
+            android.util.Log.d("[SIMKL_ID_FIX]", "updateStatus using direct Simkl ID: $id")
+            mapOf(SimklSyncServices.Simkl to id)
+        } else {
+            android.util.Log.d("[SIMKL_ID_FIX]", "updateStatus using cross-ref IDs: $id")
+            readIdFromString(id)
+        }
+        
         lastScoreTime = unixTime
         val simklStatus = newStatus as? SimklSyncStatus
 
@@ -906,18 +1188,74 @@ class SimklApi : SyncAPI() {
     private suspend fun searchByIds(serviceMap: Map<SimklSyncServices, String>): Array<MediaObject>? {
         if (serviceMap.isEmpty()) return emptyArray()
 
-        return app.get(
-            "$mainUrl/search/id",
-            params = mapOf("client_id" to CLIENT_ID) + serviceMap.map { (service, id) ->
-                service.originalName to id
+        // [SIMKL_DEFINITIVE_FIX][PHASE2+4+5] ID-based lookup with rate limiting and error handling
+        android.util.Log.d("[SIMKL_API]", "searchByIds called with: $serviceMap")
+
+        val result = ErrorHandler.executeWithRetry(rateLimiter) {
+            val response = app.get(
+                "$mainUrl/search/id",
+                params = mapOf("client_id" to CLIENT_ID) + serviceMap.map { (service, id) ->
+                    service.originalName to id
+                }
+            )
+
+            if (response.isSuccessful) {
+                response.parsedSafe<Array<MediaObject>>()
+            } else {
+                throw Exception("HTTP ${response.code}: Search by IDs failed")
             }
-        ).parsedSafe()
+        }
+
+        return if (result.isSuccess) {
+            android.util.Log.d("[SIMKL_API]", "searchByIds success: found ${result.data?.size ?: 0} items")
+            result.data
+        } else {
+            android.util.Log.e("[SIMKL_API]", "searchByIds failed after retries: ${result.errorCode}")
+            null
+        }
+    }
+
+    /**
+     * Public ID-based search method for external callers.
+     * Prioritize this over title search when MAL/AniList IDs are available.
+     * [SIMKL_DEFINITIVE_FIX][PHASE2]
+     */
+    suspend fun searchById(idMap: Map<String, String>): List<SyncAPI.SyncSearchResult>? {
+        val serviceMap = idMap.mapNotNull { (key, value) ->
+            when (key.lowercase()) {
+                "mal" -> SimklSyncServices.Mal to value
+                "anilist" -> SimklSyncServices.AniList to value
+                "imdb" -> SimklSyncServices.Imdb to value
+                "tmdb" -> SimklSyncServices.Tmdb to value
+                else -> null
+            }
+        }.toMap()
+
+        return searchByIds(serviceMap)?.mapNotNull { it.toSyncSearchResult() }
     }
 
     override suspend fun search(auth: AuthData?, query: String): List<SyncAPI.SyncSearchResult>? {
-        return app.get(
-            "$mainUrl/search/", params = mapOf("client_id" to CLIENT_ID, "q" to name)
-        ).parsedSafe<Array<MediaObject>>()?.mapNotNull { it.toSyncSearchResult() }
+        // [SIMKL_DEFINITIVE_FIX][PHASE2+4+5] Fixed bug, added rate limiting and error handling
+        android.util.Log.d("[SIMKL_API]", "search called with query: $query")
+
+        val result = ErrorHandler.executeWithRetry(rateLimiter) {
+            val response = app.get(
+                "$mainUrl/search/", params = mapOf("client_id" to CLIENT_ID, "q" to query)
+            )
+
+            if (response.isSuccessful) {
+                response.parsedSafe<Array<MediaObject>>()?.mapNotNull { it.toSyncSearchResult() }
+            } else {
+                throw Exception("HTTP ${response.code}: Search failed")
+            }
+        }
+
+        return if (result.isSuccess) {
+            result.data
+        } else {
+            android.util.Log.e("[SIMKL_API]", "search failed after retries: ${result.errorCode}")
+            null
+        }
     }
 
     override fun loginRequest(): AuthLoginPage? {
@@ -938,6 +1276,9 @@ class SimklApi : SyncAPI() {
             mapOf("date_from" to it)
         } ?: emptyMap()
 
+        // [SIMKL_DEFINITIVE_FIX][PHASE4] Apply rate limiting
+        rateLimiter.acquire()
+
         // Can return null on no change.
         return app.get(
             "$mainUrl/sync/all-items/",
@@ -947,6 +1288,9 @@ class SimklApi : SyncAPI() {
     }
 
     private suspend fun getActivities(token: AuthToken): ActivitiesResponse? {
+        // [SIMKL_DEFINITIVE_FIX][PHASE4] Apply rate limiting
+        rateLimiter.acquire()
+
         return app.post("$mainUrl/sync/activities", headers = getHeaders(token)).parsedSafe()
     }
 

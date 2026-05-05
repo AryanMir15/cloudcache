@@ -1911,6 +1911,7 @@ class ResultViewModel2 : ViewModel() {
                                                         cacheTime = System.currentTimeMillis(),
                                                         hasCustomPoster = false,
                                                         hasSwappedMetadata = false,
+                                                        syncData = response?.syncData,
                                                         id = parentId
                                                     )
                                                 )
@@ -2722,7 +2723,8 @@ class ResultViewModel2 : ViewModel() {
                                 originalActors = existingCache?.originalActors,
                                 originalScore = existingCache?.originalScore,
                                 originalYear = existingCache?.originalYear,
-                                originalShowStatus = existingCache?.originalShowStatus
+                                originalShowStatus = existingCache?.originalShowStatus,
+                                syncData = existingCache?.syncData
                             )
                         )
                         Log.d(TAG, "ACTORS_CACHE_DEBUG - Cache updated successfully - saved actors count: ${mergedActors?.size ?: 0}")
@@ -2964,7 +2966,8 @@ class ResultViewModel2 : ViewModel() {
                                 id = id,
                                 cacheTime = System.currentTimeMillis(),
                                 hasCustomPoster = false,
-                                hasSwappedMetadata = false
+                                hasSwappedMetadata = false,
+                                syncData = response.syncData
                             )
                         )
                     }
@@ -3830,6 +3833,8 @@ class ResultViewModel2 : ViewModel() {
             id = cachedHeader.id,
             showStatus = cachedHeader.showStatus?.let { try { ShowStatus.valueOf(it) } catch (e: Exception) { null } }
         )
+
+        android.util.Log.d("[CACHE_SYNC_DEBUG]", "createOfflineLoadResponse - syncData restored: ${response.syncData}, cachedHeader.syncData: ${cachedHeader.syncData}")
         
         android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Output LoadResponse type: LoadResponseFromSearch (no episodes field)")
         android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Output LoadResponse fields - plot: ${response.plot?.take(30)}, backgroundPosterUrl: ${response.backgroundPosterUrl?.take(30)}, tags: ${response.tags?.size}, actors: ${response.actors?.size}")
@@ -4608,7 +4613,8 @@ class ResultViewModel2 : ViewModel() {
                                 originalActors = existingCachedHeader?.originalActors,
                                 originalScore = existingCachedHeader?.originalScore,
                                 originalYear = existingCachedHeader?.originalYear,
-                                originalShowStatus = existingCachedHeader?.originalShowStatus
+                                originalShowStatus = existingCachedHeader?.originalShowStatus,
+                                syncData = existingCachedHeader?.syncData
                             )
                         )
                     }

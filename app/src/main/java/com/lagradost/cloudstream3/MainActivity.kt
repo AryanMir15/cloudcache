@@ -446,13 +446,14 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
 
         // based on apiName we decide on if it is a local list or not, this is because
         // we want to show a bit of extra UI to sync apis
+        // [SIMKL_DEFINITIVE_FIX] Use blocking versions since we're not in a coroutine
         if (result is SyncAPI.LibraryItem && syncName != null) {
             isLocalList = false
-            syncViewModel.setSync(syncName, result.syncId)
+            syncViewModel.setSyncBlocking(syncName, result.syncId)
             syncViewModel.updateMetaAndUser()
         } else {
             isLocalList = true
-            syncViewModel.clear()
+            syncViewModel.clearBlocking()
         }
 
         if (load) {

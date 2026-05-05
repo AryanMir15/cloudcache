@@ -2016,7 +2016,8 @@ class GeneratorPlayer : FullScreenPlayer() {
     private fun unwrapBundle(savedInstanceState: Bundle?) {
         Log.i(TAG, "unwrapBundle = $savedInstanceState")
         savedInstanceState?.let { bundle ->
-            sync.addSyncs(bundle.getSafeSerializable<HashMap<String, String>>("syncData"))
+            // [SIMKL_DEFINITIVE_FIX] Use blocking version since we're not in a coroutine
+            sync.addSyncsBlocking(bundle.getSafeSerializable<HashMap<String, String>>("syncData"))
         }
     }
 
