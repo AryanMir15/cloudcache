@@ -777,12 +777,15 @@ object AppContextUtils {
         originalResponseName: String? = null,
         originalResponseUrl: String? = null,
     ) {
+        android.util.Log.d("swapfix", "loadSearchResult - START: ${card.name}, url: ${card.url}, metadataSwap: $metadataSwap")
         this?.runOnUiThread {
             // viewModelStore.clear()
+            android.util.Log.d("swapfix", "loadSearchResult - Calling navigate")
             this.navigate(
                 getResultsId(),
                 ResultFragment.newInstance(card, startAction, startValue, metadataSwap, originalResponseName, originalResponseUrl)
             )
+            android.util.Log.d("swapfix", "loadSearchResult - END: Navigation called")
         }
     }
 

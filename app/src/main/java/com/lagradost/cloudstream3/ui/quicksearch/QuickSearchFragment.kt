@@ -240,10 +240,16 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                     android.util.Log.d("MetadataSwap", "QuickSearchFragment single-provider click - action: ${callback.action}, card: ${callback.card.name}")
                     // Invoke clickCallback first for metadata swap handling
                     android.util.Log.d("MetadataSwap", "QuickSearchFragment - invoking clickCallback, is null: ${clickCallback == null}")
+                    val isMetadataSwap = arguments?.getBoolean("is_metadata_swap") == true
                     clickCallback?.invoke(callback)
-                    android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked, now calling SearchHelper.handleSearchClickCallback")
-                    // Then handle normally to navigate to entry
-                    SearchHelper.handleSearchClickCallback(callback)
+                    android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked, isMetadataSwap: $isMetadataSwap")
+                    // Only call normal navigation if NOT metadata swap (metadata swap handles its own navigation)
+                    if (!isMetadataSwap) {
+                        android.util.Log.d("MetadataSwap", "QuickSearchFragment - calling SearchHelper.handleSearchClickCallback (normal navigation)")
+                        SearchHelper.handleSearchClickCallback(callback)
+                    } else {
+                        android.util.Log.d("MetadataSwap", "QuickSearchFragment - skipping normal navigation for metadata swap")
+                    }
                 }
             }
 
@@ -262,10 +268,16 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                         android.util.Log.d("MetadataSwap", "QuickSearchFragment multi-provider click - action: ${callback.action}, card: ${callback.card.name}")
                         // Invoke clickCallback first for metadata swap handling
                         android.util.Log.d("MetadataSwap", "QuickSearchFragment - invoking clickCallback, is null: ${clickCallback == null}")
+                        val isMetadataSwap = arguments?.getBoolean("is_metadata_swap") == true
                         clickCallback?.invoke(callback)
-                        android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked, now calling SearchHelper.handleSearchClickCallback")
-                        // Then handle normally
-                        SearchHelper.handleSearchClickCallback(callback)
+                        android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked, isMetadataSwap: $isMetadataSwap")
+                        // Only call normal navigation if NOT metadata swap (metadata swap handles its own navigation)
+                        if (!isMetadataSwap) {
+                            android.util.Log.d("MetadataSwap", "QuickSearchFragment - calling SearchHelper.handleSearchClickCallback (normal navigation)")
+                            SearchHelper.handleSearchClickCallback(callback)
+                        } else {
+                            android.util.Log.d("MetadataSwap", "QuickSearchFragment - skipping normal navigation for metadata swap")
+                        }
                     },
                     { item ->
                         bottomSheetDialog = activity?.loadHomepageList(item, dismissCallback = {

@@ -298,6 +298,15 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         binding?.resultOverlappingPanels?.setTag(PANEL_LISTENER_TAG_KEY.hashCode(), null)
         binding?.resultOverlappingPanels?.setTag(PANEL_LISTENER_TAG_KEY.hashCode() + 1, null)
 
+        // Clear metadata swap state when fragment is destroyed (user abandoned swap flow)
+        if (com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive) {
+            android.util.Log.d("MetadataSwap", "onDestroyView - Clearing swap state")
+            com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive = false
+            com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse = null
+            viewModel.setMetadataSwapMode(false)
+            android.util.Log.d("MetadataSwap", "onDestroyView - Swap state cleared")
+        }
+
         updateUIEvent -= ::updateUI
         binding = null
         resultBinding?.resultScroll?.setOnClickListener(null)
@@ -895,9 +904,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             )
             android.util.Log.d("swapfix", "performDirectSwap - onBackPressed #3 (from TARGET to Original)")
             activity?.onBackPressed()
-            android.util.Log.d("swapfix", "performDirectSwap - onBackPressed #4 (from Original to exit results fragment)")
-            activity?.onBackPressed()
-            android.util.Log.d("swapfix", "===== performDirectSwap END - EXITED RESULTS FRAGMENT =====")
+            android.util.Log.d("swapfix", "===== performDirectSwap END - RETURNED TO ORIGINAL =====")
         } else {
             android.util.Log.e("swapfix", "performDirectSwap - originalResponseRef or swappedResponse is null, falling back to onBackPressed")
             activity?.onBackPressed()
@@ -1161,10 +1168,8 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
     override fun onPause() {
         super.onPause()
-        // Clear metadata swap mode when navigating away within QuickSearchFragment
-        if (com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive) {
-            android.util.Log.d("MetadataSwap", "onPause - Clearing isMetadataSwapMode")
-        }
+        // Don't clear swap state here - onPause is called during normal navigation within swap flow
+        // Clearing here causes multiple fragment instances to be created
         PanelsChildGestureRegionObserver.Provider.get()
             .addGestureRegionsUpdateListener(gestureRegionsListener)
     }
