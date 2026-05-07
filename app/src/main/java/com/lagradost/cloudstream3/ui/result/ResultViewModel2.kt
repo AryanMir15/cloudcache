@@ -3346,14 +3346,9 @@ class ResultViewModel2 : ViewModel() {
         updateEpisodes: Boolean,
         updateFillers: Boolean,
     ) {
-        android.util.Log.d("CacheFlow", "postSuccessful - Input actors count: ${loadResponse.actors?.size}")
-        android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSuccessful - Setting currentResponse to: ${loadResponse.name}, type: ${loadResponse.javaClass.simpleName}")
-        android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSuccessful - CALL STACK: ${Thread.currentThread().stackTrace.take(10).joinToString("\n") { "    at ${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})" }}")
         currentId = mainId
         currentResponse = loadResponse
-        android.util.Log.d("[SUBSCRIBE_DEBUG]", "postSuccessful - currentResponse set, type: ${currentResponse?.javaClass?.simpleName}")
         postPage(loadResponse, apiRepository)
-        android.util.Log.d("CacheFlow", "postSuccessful - After postPage, currentResponse actors count: ${currentResponse?.actors?.size}")
         postSubscription(loadResponse)
         postFavorites(loadResponse)
         _watchStatus.postValue(getResultWatchState(mainId))
@@ -3373,6 +3368,9 @@ class ResultViewModel2 : ViewModel() {
             updateFillers(loadResponse)
         }
 
+        // Track episodes for lazy caching
+        val episodesToCache = mutableListOf<Triple<Int, Int, Int?>>() // (id, episode, season)
+        
         val allEpisodes = when (loadResponse) {
             is AnimeLoadResponse -> {
                 val existingEpisodes = HashSet<Int>()
@@ -3423,35 +3421,8 @@ class ResultViewModel2 : ViewModel() {
                                     showLogo = loadResponse.logoUrl,
                                 )
 
-                            // Cache episode with metadata - only if not already cached
-                            val existingCachedEpisode = getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, id.toString())
-                            if (existingCachedEpisode == null) {
-                                val episodeCached = DownloadObjects.DownloadEpisodeCached(
-                                    name = i.name,
-                                    poster = i.posterUrl,
-                                    episode = episode,
-                                    season = i.season,
-                                    id = id,
-                                    parentId = mainId,
-                                    score = i.score,
-                                    description = i.description,
-                                    date = i.date,
-                                    cacheTime = System.currentTimeMillis(),
-                                    dubStatus = ep.key.name,
-                                    data = i.data
-                                )
-                                CloudStreamApp.setKey(
-                                    DOWNLOAD_EPISODE_CACHE,
-                                    id.toString(),
-                                    episodeCached
-                                )
-                                android.util.Log.d("CacheFlow", "postEpisodes - Cached new episode: id=$id, episode=$episode, season=${i.season}")
-                                
-                                // Update parent index for O(1) lookup
-                                updateParentIndex(mainId, id.toString())
-                            } else {
-                                android.util.Log.d("CacheFlow", "postEpisodes - Episode already cached, skipping: id=$id, episode=$episode")
-                            }
+                            // Collect episodes for lazy caching instead of caching immediately
+                            episodesToCache.add(Triple(id, episode, i.season))
 
                             val season = eps.seasonIndex ?: 0
                             val indexer = EpisodeIndexer(ep.key, season)
@@ -3513,35 +3484,8 @@ class ResultViewModel2 : ViewModel() {
                                 showLogo = loadResponse.logoUrl,
                             )
 
-                        // Cache episode with metadata - only if not already cached
-                        val existingCachedEpisode = getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, id.toString())
-                        if (existingCachedEpisode == null) {
-                            val episodeCached = DownloadObjects.DownloadEpisodeCached(
-                                name = episode.name,
-                                poster = episode.posterUrl,
-                                episode = episodeIndex,
-                                season = episode.season,
-                                id = id,
-                                parentId = mainId,
-                                score = episode.score,
-                                description = episode.description,
-                                date = episode.date,
-                                cacheTime = System.currentTimeMillis(),
-                                dubStatus = com.lagradost.cloudstream3.DubStatus.None.name,
-                                data = episode.data
-                            )
-                            CloudStreamApp.setKey(
-                                DOWNLOAD_EPISODE_CACHE,
-                                id.toString(),
-                                episodeCached
-                            )
-                            android.util.Log.d("CacheFlow", "postEpisodes - Cached new episode: id=$id, episode=$episodeIndex, season=${episode.season}")
-                            
-                            // Update parent index for O(1) lookup
-                            updateParentIndex(mainId, id.toString())
-                        } else {
-                            android.util.Log.d("CacheFlow", "postEpisodes - Episode already cached, skipping: id=$id, episode=$episodeIndex")
-                        }
+                        // Collect episodes for lazy caching instead of caching immediately
+                        episodesToCache.add(Triple(id, episodeIndex, episode.season))
 
                         val season = ep.seasonIndex ?: 0
                         val indexer = EpisodeIndexer(DubStatus.None, season)
@@ -3672,6 +3616,74 @@ class ResultViewModel2 : ViewModel() {
 
         postEpisodeRange(min, range, DataStoreHelper.resultsSortingMode)
         postResume()
+        
+        // Lazy cache episodes in background to avoid ANR
+        viewModelScope.launch(Dispatchers.IO) {
+            cacheEpisodesProgressively(episodesToCache, mainId, loadResponse)
+        }
+    }
+    
+    private suspend fun cacheEpisodesProgressively(
+        episodesToCache: List<Triple<Int, Int, Int?>>,
+        mainId: Int,
+        loadResponse: LoadResponse
+    ) {
+        val batchSize = 10
+        val delayBetweenBatches = 50L // ms
+        
+        episodesToCache.chunked(batchSize).forEachIndexed { batchIndex, batch ->
+            batch.forEach { (id, episode, season) ->
+                try {
+                    val existingCachedEpisode = getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, id.toString())
+                    if (existingCachedEpisode == null) {
+                        // Find the original episode data from loadResponse
+                        val episodeData = when (loadResponse) {
+                            is AnimeLoadResponse -> {
+                                loadResponse.episodes.flatMap { ep -> ep.value }.firstOrNull { 
+                                    it.episode == episode && it.season == season 
+                                }
+                            }
+                            is TvSeriesLoadResponse -> {
+                                loadResponse.episodes.firstOrNull { 
+                                    it.episode == episode && it.season == season 
+                                }
+                            }
+                            else -> null
+                        }
+                        
+                        episodeData?.let { data ->
+                            val episodeCached = DownloadObjects.DownloadEpisodeCached(
+                                name = data.name,
+                                poster = data.posterUrl,
+                                episode = episode,
+                                season = season,
+                                id = id,
+                                parentId = mainId,
+                                score = data.score,
+                                description = data.description,
+                                date = data.date,
+                                cacheTime = System.currentTimeMillis(),
+                                dubStatus = if (loadResponse is AnimeLoadResponse) "None" else "None",
+                                data = data.data
+                            )
+                            CloudStreamApp.setKey(
+                                DOWNLOAD_EPISODE_CACHE,
+                                id.toString(),
+                                episodeCached
+                            )
+                            updateParentIndex(mainId, id.toString())
+                        }
+                    }
+                } catch (e: Exception) {
+                    logError(e)
+                }
+            }
+            
+            // Small delay between batches to prevent blocking
+            if (batchIndex < episodesToCache.size / batchSize) {
+                delay(delayBetweenBatches)
+            }
+        }
     }
 
     private fun postResume() {
@@ -4427,7 +4439,7 @@ class ResultViewModel2 : ViewModel() {
                 // Load episodes from cache
                 loadOfflineEpisodes(cachedHeader.id, cachedHeader, apiName, validUrl, api)
             } else {
-                android.util.Log.d("CacheFlow", "MAIN LOAD - No cached header found, calling API for: $validUrl")
+                android.util.Log.d("CacheFlow", "MAIN LOAD - No cached header found, calling API")
                 when (val data = repo.load(validUrl)) {
                     is Resource.Failure -> {
                         _page.postValue(data)

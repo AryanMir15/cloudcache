@@ -218,19 +218,15 @@ class EpisodeAdapter(
                     downloadButton.setStatus(status)
 
                     val spoilerMode = DataStoreHelper.spoilerPreventionMode
-                    android.util.Log.d("SpoilerPrevention", "Episode: ${item.name}, spoilerMode: $spoilerMode, watchState: ${item.videoWatchState}")
                     val shouldApplySpoiler = spoilerMode != SPOILER_MODE_OFF && item.videoWatchState != VideoWatchState.Watched
-                    android.util.Log.d("SpoilerPrevention", "shouldApplySpoiler: $shouldApplySpoiler")
 
                     val name =
                         if (shouldApplySpoiler) {
-                            android.util.Log.d("SpoilerPrevention", "Stripping name for episode ${item.episode}")
                             "${episodeText.context.getString(R.string.episode)} ${item.episode}"
                         } else {
                             if (item.name == null) "${episodeText.context.getString(R.string.episode)} ${item.episode}" else "${item.episode}. ${item.name}"
                         }
                     episodeFiller.isVisible = item.isFiller == true && !shouldApplySpoiler
-                    android.util.Log.d("SpoilerPrevention", "Name set to: $name, filler visible: ${episodeFiller.isVisible}")
                     episodeText.text =
                         name//if(card.isFiller == true) episodeText.context.getString(R.string.filler).format(name) else name
                     episodeText.isSelected = true // is needed for text repeating
@@ -261,12 +257,10 @@ class EpisodeAdapter(
                     }
 
                     val posterVisible = !item.poster.isNullOrBlank()
-                    android.util.Log.d("SpoilerPrevention", "Poster visible: $posterVisible, poster URL: ${item.poster}")
                     if (posterVisible) {
                         val isUpcoming = item.airDate != null && unixTimeMS < item.airDate
 
                         if (shouldApplySpoiler) {
-                            android.util.Log.d("SpoilerPrevention", "Applying spoiler image replacement, mode: $spoilerMode")
                             // Apply spoiler prevention
                             val imageToLoad = when (spoilerMode) {
                                 SPOILER_MODE_POSTER -> item.showPoster ?: item.poster
@@ -277,11 +271,8 @@ class EpisodeAdapter(
                                 else -> item.poster
                             }
 
-                            android.util.Log.d("SpoilerPrevention", "Loading image: $imageToLoad")
-
                             if (spoilerMode == SPOILER_MODE_BLUR && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                 // Apply blur effect on Android 12+ - blur the episode poster
-                                android.util.Log.d("SpoilerPrevention", "Applying blur effect to episode poster")
                                 episodePoster.loadImage(item.poster)
                                 // Apply blur after image loads
                                 main {
@@ -294,7 +285,6 @@ class EpisodeAdapter(
                                 }
                             } else if (spoilerMode == SPOILER_MODE_BLUR && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                                 // Fallback for Android < 12 - show poster instead
-                                android.util.Log.d("SpoilerPrevention", "Blur not supported on Android < 12, falling back to poster")
                                 episodePoster.loadImage(item.showPoster ?: item.poster)
                             } else {
                                 // Normal loading for other modes
@@ -467,9 +457,7 @@ class EpisodeAdapter(
                 }
 
                 val spoilerMode = DataStoreHelper.spoilerPreventionMode
-                android.util.Log.d("SpoilerPrevention", "ResultEpisode - Episode: ${item.name}, spoilerMode: $spoilerMode, watchState: ${item.videoWatchState}")
                 val shouldApplySpoiler = spoilerMode != SPOILER_MODE_OFF && item.videoWatchState != VideoWatchState.Watched
-                android.util.Log.d("SpoilerPrevention", "ResultEpisode - shouldApplySpoiler: $shouldApplySpoiler")
 
                 binding.apply {
                     downloadButton.isVisible = hasDownloadSupport

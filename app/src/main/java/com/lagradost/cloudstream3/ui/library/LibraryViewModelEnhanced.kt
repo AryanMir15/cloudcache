@@ -102,6 +102,13 @@ class LibraryViewModelEnhanced : ViewModel() {
         return cachedSeries.map { series ->
             val episodes = localLibraryCache.getCachedEpisodes(series.id)
             val items = episodes.map { episode ->
+                // Store season and episode in tags for retrieval when opening from cache
+                val tags = mutableListOf<String>()
+                if (episode.season != null) {
+                    tags.add("season:${episode.season}")
+                }
+                tags.add("episode:${episode.episode}")
+                
                 SyncAPI.LibraryItem(
                     name = episode.name,
                     url = "local://${episode.id}",
@@ -119,7 +126,7 @@ class LibraryViewModelEnhanced : ViewModel() {
                     id = episode.id.toIntOrNull(),
                     plot = episode.description,
                     score = null,
-                    tags = null
+                    tags = tags.ifEmpty { null }
                 )
             }
             SyncAPI.Page(
@@ -214,6 +221,16 @@ class LibraryViewModelEnhanced : ViewModel() {
     // New method to get total cache size
     fun getTotalCacheSize(): Long {
         return localLibraryCache.getTotalCacheSize()
+    }
+    
+    // Helper function to extract season from tags
+    fun extractSeasonFromTags(tags: List<String>?): Int? {
+        return tags?.find { it.startsWith("season:") }?.substringAfter("season:")?.toIntOrNull()
+    }
+    
+    // Helper function to extract episode from tags
+    fun extractEpisodeFromTags(tags: List<String>?): Int? {
+        return tags?.find { it.startsWith("episode:") }?.substringAfter("episode:")?.toIntOrNull()
     }
 
     fun reloadPages(forceReload: Boolean) {
