@@ -1823,6 +1823,7 @@ class ResultViewModel2 : ViewModel() {
                                                 name = response?.name ?: "Unknown",
                                                 poster = response?.posterUrl,
                                                 backgroundPosterUrl = response?.backgroundPosterUrl,
+                                                logoUrl = response?.logoUrl,
                                                 plot = response?.plot,
                                                 score = cachedScore,
                                                 showStatus = cachedShowStatus,
@@ -1901,6 +1902,7 @@ class ResultViewModel2 : ViewModel() {
                                                         name = response?.name ?: "Unknown",
                                                         poster = response?.posterUrl,
                                                         backgroundPosterUrl = response?.backgroundPosterUrl,
+                                                        logoUrl = response?.logoUrl,
                                                         plot = response?.plot,
                                                         score = response?.score?.toInt(),
                                                         showStatus = if (response is AnimeLoadResponse) response.showStatus?.name else if (response is TvSeriesLoadResponse) response.showStatus?.name else if (response is LoadResponseFromSearch) response.showStatus?.name else null,
@@ -2954,6 +2956,7 @@ class ResultViewModel2 : ViewModel() {
                                 name = response.name,
                                 poster = response.posterUrl,
                                 backgroundPosterUrl = response.backgroundPosterUrl,
+                                logoUrl = response.logoUrl,
                                 plot = response.plot,
                                 score = response.score?.toInt(),
                                 showStatus = if (response is AnimeLoadResponse) response.showStatus?.name else if (response is TvSeriesLoadResponse) response.showStatus?.name else null,
@@ -3801,8 +3804,19 @@ class ResultViewModel2 : ViewModel() {
     ): LoadResponse = withContext(Dispatchers.Default) {
         android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Input cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
         
-        // Use fallback name if cached name is blank
-        val name = cachedHeader.name.ifBlank { "Unknown" }
+        // Use fallback name if cached name is blank - try to extract from URL session data
+        val name = if (cachedHeader.name.isBlank()) {
+            // Try to extract name from URL session data using regex
+            try {
+                val nameMatch = Regex("\"name\":\"([^\"]+)\"").find(url)
+                nameMatch?.groupValues?.get(1) ?: "Unknown"
+            } catch (e: Exception) {
+                android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Failed to extract name from URL, using 'Unknown'")
+                "Unknown"
+            }
+        } else {
+            cachedHeader.name
+        }
         android.util.Log.d("CacheFlow", "createOfflineLoadResponse - Using name: $name (cached: '${cachedHeader.name}')")
         
         // Parse cached actor data back to ActorData objects

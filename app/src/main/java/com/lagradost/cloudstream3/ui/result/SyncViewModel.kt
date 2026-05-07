@@ -300,12 +300,25 @@ class SyncViewModel : ViewModel() {
         }
     }
 
-    fun setScore(score: Score?) {
+    fun setScore(score: Score?): Boolean {
         Log.i(TAG, "setScore = $score")
         val user = userData.value
         if (user is Resource.Success) {
-            // Create immutable copy with new score to ensure UI updates
             val currentUser = user.value
+            
+            // No-op protection: skip if score hasn't changed
+            if (currentUser.score == score) {
+                Log.d(TAG, "setScore - no-op, score unchanged")
+                return false
+            }
+            
+            // Auto-normalization: set status to PLANNING if entry not in list and score > 0
+            if (currentUser.status == SyncWatchType.NONE && score != null && score.toInt() > 0) {
+                Log.i(TAG, "SYNCVM auto-added entry to PLANNING before score update")
+                setStatus(SyncWatchType.PLANTOWATCH.internalId)
+            }
+            
+            // Create immutable copy with new score to ensure UI updates
             val updatedUser = when (currentUser) {
                 is com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus -> {
                     com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus(
@@ -344,7 +357,9 @@ class SyncViewModel : ViewModel() {
                 }
             }
             _userDataResponse.postValue(Resource.Success(updatedUser))
+            return true
         }
+        return false
     }
 
     fun setStatus(which: Int) {
@@ -458,7 +473,7 @@ class SyncViewModel : ViewModel() {
 
             var triedApis = 0
             var successApi: String? = null
-            val status = syncs.firstNotNullOfOrNull { (prefix, id) ->
+            val status = currentSyncs.firstNotNullOfOrNull { (prefix, id) ->
                 triedApis++
                 Log.i(TAG, "updateUserData - trying $prefix with id $id")
                 val repo = repos.firstOrNull { it.idPrefix == prefix }

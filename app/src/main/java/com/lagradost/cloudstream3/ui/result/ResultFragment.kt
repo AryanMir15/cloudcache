@@ -261,31 +261,37 @@ object ResultFragment {
         logoView: ImageView,
         titleView: TextView
     ) {
+        android.util.Log.d("LOGO_DEBUG", "bindLogo called - url: ${url?.take(50)}, isNullOrBlank: ${url.isNullOrBlank()}")
         // Cancel it, as we want to remove the listener onSuccess race condition
         logoView.dispose()
 
+        // Always show title
+        titleView.isVisible = true
+
         if (url.isNullOrBlank()) {
+            android.util.Log.d("LOGO_DEBUG", "bindLogo - url is null/blank, hiding logo")
             logoView.isVisible = false
-            titleView.isVisible = true
             return
         }
 
+        // Show logo when available
+        android.util.Log.d("LOGO_DEBUG", "bindLogo - loading logo")
         logoView.isVisible = true
-        titleView.isVisible = false
 
         logoView.loadImage(
             imageData = UiImage.Image(url, headers = headers),
             builder = {
                 listener(
                     onSuccess = { _, _ ->
+                        android.util.Log.d("LOGO_DEBUG", "bindLogo - logo loaded successfully")
                         logoView.isVisible = true
-                        titleView.isVisible = false
                     },
                     onError = { _, _ ->
+                        android.util.Log.d("LOGO_DEBUG", "bindLogo - logo failed to load, hiding logo")
                         logoView.isVisible = false
-                        titleView.isVisible = true
                     },
                     onCancel = {
+                        android.util.Log.d("LOGO_DEBUG", "bindLogo - logo load cancelled")
                         // If we manually cancel, then it should not do anything
                     }
                 )
