@@ -11,6 +11,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.EPISODE_PARENT_INDEX
@@ -4372,6 +4373,10 @@ class ResultViewModel2 : ViewModel() {
                 android.util.Log.d("CacheFlow", "MAIN LOAD - Using DOWNLOAD_HEADER_CACHE for: ${cachedHeader.name} (url: $url)")
                 android.util.Log.d("CacheFlow", "Cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
                 
+                // Show loading state initially to simulate data fetch
+                _page.postValue(Resource.Loading())
+                android.util.Log.d("[CACHE_ANIMATION]", "Showing loading state for cached data")
+                
                 // Check swap state if new system is enabled
                 var offlineResponse = createOfflineLoadResponse(cachedHeader, url, apiName, api)
                 
@@ -4390,6 +4395,12 @@ class ResultViewModel2 : ViewModel() {
                 }
                 
                 android.util.Log.d("CacheFlow", "Created offline response - plot: ${offlineResponse.plot?.take(30)}, backgroundPosterUrl: ${offlineResponse.backgroundPosterUrl?.take(30)}, tags: ${offlineResponse.tags?.size}")
+                
+                // Hold cached data for 300ms to simulate loading, then release
+                android.util.Log.d("[CACHE_ANIMATION]", "Holding cached data for 300ms before release")
+                delay(300)
+                android.util.Log.d("[CACHE_ANIMATION]", "Releasing cached data")
+                
                 postSuccessful(
                     offlineResponse,
                     cachedHeader.id,
