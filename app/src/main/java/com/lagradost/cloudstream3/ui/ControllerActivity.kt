@@ -27,6 +27,7 @@ import com.google.android.gms.cast.framework.media.RemoteMediaClient
 import com.google.android.gms.cast.framework.media.uicontroller.UIController
 import com.google.android.gms.cast.framework.media.widget.ExpandedControllerActivity
 import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.mvvm.Resource
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.mvvm.safeApiCall
@@ -309,7 +310,11 @@ class SelectSourceController(val view: ImageView, val activity: ControllerActivi
                             currentPosition,
                             currentDuration,
                             epData,
-                            meta.episodes.getOrNull(index + 1)
+                            meta.episodes.getOrNull(index + 1),
+                            name = meta.title,
+                            apiName = meta.apiName,
+                            type = if (meta.isMovie) TvType.Movie else TvType.TvSeries,
+                            posterUrl = meta.poster
                         )
                 } catch (t: Throwable) {
                     logError(t)

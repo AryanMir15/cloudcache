@@ -32,9 +32,9 @@ object TmdbFilterUtils {
         "Release Date (Newest)" to "primary_release_date.desc",
         "Release Date (Oldest)" to "primary_release_date.asc",
         "Revenue (High to Low)" to "revenue.desc",
+        "Vote Count (High to Low)" to "vote_count.desc",
         "Title (A-Z)" to "original_title.asc",
-        "Title (Z-A)" to "original_title.desc",
-        "Vote Count (High to Low)" to "vote_count.desc"
+        "Title (Z-A)" to "original_title.desc"
     )
     
     val SORT_DISPLAY_NAMES = SORT_OPTIONS.map { it.first }

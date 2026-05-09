@@ -94,31 +94,8 @@ class HomeViewModel : ViewModel() {
                         )
                         android.util.Log.d("HomeViewModel", "getResumeWatching() backup data: ${oldData != null}")
                         if (oldData == null) {
-                            android.util.Log.d("HomeViewModel", "getResumeWatching() no backup data, trying bookmarked data")
-                            // Try using bookmarked data as fallback (for cached library support)
-                            val bookmarkedData = getBookmarkedData(resume.parentId)
-                            android.util.Log.d("HomeViewModel", "getResumeWatching() bookmarked data: ${bookmarkedData != null}")
-                            if (bookmarkedData == null) {
-                                android.util.Log.d("HomeViewModel", "getResumeWatching() no bookmarked data, skipping")
-                                return@mapNotNull null
-                            }
-                            // Convert BookmarkedData to DownloadHeaderCached
-                            DownloadObjects.DownloadHeaderCached(
-                                name = bookmarkedData.name,
-                                url = bookmarkedData.url,
-                                apiName = bookmarkedData.apiName,
-                                type = bookmarkedData.type ?: TvType.TvSeries,
-                                poster = bookmarkedData.posterUrl,
-                                plot = bookmarkedData.plot,
-                                score = bookmarkedData.score?.toInt(),
-                                year = bookmarkedData.year,
-                                showStatus = null,
-                                episodeCount = null,
-                                date = null,
-                                actors = null,
-                                cacheTime = 0L,
-                                id = bookmarkedData.id ?: 0
-                            )
+                            android.util.Log.d("HomeViewModel", "getResumeWatching() no backup data, skipping entry")
+                            return@mapNotNull null
                         } else {
                             // Restore data
                             setKey(DOWNLOAD_HEADER_CACHE, resume.parentId.toString(), oldData)

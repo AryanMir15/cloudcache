@@ -132,6 +132,168 @@
         android:maxHeight="150dp"
         android:visibility="gone" />
 
+    <!-- Trending Section -->
+    <LinearLayout
+        android:id="@+id/tmdb_trending_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Trending"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+            <TextView
+                android:id="@+id/tmdb_trending_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Off"
+                android:textSize="12sp"
+                android:textColor="?attr/grayTextColor" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tmdb_trending_expand_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_baseline_arrow_forward_24"
+            android:tint="?attr/textColor"
+            android:contentDescription="Expand" />
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tmdb_trending_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:maxHeight="150dp"
+        android:visibility="gone"
+         />
+
+    <!-- Year Section -->
+    <LinearLayout
+        android:id="@+id/tmdb_year_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Year"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+            <TextView
+                android:id="@+id/tmdb_year_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="All"
+                android:textSize="12sp"
+                android:textColor="?attr/grayTextColor" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tmdb_year_expand_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_baseline_arrow_forward_24"
+            android:tint="?attr/textColor"
+            android:contentDescription="Expand" />
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tmdb_year_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:maxHeight="300dp"
+        android:visibility="gone"
+         />
+
+    <!-- Country Section -->
+    <LinearLayout
+        android:id="@+id/tmdb_country_header"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:gravity="center_vertical"
+        android:background="@android:color/black">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Country"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:textColor="?attr/textColor" />
+
+            <TextView
+                android:id="@+id/tmdb_country_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="All"
+                android:textSize="12sp"
+                android:textColor="?attr/grayTextColor" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/tmdb_country_expand_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:src="@drawable/ic_baseline_arrow_forward_24"
+            android:tint="?attr/textColor"
+            android:contentDescription="Expand" />
+
+    </LinearLayout>
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/tmdb_country_recycler"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:maxHeight="300dp"
+        android:visibility="gone"
+         />
+
     <!-- Genres Section -->
     <LinearLayout
         android:id="@+id/tmdb_genres_header"
@@ -250,168 +412,6 @@
             android:maxLines="1" />
 
     </com.google.android.material.textfield.TextInputLayout>
-
-    <!-- Year Section -->
-    <LinearLayout
-        android:id="@+id/tmdb_year_header"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="12dp"
-        android:gravity="center_vertical"
-        android:background="@android:color/black">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Year"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="?attr/textColor" />
-
-            <TextView
-                android:id="@+id/tmdb_year_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="All"
-                android:textSize="12sp"
-                android:textColor="?attr/grayTextColor" />
-
-        </LinearLayout>
-
-        <ImageView
-            android:id="@+id/tmdb_year_expand_icon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="8dp"
-            android:src="@drawable/ic_baseline_arrow_forward_24"
-            android:tint="?attr/textColor"
-            android:contentDescription="Expand" />
-
-    </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/tmdb_year_recycler"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:maxHeight="300dp"
-        android:visibility="gone"
-         />
-
-    <!-- Country Section -->
-    <LinearLayout
-        android:id="@+id/tmdb_country_header"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="12dp"
-        android:gravity="center_vertical"
-        android:background="@android:color/black">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Country"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="?attr/textColor" />
-
-            <TextView
-                android:id="@+id/tmdb_country_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="All"
-                android:textSize="12sp"
-                android:textColor="?attr/grayTextColor" />
-
-        </LinearLayout>
-
-        <ImageView
-            android:id="@+id/tmdb_country_expand_icon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="8dp"
-            android:src="@drawable/ic_baseline_arrow_forward_24"
-            android:tint="?attr/textColor"
-            android:contentDescription="Expand" />
-
-    </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/tmdb_country_recycler"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:maxHeight="300dp"
-        android:visibility="gone"
-         />
-
-    <!-- Trending Section -->
-    <LinearLayout
-        android:id="@+id/tmdb_trending_header"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="12dp"
-        android:gravity="center_vertical"
-        android:background="@android:color/black">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Trending"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textColor="?attr/textColor" />
-
-            <TextView
-                android:id="@+id/tmdb_trending_count"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Off"
-                android:textSize="12sp"
-                android:textColor="?attr/grayTextColor" />
-
-        </LinearLayout>
-
-        <ImageView
-            android:id="@+id/tmdb_trending_expand_icon"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_marginStart="8dp"
-            android:src="@drawable/ic_baseline_arrow_forward_24"
-            android:tint="?attr/textColor"
-            android:contentDescription="Expand" />
-
-    </LinearLayout>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/tmdb_trending_recycler"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:maxHeight="150dp"
-        android:visibility="gone"
-         />
 
     <!-- Provider (Streaming On) Section -->
     <LinearLayout

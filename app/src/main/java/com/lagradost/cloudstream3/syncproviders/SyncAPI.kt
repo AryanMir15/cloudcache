@@ -100,6 +100,14 @@ abstract class SyncAPI : AuthAPI() {
         override var maxEpisodes: Int? = null,
     ) : AbstractSyncStatus()
 
+    object EmptySyncStatus : AbstractSyncStatus() {
+        override var status: SyncWatchType = SyncWatchType.NONE
+        override var score: Score? = null
+        override var watchedEpisodes: Int? = null
+        override var isFavorite: Boolean? = null
+        override var maxEpisodes: Int? = null
+    }
+
     data class SyncResult(
         /**Used to verify*/
         var id: String,

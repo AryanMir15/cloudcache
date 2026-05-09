@@ -2086,6 +2086,7 @@ object VideoDownloadManager {
                         tags = null,
                         id = downloadItem.resultId,
                         cacheTime = System.currentTimeMillis(),
+                        metadataOnlyMode = false,
                         hasCustomPoster = false,
                         hasSwappedMetadata = false
                     )

@@ -1704,12 +1704,19 @@ class GeneratorPlayer : FullScreenPlayer() {
 
         val percentage = position * 100L / duration
 
+        // Get parent metadata for continue watching
+        val loadResponse = viewModel.getLoadResponse()
         DataStoreHelper.setViewPosAndResume(
             viewModel.getId(),
             position,
             duration,
             currentMeta,
-            nextMeta
+            nextMeta,
+            name = loadResponse?.name,
+            url = loadResponse?.url,
+            apiName = loadResponse?.apiName,
+            type = loadResponse?.type,
+            posterUrl = loadResponse?.posterUrl
         )
 
         var isOpVisible = false

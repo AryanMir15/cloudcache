@@ -520,6 +520,8 @@ class ResultViewModel2 : ViewModel() {
         val season: Int,
     )
 
+    data class EpisodeCacheInfo(val id: Int, val episode: Int, val season: Int?, val dubStatus: String)
+
     /** map<dub, map<season, List<episode>>> */
     private var currentEpisodes: Map<EpisodeIndexer, List<ResultEpisode>> = mapOf()
     private var currentRanges: Map<EpisodeIndexer, List<EpisodeRange>> = mapOf()
@@ -532,6 +534,43 @@ class ResultViewModel2 : ViewModel() {
     private var currentRange: EpisodeRange? = null
     private var currentShowFillers: Boolean = false
     var currentRepo: APIRepository? = null
+    
+    // Track attempted fetches to prevent infinite loops
+    private val attemptedFetches = mutableSetOf<Pair<EpisodeIndexer, EpisodeRange>>()
+    
+    fun loadMoreEpisodes() {
+        val indexer = currentIndex ?: return
+        val currentEpisodesForIndexer = currentEpisodes[indexer] ?: return
+        
+        // Don't load if already fetching
+        if (_apiFetchInProgress.value == true) return
+        
+        // Calculate next range based on current episodes
+        val maxEpisode = currentEpisodesForIndexer.maxOfOrNull { it.episode } ?: return
+        val nextStart = maxEpisode + 1
+        val nextEnd = nextStart + 19 // Load 20 more episodes
+        
+        android.util.Log.d("ApiLoadOnDemand", "loadMoreEpisodes - Loading more episodes for indexer $indexer, range $nextStart-$nextEnd")
+        
+        val nextRange = EpisodeRange(
+            startIndex = currentEpisodesForIndexer.size,
+            length = 20,
+            startEpisode = nextStart,
+            endEpisode = nextEnd
+        )
+        
+        viewModelScope.launchSafe {
+            _apiFetchInProgress.postValue(true)
+            val success = fetchEpisodesFromApiForRange(indexer, nextRange)
+            _apiFetchInProgress.postValue(false)
+            
+            if (success) {
+                android.util.Log.d("ApiLoadOnDemand", "loadMoreEpisodes - Successfully loaded more episodes, updating UI")
+                // Update UI with combined episodes
+                postEpisodeRange(indexer, currentRange, currentSorting)
+            }
+        }
+    }
     // FIX: Made currentId internal to allow access from ResultFragmentPhone for cache updates
     internal var currentId: Int? = null
     private var fillers: HashSet<Int> = hashSetOf()
@@ -582,6 +621,20 @@ class ResultViewModel2 : ViewModel() {
         MutableLiveData(emptyList())
     val seasonSelections: LiveData<List<Pair<UiText?, Int>>> = _seasonSelections
 
+    // Store all episode IDs for UI selector metadata extraction without loading all episode data
+    private var allEpisodeIdsForMetadata: List<String>? = null
+    
+    // Store lightweight metadata for UI selectors (season, episode, dubStatus) - extracted from all episodes
+    private var selectorMetadata: List<EpisodeSelectorMetadata>? = null
+    
+    // Lightweight metadata structure for UI selectors
+    data class EpisodeSelectorMetadata(
+        val id: Int,
+        val season: Int?,
+        val episode: Int,
+        val dubStatus: String?
+    )
+
     private val _recommendations: MutableLiveData<List<SearchResponse>> =
         MutableLiveData(emptyList())
     val recommendations: LiveData<List<SearchResponse>> = _recommendations
@@ -620,6 +673,9 @@ class ResultViewModel2 : ViewModel() {
     private val _selectedDubStatusIndex: MutableLiveData<Int> = MutableLiveData(-1)
     val selectedDubStatusIndex: LiveData<Int> = _selectedDubStatusIndex
 
+    private val _apiFetchInProgress: MutableLiveData<Boolean> = MutableLiveData(false)
+    val apiFetchInProgress: LiveData<Boolean> = _apiFetchInProgress
+
     private val _loadedLinks: MutableLiveData<LinkProgress?> = MutableLiveData(null)
     val loadedLinks: LiveData<LinkProgress?> = _loadedLinks
 
@@ -638,6 +694,7 @@ class ResultViewModel2 : ViewModel() {
 
     companion object {
         const val TAG = "RVM2"
+        private const val CACHE_DEBUG_TAG = "cacheDataDebug"
         // Track if user just unsubscribed to preserve false status across ViewModel recreation
         // This survives clear() and ViewModel recreation caused by reloadLibraryEvent
         private var justUnsubscribedId: Int? = null
@@ -654,15 +711,9 @@ class ResultViewModel2 : ViewModel() {
                 val currentIds = getKey<Set<String>>(indexKey) ?: emptySet()
                 val updatedIds = currentIds + episodeId
                 setKey(indexKey, updatedIds)
-                android.util.Log.d("CachePerformance", "=== PARENT INDEX UPDATE ===")
-                android.util.Log.d("CachePerformance", "ParentId: $parentId")
-                android.util.Log.d("CachePerformance", "Added episodeId: $episodeId")
-                android.util.Log.d("CachePerformance", "Previous count: ${currentIds.size}")
-                android.util.Log.d("CachePerformance", "New count: ${updatedIds.size}")
-                android.util.Log.d("CachePerformance", "Index key: $indexKey")
-                android.util.Log.d("CachePerformance", "=== PARENT INDEX UPDATE COMPLETE ===")
+                android.util.Log.d("CacheFlow", "updateParentIndex - parentId: $parentId, episodeId: $episodeId, indexKey: $indexKey, currentIds: ${currentIds.size}, updatedIds: ${updatedIds.size}")
             } catch (e: Exception) {
-                android.util.Log.e("CachePerformance", "Error updating parent index: ${e.message}", e)
+                android.util.Log.e("CacheFlow", "Error updating parent index: ${e.message}", e)
             }
         }
         
@@ -674,22 +725,13 @@ class ResultViewModel2 : ViewModel() {
             try {
                 val indexKey = "${EPISODE_PARENT_INDEX}_${parentId}"
                 val episodeIds = getKey<Set<String>>(indexKey)
+                android.util.Log.d("CacheFlow", "getEpisodesByParentId - parentId: $parentId, indexKey: $indexKey, episodeIds: ${episodeIds?.size ?: "null"}")
                 if (episodeIds != null) {
-                    android.util.Log.d("CachePerformance", "=== PARENT INDEX LOOKUP SUCCESS ===")
-                    android.util.Log.d("CachePerformance", "ParentId: $parentId")
-                    android.util.Log.d("CachePerformance", "Found ${episodeIds.size} episodes in index")
-                    android.util.Log.d("CachePerformance", "Index key: $indexKey")
-                    android.util.Log.d("CachePerformance", "=== PARENT INDEX LOOKUP COMPLETE ===")
                     return episodeIds
                 }
-                android.util.Log.w("CachePerformance", "=== PARENT INDEX NOT FOUND ===")
-                android.util.Log.w("CachePerformance", "ParentId: $parentId")
-                android.util.Log.w("CachePerformance", "Index key: $indexKey")
-                android.util.Log.w("CachePerformance", "Will fall back to full scan")
-                android.util.Log.w("CachePerformance", "=== PARENT INDEX NOT FOUND COMPLETE ===")
                 return null
             } catch (e: Exception) {
-                android.util.Log.e("CachePerformance", "Error getting parent index: ${e.message}", e)
+                android.util.Log.e("CacheFlow", "Error getting parent index: ${e.message}", e)
                 return null
             }
         }
@@ -1813,6 +1855,86 @@ class ResultViewModel2 : ViewModel() {
                                             "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
                                         }
                                         android.util.Log.d("LocalLibraryTest", "Caching header - score: $cachedScore, showStatus: $cachedShowStatus, year: $cachedYear, actors: $cachedActors")
+                                        
+                                        // Extract season metadata from response
+                                        val extractionStartTime = System.currentTimeMillis()
+                                        val seasonMetadata = mutableMapOf<Int, DownloadObjects.SeasonMetadata>()
+                                        var totalSeasons = 0
+                                        
+                                        android.util.Log.d("SeasonMetadata", "[DOWNLOAD PATH] Starting season metadata extraction - response type: ${response?.javaClass?.simpleName}")
+                                        
+                                        when (response) {
+                                            is TvSeriesLoadResponse -> {
+                                                val seasonNamesList = response.seasonNames
+                                                android.util.Log.d("SeasonMetadata", "[DOWNLOAD PATH] TvSeriesLoadResponse - seasonNames: ${seasonNamesList?.size ?: 0}, episodes: ${response.episodes.size}")
+                                                if (seasonNamesList != null && seasonNamesList.isNotEmpty()) {
+                                                    totalSeasons = seasonNamesList.size
+                                                    seasonNamesList.forEach { seasonData ->
+                                                        val episodes = response.episodes
+                                                            .filter { it.season == seasonData.season }
+                                                            .mapNotNull { it.episode }
+                                                        seasonMetadata[seasonData.season] = DownloadObjects.SeasonMetadata(
+                                                            episodeCount = episodes.size,
+                                                            episodes = episodes
+                                                        )
+                                                    }
+                                                } else {
+                                                    // Fallback: Extract totalSeasons from episodes when seasonNames is null/empty
+                                                    android.util.Log.d("SeasonMetadata", "[DOWNLOAD PATH] seasonNames is null/empty, extracting from episodes")
+                                                    val maxSeason = response.episodes.mapNotNull { it.season }.maxOrNull() ?: 0
+                                                    totalSeasons = maxSeason
+                                                    android.util.Log.d("SeasonMetadata", "[DOWNLOAD PATH] Extracted totalSeasons from episodes: $totalSeasons")
+                                                    // Group episodes by season for metadata
+                                                    val episodesBySeason = response.episodes.groupBy { it.season ?: 0 }
+                                                    episodesBySeason.forEach { (season, episodes) ->
+                                                        seasonMetadata[season] = DownloadObjects.SeasonMetadata(
+                                                            episodeCount = episodes.size,
+                                                            episodes = episodes.mapNotNull { it.episode }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            is AnimeLoadResponse -> {
+                                                val allEpisodes = response.episodes.values.flatten()
+                                                val seasonNamesList = response.seasonNames
+                                                android.util.Log.d("SeasonMetadata", "[DOWNLOAD PATH] AnimeLoadResponse - seasonNames: ${seasonNamesList?.size ?: 0}, episodes: ${allEpisodes.size}")
+                                                if (seasonNamesList != null && seasonNamesList.isNotEmpty()) {
+                                                    totalSeasons = seasonNamesList.size
+                                                    seasonNamesList.forEach { seasonData ->
+                                                        val episodes = allEpisodes
+                                                            .filter { it.season == seasonData.season }
+                                                            .mapNotNull { it.episode }
+                                                        seasonMetadata[seasonData.season] = DownloadObjects.SeasonMetadata(
+                                                            episodeCount = episodes.size,
+                                                            episodes = episodes
+                                                        )
+                                                    }
+                                                } else {
+                                                    // Fallback: Extract totalSeasons from episodes when seasonNames is null/empty
+                                                    android.util.Log.d("SeasonMetadata", "[DOWNLOAD PATH] seasonNames is null/empty, extracting from episodes")
+                                                    val maxSeason = allEpisodes.mapNotNull { it.season }.maxOrNull() ?: 0
+                                                    totalSeasons = maxSeason
+                                                    android.util.Log.d("SeasonMetadata", "[DOWNLOAD PATH] Extracted totalSeasons from episodes: $totalSeasons")
+                                                    // Group episodes by season for metadata
+                                                    val episodesBySeason = allEpisodes.groupBy { it.season ?: 0 }
+                                                    episodesBySeason.forEach { (season, episodes) ->
+                                                        seasonMetadata[season] = DownloadObjects.SeasonMetadata(
+                                                            episodeCount = episodes.size,
+                                                            episodes = episodes.mapNotNull { it.episode }
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            else -> {
+                                                android.util.Log.w("SeasonMetadata", "[DOWNLOAD PATH] Unknown response type: ${response?.javaClass?.simpleName}")
+                                            }
+                                        }
+                                        
+                                        val extractionDuration = System.currentTimeMillis() - extractionStartTime
+                                        android.util.Log.d("SeasonMetadata", "[DOWNLOAD PATH] Extraction completed - duration: ${extractionDuration}ms, totalSeasons: $totalSeasons, seasonMetadata size: ${seasonMetadata.size}")
+                                        android.util.Log.d("LocalLibraryTest", "Extracted season metadata: $totalSeasons seasons, ${seasonMetadata.size} seasons with metadata")
+                                        
+                                        android.util.Log.d("SeasonMetadata", "[DOWNLOAD PATH] Caching header - cacheKey: $parentId, totalSeasons: $totalSeasons, seasonMetadata size: ${seasonMetadata.size}")
                                         CloudStreamApp.setKey(
                                             DOWNLOAD_HEADER_CACHE,
                                             parentId.toString(),
@@ -1833,10 +1955,23 @@ class ResultViewModel2 : ViewModel() {
                                                 actors = cachedActors,
                                                 tags = response?.tags,
                                                 cacheTime = System.currentTimeMillis(),
+                                                metadataOnlyMode = false,
                                                 hasCustomPoster = false,
                                                 hasSwappedMetadata = false,
                                                 // FIX: Include syncData when caching headers
                                                 syncData = response?.syncData,
+                                                totalSeasons = totalSeasons,
+                                                seasonMetadata = seasonMetadata,
+                                                // Cache recommendations
+                                                recommendations = response?.recommendations?.map { rec ->
+                                                    DownloadObjects.CachedSearchResponse(
+                                                        name = rec.name,
+                                                        url = rec.url,
+                                                        apiName = rec.apiName,
+                                                        posterUrl = rec.posterUrl,
+                                                        type = rec.type ?: TvType.Movie
+                                                    )
+                                                },
                                                 id = parentId
                                             )
                                         )
@@ -1912,9 +2047,19 @@ class ResultViewModel2 : ViewModel() {
                                                         actors = null,
                                                         tags = response?.tags,
                                                         cacheTime = System.currentTimeMillis(),
+                                                        metadataOnlyMode = false,
                                                         hasCustomPoster = false,
                                                         hasSwappedMetadata = false,
                                                         syncData = response?.syncData,
+                                                        recommendations = response?.recommendations?.map { rec ->
+                                                            DownloadObjects.CachedSearchResponse(
+                                                                name = rec.name,
+                                                                url = rec.url,
+                                                                apiName = rec.apiName,
+                                                                posterUrl = rec.posterUrl,
+                                                                type = rec.type ?: TvType.Movie
+                                                            )
+                                                        },
                                                         id = parentId
                                                     )
                                                 )
@@ -2716,6 +2861,7 @@ class ResultViewModel2 : ViewModel() {
                                 tags = mergedResponse.tags,
                                 id = id,
                                 cacheTime = System.currentTimeMillis(),
+                                metadataOnlyMode = existingCache?.metadataOnlyMode ?: false,
                                 hasCustomPoster = existingCache?.hasCustomPoster ?: false,
                                 hasSwappedMetadata = existingCache?.hasSwappedMetadata ?: false,
                                 swappedFields = existingCache?.swappedFields ?: emptySet(),
@@ -2727,7 +2873,16 @@ class ResultViewModel2 : ViewModel() {
                                 originalScore = existingCache?.originalScore,
                                 originalYear = existingCache?.originalYear,
                                 originalShowStatus = existingCache?.originalShowStatus,
-                                syncData = existingCache?.syncData
+                                syncData = existingCache?.syncData,
+                                recommendations = existingCache?.recommendations ?: mergedResponse.recommendations?.map { rec ->
+                                    DownloadObjects.CachedSearchResponse(
+                                        name = rec.name,
+                                        url = rec.url,
+                                        apiName = rec.apiName,
+                                        posterUrl = rec.posterUrl,
+                                        type = rec.type ?: TvType.Movie
+                                    )
+                                }
                             )
                         )
                         Log.d(TAG, "ACTORS_CACHE_DEBUG - Cache updated successfully - saved actors count: ${mergedActors?.size ?: 0}")
@@ -2899,6 +3054,64 @@ class ResultViewModel2 : ViewModel() {
         return out to updateEpisodes
     }
 
+    /** Fetch recommendations on-demand if cache is empty */
+    fun fetchRecommendationsIfNeeded() {
+        val url = currentResponse?.url ?: return
+        val repo = currentRepo ?: return
+        
+        viewModelScope.launchSafe {
+            android.util.Log.d("CacheFlow", "fetchRecommendationsIfNeeded - Fetching recommendations for: $url")
+            when (val result = repo.load(url)) {
+                is Resource.Success -> {
+                    val response = result.value as? LoadResponse
+                    if (response != null) {
+                        val recs = response.recommendations?.map { rec ->
+                            object : SearchResponse {
+                                override val name: String = rec.name
+                                override val url: String = rec.url
+                                override val apiName: String = rec.apiName
+                                override var posterUrl: String? = rec.posterUrl
+                                override var posterHeaders: Map<String, String>? = null
+                                override var id: Int? = null
+                                override var type: TvType? = rec.type
+                                override var score: Score? = null
+                                override var quality: SearchQuality? = null
+                                override var tags: List<String>? = null
+                            }
+                        } ?: emptyList()
+                        _recommendations.postValue(recs)
+                        android.util.Log.d("CacheFlow", "fetchRecommendationsIfNeeded - Loaded ${recs.size} recommendations")
+                        
+                        // Cache the recommendations for future use
+                        currentId?.let { id ->
+                            val cachedHeader = getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, id.toString())
+                            if (cachedHeader != null) {
+                                val updatedHeader = cachedHeader.copy(
+                                    recommendations = response.recommendations?.map { rec ->
+                                        DownloadObjects.CachedSearchResponse(
+                                            name = rec.name,
+                                            url = rec.url,
+                                            apiName = rec.apiName,
+                                            posterUrl = rec.posterUrl,
+                                            type = rec.type ?: TvType.Movie
+                                        )
+                                    }
+                                )
+                                setKey(DOWNLOAD_HEADER_CACHE, id.toString(), updatedHeader)
+                                android.util.Log.d("CacheFlow", "fetchRecommendationsIfNeeded - Cached recommendations")
+                            }
+                        }
+                    }
+                }
+                is Resource.Failure -> {
+                    android.util.Log.e("CacheFlow", "fetchRecommendationsIfNeeded - Failed to fetch recommendations")
+                    _refreshError.postValue("Failed to load recommendations")
+                }
+                else -> {}
+            }
+        }
+    }
+
     fun setMeta(meta: SyncAPI.SyncResult, syncs: Map<String, String>?) {
         // I dont want to update everything if the metadata is not relevant
         if (currentMeta == meta && currentSync == syncs) {
@@ -2969,9 +3182,19 @@ class ResultViewModel2 : ViewModel() {
                                 tags = response.tags,
                                 id = id,
                                 cacheTime = System.currentTimeMillis(),
+                                metadataOnlyMode = existingCachedHeader?.metadataOnlyMode ?: false,
                                 hasCustomPoster = false,
                                 hasSwappedMetadata = false,
-                                syncData = response.syncData
+                                syncData = response.syncData,
+                                recommendations = existingCachedHeader?.recommendations ?: response.recommendations?.map { rec ->
+                                    DownloadObjects.CachedSearchResponse(
+                                        name = rec.name,
+                                        url = rec.url,
+                                        apiName = rec.apiName,
+                                        posterUrl = rec.posterUrl,
+                                        type = rec.type ?: TvType.Movie
+                                    )
+                                }
                             )
                         )
                     }
@@ -3031,9 +3254,8 @@ class ResultViewModel2 : ViewModel() {
         android.util.Log.d("CacheFlow", "getEpisodes - currentEpisodes keys: ${currentEpisodes.keys}")
         android.util.Log.d("CacheFlow", "getEpisodes - currentEpisodes[indexer] exists: ${currentEpisodes[indexer] != null}, size: ${currentEpisodes[indexer]?.size}")
         return currentEpisodes[indexer]?.let { list ->
-            val start = minOf(list.size, range.startIndex)
-            val end = minOf(list.size, start + range.length)
-            list.subList(start, end).map {
+            // Filter by episode number instead of slicing by list index
+            list.filter { it.episode >= range.startEpisode && it.episode <= range.endEpisode }.map {
                 val posDur = getViewPos(it.id)
                 val watchState = getVideoWatchState(it.id) ?: VideoWatchState.None
                 it.copy(
@@ -3201,10 +3423,94 @@ class ResultViewModel2 : ViewModel() {
         currentIndex = indexer
         currentRange = range
 
-        _rangeSelections.postValue(ranges?.map { r ->
+        // API LOAD ON DEMAND: Check if requested range has episodes, if not fetch from API
+        val currentSeasonEpisodes = currentEpisodes[indexer]
+        if (!isMovie) {
+            android.util.Log.d("ApiLoadOnDemand", "postEpisodeRange - Checking if episodes available for indexer: $indexer, range: $range")
+            
+            // Check if episodes for this indexer exist
+            if (currentSeasonEpisodes.isNullOrEmpty()) {
+                android.util.Log.d("ApiLoadOnDemand", "postEpisodeRange - No episodes for indexer $indexer, checking if metadata indicates episodes should exist")
+                android.util.Log.d("ApiLoadOnDemand", "postEpisodeRange - selectorMetadata count: ${selectorMetadata?.size}, first few: ${selectorMetadata?.take(3)}")
+                android.util.Log.d("ApiLoadOnDemand", "postEpisodeRange - currentSeasons: $currentSeasons")
+                
+                // Check if season exists in header metadata (currentSeasons) instead of episode metadata
+                // This works because UI shows seasons from header, even if cached episodes lack season info
+                val seasonHasMetadata = currentSeasons.contains(indexer.season)
+                android.util.Log.d("ApiLoadOnDemand", "postEpisodeRange - seasonHasMetadata for season ${indexer.season}: $seasonHasMetadata")
+                
+                if (seasonHasMetadata) {
+                    // Check if we've already attempted to fetch this range to prevent infinite loop
+                    val fetchKey = Pair(indexer, range)
+                    if (fetchKey in attemptedFetches) {
+                        android.util.Log.w("ApiLoadOnDemand", "postEpisodeRange - Already attempted to fetch this range, showing empty list")
+                        _episodes.postValue(Resource.Success(emptyList()))
+                        return
+                    }
+                    attemptedFetches.add(fetchKey)
+                    
+                    android.util.Log.d("ApiLoadOnDemand", "postEpisodeRange - Season ${indexer.season} with dub ${indexer.dubStatus} has metadata but no episodes, fetching from API")
+                    
+                    // Show loading state
+                    _episodes.postValue(Resource.Loading())
+                    
+                    // Trigger API fetch
+                    viewModelScope.launchSafe {
+                        val success = fetchEpisodesFromApiForRange(indexer, range)
+                        if (success) {
+                            android.util.Log.d("ApiLoadOnDemand", "postEpisodeRange - API fetch succeeded, re-calling postEpisodeRange")
+                            // Re-call postEpisodeRange to display the newly fetched episodes
+                            postEpisodeRange(indexer, range, sorting)
+                        } else {
+                            android.util.Log.e("ApiLoadOnDemand", "postEpisodeRange - API fetch failed, showing error")
+                            _episodes.postValue(Resource.Failure(false, "Failed to load episodes"))
+                        }
+                    }
+                    return
+                }
+            } else {
+                // Check if the requested range is within available episodes
+                val maxEpisode = currentSeasonEpisodes.maxOfOrNull { it.episode } ?: 0
+                val minEpisode = currentSeasonEpisodes.minOfOrNull { it.episode } ?: 0
+                
+                if (range.startEpisode > maxEpisode || range.endEpisode > maxEpisode) {
+                    android.util.Log.d("ApiLoadOnDemand", "postEpisodeRange - Requested range $range exceeds cached episodes [$minEpisode-$maxEpisode], fetching from API")
+                    
+                    // Check if we've already attempted to fetch this range to prevent infinite loop
+                    val fetchKey = Pair(indexer, range)
+                    if (fetchKey in attemptedFetches) {
+                        android.util.Log.w("ApiLoadOnDemand", "postEpisodeRange - Already attempted to fetch this range, showing available episodes instead")
+                        // Don't re-fetch, just continue with available episodes below
+                    } else {
+                        attemptedFetches.add(fetchKey)
+                        
+                        // Show loading state
+                        _episodes.postValue(Resource.Loading())
+                        
+                        // Trigger API fetch
+                        viewModelScope.launchSafe {
+                            val success = fetchEpisodesFromApiForRange(indexer, range)
+                            if (success) {
+                                android.util.Log.d("ApiLoadOnDemand", "postEpisodeRange - API fetch succeeded, re-calling postEpisodeRange")
+                                // Re-call postEpisodeRange to display the newly fetched episodes
+                                postEpisodeRange(indexer, range, sorting)
+                            } else {
+                                android.util.Log.e("ApiLoadOnDemand", "postEpisodeRange - API fetch failed, showing available episodes instead")
+                                // Show available episodes as fallback
+                                // Continue with current logic below
+                            }
+                        }
+                        return
+                    }
+                }
+            }
+        }
+
+        val rangeList = ranges?.map { r ->
             val text = txt(R.string.episodes_range, r.startEpisode, r.endEpisode)
             text to r
-        } ?: emptyList())
+        } ?: emptyList()
+        _rangeSelections.postValue(rangeList)
 
         val size = currentEpisodes[indexer]?.size
         _episodesCountText.postValue(
@@ -3346,6 +3652,7 @@ class ResultViewModel2 : ViewModel() {
         updateEpisodes: Boolean,
         updateFillers: Boolean,
     ) {
+        android.util.Log.d("CacheFlow", "postSuccessful - mainId: $mainId, updateEpisodes: $updateEpisodes, updateFillers: $updateFillers")
         currentId = mainId
         currentResponse = loadResponse
         postPage(loadResponse, apiRepository)
@@ -3369,7 +3676,7 @@ class ResultViewModel2 : ViewModel() {
         }
 
         // Track episodes for lazy caching
-        val episodesToCache = mutableListOf<Triple<Int, Int, Int?>>() // (id, episode, season)
+        val episodesToCache = mutableListOf<EpisodeCacheInfo>()
         
         val allEpisodes = when (loadResponse) {
             is AnimeLoadResponse -> {
@@ -3422,7 +3729,7 @@ class ResultViewModel2 : ViewModel() {
                                 )
 
                             // Collect episodes for lazy caching instead of caching immediately
-                            episodesToCache.add(Triple(id, episode, i.season))
+                            episodesToCache.add(EpisodeCacheInfo(id, episode, i.season, ep.key.name))
 
                             val season = eps.seasonIndex ?: 0
                             val indexer = EpisodeIndexer(ep.key, season)
@@ -3485,7 +3792,7 @@ class ResultViewModel2 : ViewModel() {
                             )
 
                         // Collect episodes for lazy caching instead of caching immediately
-                        episodesToCache.add(Triple(id, episodeIndex, episode.season))
+                        episodesToCache.add(EpisodeCacheInfo(id, episodeIndex, episode.season, "None"))
 
                         val season = ep.seasonIndex ?: 0
                         val indexer = EpisodeIndexer(DubStatus.None, season)
@@ -3618,38 +3925,60 @@ class ResultViewModel2 : ViewModel() {
         postResume()
         
         // Lazy cache episodes in background to avoid ANR
+        // Cache all episodes progressively
+        val sortedEpisodesToCache = episodesToCache
+            .sortedWith(compareBy({ it.season ?: 0 }, { it.episode }))
+        
+        android.util.Log.d(CACHE_DEBUG_TAG, "[POST_EPISODES] Caching all ${sortedEpisodesToCache.size} episodes")
         viewModelScope.launch(Dispatchers.IO) {
-            cacheEpisodesProgressively(episodesToCache, mainId, loadResponse)
+            cacheEpisodesProgressively(sortedEpisodesToCache, mainId, loadResponse)
         }
     }
     
     private suspend fun cacheEpisodesProgressively(
-        episodesToCache: List<Triple<Int, Int, Int?>>,
+        episodesToCache: List<EpisodeCacheInfo>,
         mainId: Int,
         loadResponse: LoadResponse
     ) {
+        android.util.Log.d("CacheFlow", "cacheEpisodesProgressively - loadResponse type: ${loadResponse::class.simpleName}, episodesToCache size: ${episodesToCache.size}")
+        
         val batchSize = 10
         val delayBetweenBatches = 50L // ms
         
+        android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Starting progressive episode caching - total episodes: ${episodesToCache.size}, parentId: $mainId")
+        
+        // Log API response dub status keys for debugging
+        if (loadResponse is AnimeLoadResponse) {
+            android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] API response dub status keys: ${loadResponse.episodes.keys}")
+            loadResponse.episodes.forEach { (dubStatus, episodes) ->
+                android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] DubStatus $dubStatus: ${episodes.size} episodes")
+            }
+        }
+        
         episodesToCache.chunked(batchSize).forEachIndexed { batchIndex, batch ->
-            batch.forEach { (id, episode, season) ->
+            batch.forEach { (id, episode, season, dubStatus) ->
+                android.util.Log.d("CacheFlow", "[CACHE_LOOP] Processing episode $episode season $season id $id dubStatus $dubStatus")
                 try {
                     val existingCachedEpisode = getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, id.toString())
                     if (existingCachedEpisode == null) {
+                        android.util.Log.d("CacheFlow", "[CACHE_LOOP] Episode not cached, will cache now")
                         // Find the original episode data from loadResponse
                         val episodeData = when (loadResponse) {
                             is AnimeLoadResponse -> {
                                 loadResponse.episodes.flatMap { ep -> ep.value }.firstOrNull { 
-                                    it.episode == episode && it.season == season 
+                                    it.episode == episode && (it.season ?: 0) == (season ?: 0) 
                                 }
                             }
                             is TvSeriesLoadResponse -> {
                                 loadResponse.episodes.firstOrNull { 
-                                    it.episode == episode && it.season == season 
+                                    it.episode == episode && (it.season ?: 0) == (season ?: 0) 
                                 }
                             }
                             else -> null
                         }
+                        
+                        // Use dubStatus from EpisodeCacheInfo directly (preserved from API response)
+                        android.util.Log.d("CacheFlow", "[METADATA_ONLY] Caching episode $episode season $season with dubStatus: $dubStatus")
                         
                         episodeData?.let { data ->
                             val episodeCached = DownloadObjects.DownloadEpisodeCached(
@@ -3663,7 +3992,7 @@ class ResultViewModel2 : ViewModel() {
                                 description = data.description,
                                 date = data.date,
                                 cacheTime = System.currentTimeMillis(),
-                                dubStatus = if (loadResponse is AnimeLoadResponse) "None" else "None",
+                                dubStatus = dubStatus,
                                 data = data.data
                             )
                             CloudStreamApp.setKey(
@@ -3671,10 +4000,14 @@ class ResultViewModel2 : ViewModel() {
                                 id.toString(),
                                 episodeCached
                             )
+                            android.util.Log.d("CacheFlow", "[CACHE_LOOP] Episode cached successfully, calling updateParentIndex")
                             updateParentIndex(mainId, id.toString())
-                        }
+                        } ?: android.util.Log.e("CacheFlow", "[CACHE_LOOP] episodeData is null for episode $episode season $season")
+                    } else {
+                        android.util.Log.d("CacheFlow", "[CACHE_LOOP] Episode already cached, skipping")
                     }
                 } catch (e: Exception) {
+                    android.util.Log.e("CacheFlow", "[CACHE_LOOP] Error caching episode: ${e.message}", e)
                     logError(e)
                 }
             }
@@ -3683,6 +4016,16 @@ class ResultViewModel2 : ViewModel() {
             if (batchIndex < episodesToCache.size / batchSize) {
                 delay(delayBetweenBatches)
             }
+        }
+        
+        android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Episode caching completed - updating header to metadataOnlyMode=false")
+        // Update header to mark as fully cached
+        val cachedHeader = getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, mainId.toString())
+        if (cachedHeader != null && cachedHeader.metadataOnlyMode) {
+            android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Updating header metadataOnlyMode from true to false - id: $mainId")
+            val updatedHeader = cachedHeader.copy(metadataOnlyMode = false)
+            CloudStreamApp.setKey(DOWNLOAD_HEADER_CACHE, mainId.toString(), updatedHeader)
+            android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Header updated successfully - metadataOnlyMode: false")
         }
     }
 
@@ -3876,41 +4219,38 @@ class ResultViewModel2 : ViewModel() {
         api: MainAPI,
         parentId: Int
     ) {
-        android.util.Log.d("CachePerformance", "=== PROCESSING EPISODES ===")
-        android.util.Log.d("CachePerformance", "Processing ${episodes.size} episodes for progressive loading")
-        
-        // Convert episodes to ResultEpisode format
-        val resultEpisodes = episodes.mapNotNull { episode ->
-            try {
-                ResultEpisode(
-                    headerName = apiName,
-                    name = episode.name,
-                    poster = episode.poster,
-                    episode = episode.episode,
-                    seasonIndex = episode.season,
-                    season = episode.season,
-                    data = episode.data ?: "",
-                    apiName = apiName,
-                    id = episode.id,
-                    index = 0,
-                    position = 0L,
-                    duration = 0L,
-                    score = episode.score,
-                    description = episode.description,
-                    isFiller = null,
-                    tvType = TvType.Anime,
-                    parentId = parentId,
-                    videoWatchState = VideoWatchState.None
-                )
-            } catch (e: Exception) {
-                android.util.Log.e("CachePerformance", "Error converting episode: ${episode.name}", e)
-                null
-            }
+        val resultEpisodes = episodes.mapIndexed { index, cached ->
+            val posDur = getViewPos(cached.id)
+            val episodeData = cached.data ?: ""
+            ResultEpisode(
+                headerName = cachedHeader.name ?: "",
+                name = cached.name ?: "Episode ${cached.episode}",
+                poster = cached.poster,
+                episode = cached.episode,
+                seasonIndex = cached.season?.let { it - 1 },
+                season = cached.season,
+                data = episodeData,
+                apiName = apiName,
+                id = cached.id,
+                index = index,
+                position = posDur?.position ?: 0,
+                duration = posDur?.duration ?: 0,
+                score = cached.score,
+                description = cached.description,
+                isFiller = null,
+                tvType = cachedHeader.type ?: TvType.Anime,
+                parentId = parentId,
+                videoWatchState = getVideoWatchState(cached.id) ?: VideoWatchState.None,
+                totalEpisodeIndex = cached.episode,
+                airDate = cached.date,
+                showPoster = cachedHeader.poster,
+                showBanner = null,
+                showLogo = null,
+            )
         }
         
-        android.util.Log.d("CachePerformance", "Converted ${resultEpisodes.size} episodes to ResultEpisode format")
+        android.util.Log.d("CacheFlow", "Converted ${resultEpisodes.size} episodes to ResultEpisode format")
         
-        // Post episodes to LiveData for UI update
         // Create indexer for the episodes
         val indexer = EpisodeIndexer(
             dubStatus = DubStatus.Subbed,
@@ -3934,79 +4274,415 @@ class ResultViewModel2 : ViewModel() {
         // Update episodes list directly
         _episodes.postValue(Resource.Success(resultEpisodes))
         
-        android.util.Log.d("CachePerformance", "=== PROGRESSIVE EPISODE LOADING COMPLETE ===")
+        android.util.Log.d("CacheFlow", "=== PROGRESSIVE EPISODE LOADING COMPLETE ===")
+    }
+
+    private suspend fun triggerOnDemandEpisodeFetch(
+        parentId: Int,
+        cachedHeader: DownloadObjects.DownloadHeaderCached,
+        apiName: String,
+        validUrl: String,
+        api: MainAPI
+    ) {
+        android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] triggerOnDemandEpisodeFetch - Fetching episodes for parentId: $parentId, url: $validUrl")
+        
+        try {
+            val repo = APIRepository(api)
+            when (val data = repo.load(validUrl)) {
+                is Resource.Failure -> {
+                    android.util.Log.e(CACHE_DEBUG_TAG, "[METADATA_ONLY] On-demand fetch failed")
+                    _page.postValue(data)
+                }
+                is Resource.Success<*> -> {
+                    val loadResponse = data.value as? LoadResponse
+                    if (loadResponse != null) {
+                        android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] On-demand fetch succeeded - episodes: ${(loadResponse as? AnimeLoadResponse)?.episodes?.values?.flatten()?.size ?: (loadResponse as? TvSeriesLoadResponse)?.episodes?.size}")
+                        
+                        // Cache episodes directly with their data - don't rely on loadResponse lookup later
+                        val episodesToCache = mutableListOf<EpisodeCacheInfo>()
+                        when (loadResponse) {
+                            is AnimeLoadResponse -> {
+                                loadResponse.episodes.forEach { (dubStatus, episodeList) ->
+                                    episodeList.forEachIndexed { index, episode ->
+                                        val episodeNumber = episode.episode ?: (index + 1)
+                                        val id = parentId + episodeNumber + dubStatus.id * 1_000_000 + (episode.season?.times(10_000) ?: 0)
+                                        episodesToCache.add(EpisodeCacheInfo(id, episodeNumber, episode.season, dubStatus.name))
+                                        
+                                        // Cache episode immediately with full data
+                                        val episodeCached = DownloadObjects.DownloadEpisodeCached(
+                                            name = episode.name,
+                                            poster = episode.posterUrl,
+                                            episode = episodeNumber,
+                                            season = episode.season,
+                                            id = id,
+                                            parentId = parentId,
+                                            score = episode.score,
+                                            description = episode.description,
+                                            date = episode.date,
+                                            cacheTime = System.currentTimeMillis(),
+                                            dubStatus = dubStatus.name,
+                                            data = episode.data
+                                        )
+                                        CloudStreamApp.setKey(
+                                            DOWNLOAD_EPISODE_CACHE,
+                                            id.toString(),
+                                            episodeCached
+                                        )
+                                        updateParentIndex(parentId, id.toString())
+                                    }
+                                }
+                            }
+                            is TvSeriesLoadResponse -> {
+                                loadResponse.episodes.forEachIndexed { index, episode ->
+                                    val id = parentId + (episode.season?.times(100_000) ?: 0) + (episode.episode ?: (index + 1)) + 1
+                                    episodesToCache.add(EpisodeCacheInfo(id, episode.episode ?: (index + 1), episode.season, "None"))
+                                    
+                                    // Cache episode immediately with full data
+                                    val episodeCached = DownloadObjects.DownloadEpisodeCached(
+                                        name = episode.name,
+                                        poster = episode.posterUrl,
+                                        episode = episode.episode ?: (index + 1),
+                                        season = episode.season,
+                                        id = id,
+                                        parentId = parentId,
+                                        score = episode.score,
+                                        description = episode.description,
+                                        date = episode.date,
+                                        cacheTime = System.currentTimeMillis(),
+                                        dubStatus = "None",
+                                        data = episode.data
+                                    )
+                                    CloudStreamApp.setKey(
+                                        DOWNLOAD_EPISODE_CACHE,
+                                        id.toString(),
+                                        episodeCached
+                                    )
+                                    updateParentIndex(parentId, id.toString())
+                                }
+                            }
+                            else -> {}
+                        }
+                        
+                        android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Cached ${episodesToCache.size} episodes directly with full data")
+                        
+                        // Update cachedHeader to metadataOnlyMode=false before reload to prevent race condition
+                        val updatedHeader = cachedHeader.copy(metadataOnlyMode = false)
+                        
+                        // Reload offline episodes after caching to update UI
+                        android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Reloading offline episodes after on-demand fetch")
+                        loadOfflineEpisodes(parentId, updatedHeader, apiName, validUrl, api)
+                    }
+                }
+                else -> {
+                    android.util.Log.w(CACHE_DEBUG_TAG, "[METADATA_ONLY] On-demand fetch returned unexpected state")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e(CACHE_DEBUG_TAG, "[METADATA_ONLY] On-demand fetch exception: ${e.message}", e)
+        }
+    }
+
+    private suspend fun fetchEpisodesFromApiForRange(
+        indexer: EpisodeIndexer,
+        range: EpisodeRange
+    ): Boolean {
+        android.util.Log.d("ApiLoadOnDemand", "fetchEpisodesFromApiForRange - Fetching from API for indexer: $indexer, range: $range")
+
+        val repo = currentRepo ?: run {
+            android.util.Log.e("ApiLoadOnDemand", "fetchEpisodesFromApiForRange - currentRepo is null")
+            return false
+        }
+        val parentId = currentId ?: run {
+            android.util.Log.e("ApiLoadOnDemand", "fetchEpisodesFromApiForRange - currentId is null")
+            return false
+        }
+        
+        // Try to get URL from cached header using all possible keys
+        // First try by parentId (as string), then by URL from currentResponse
+        val cachedHeader = getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, parentId.toString())
+        android.util.Log.d("ApiLoadOnDemand", "fetchEpisodesFromApiForRange - cachedHeader by parentId: ${cachedHeader != null}")
+        
+        val validUrl = if (cachedHeader != null) {
+            cachedHeader.url ?: cachedHeader.originalUrl
+        } else {
+            // Fallback: use currentResponse.url directly
+            // Note: Some APIs use JSON objects as URL identifiers
+            android.util.Log.d("ApiLoadOnDemand", "fetchEpisodesFromApiForRange - cachedHeader null, using currentResponse.url: ${currentResponse?.url}")
+            currentResponse?.url
+        }
+        
+        if (validUrl.isNullOrBlank()) {
+            android.util.Log.e("ApiLoadOnDemand", "fetchEpisodesFromApiForRange - No URL found in any source")
+            return false
+        }
+        
+        android.util.Log.d("ApiLoadOnDemand", "Using URL: $validUrl")
+
+        return try {
+            _apiFetchInProgress.postValue(true)
+            android.util.Log.d("ApiLoadOnDemand", "Calling API with url: $validUrl")
+
+            when (val data = repo.load(validUrl)) {
+                is Resource.Failure -> {
+                    android.util.Log.e("ApiLoadOnDemand", "API fetch failed")
+                    _refreshError.postValue("Failed to load episodes from API")
+                    false
+                }
+                is Resource.Success<*> -> {
+                    val loadResponse = data.value as? LoadResponse
+                    if (loadResponse != null) {
+                        android.util.Log.d("ApiLoadOnDemand", "API fetch succeeded - extracting episodes for season ${indexer.season}, dub ${indexer.dubStatus}")
+
+                        // Extract episodes matching the requested season/dub/range
+                        // First, get all episodes for the season to check total count
+                        val allEpisodesForSeason = when (loadResponse) {
+                            is AnimeLoadResponse -> {
+                                android.util.Log.d("ApiLoadOnDemand", "AnimeLoadResponse - available dub keys: ${loadResponse.episodes.keys}")
+                                android.util.Log.d("ApiLoadOnDemand", "AnimeLoadResponse - requested dub status: ${indexer.dubStatus}")
+                                
+                                val episodesForDub = loadResponse.episodes[indexer.dubStatus] 
+                                    ?: loadResponse.episodes.keys.firstOrNull()?.let { loadResponse.episodes[it] } 
+                                    ?: emptyList()
+                                android.util.Log.d("ApiLoadOnDemand", "AnimeLoadResponse - episodes for dub: ${episodesForDub.size}")
+                                
+                                episodesForDub.filter { (it.season ?: 0) == indexer.season }
+                            }
+                            is TvSeriesLoadResponse -> {
+                                loadResponse.episodes.filter { it.season == indexer.season }
+                            }
+                            else -> emptyList()
+                        }
+                        
+                        android.util.Log.d("ApiLoadOnDemand", "Total episodes for season ${indexer.season}: ${allEpisodesForSeason.size}")
+                        
+                        // If total episodes < 100, load all episodes for this season
+                        val extractedEpisodes = if (allEpisodesForSeason.size < 100) {
+                            android.util.Log.d("ApiLoadOnDemand", "Loading all ${allEpisodesForSeason.size} episodes (count < 100)")
+                            allEpisodesForSeason
+                        } else {
+                            android.util.Log.d("ApiLoadOnDemand", "Loading range ${range.startEpisode}-${range.endEpisode} (count >= 100)")
+                            allEpisodesForSeason.filter { ep ->
+                                val epNum = ep.episode ?: 0
+                                epNum >= range.startEpisode && epNum <= range.endEpisode
+                            }
+                        }
+
+                        android.util.Log.d("ApiLoadOnDemand", "Extracted ${extractedEpisodes.size} episodes for range")
+
+                        if (extractedEpisodes.isEmpty()) {
+                            android.util.Log.w("ApiLoadOnDemand", "No episodes found for requested range")
+                            false
+                        } else {
+                            // Convert to ResultEpisode format
+                            val resultEpisodes = extractedEpisodes.mapIndexed { index, episode ->
+                                val id = when (loadResponse) {
+                                    is AnimeLoadResponse -> {
+                                        parentId + (episode.episode ?: 0) + indexer.dubStatus.id * 1_000_000 + (episode.season?.times(10_000) ?: 0)
+                                    }
+                                    is TvSeriesLoadResponse -> {
+                                        parentId + (episode.season?.times(100_000) ?: 0) + (episode.episode ?: (index + 1)) + 1
+                                    }
+                                    else -> parentId + index
+                                }
+
+                                val posDur = getViewPos(id)
+                                val watchState = getVideoWatchState(id) ?: VideoWatchState.None
+
+                                ResultEpisode(
+                                    headerName = loadResponse.name,
+                                    name = episode.name,
+                                    poster = episode.posterUrl,
+                                    episode = episode.episode ?: (index + 1),
+                                    seasonIndex = episode.season?.let { it - 1 },
+                                    season = episode.season,
+                                    data = episode.data,
+                                    apiName = loadResponse.apiName,
+                                    id = id,
+                                    index = index,
+                                    position = posDur?.position ?: 0,
+                                    duration = posDur?.duration ?: 0,
+                                    score = episode.score,
+                                    description = episode.description,
+                                    isFiller = null,
+                                    tvType = loadResponse.type,
+                                    parentId = parentId,
+                                    videoWatchState = watchState,
+                                    totalEpisodeIndex = episode.episode,
+                                    airDate = episode.date,
+                                    showPoster = loadResponse.posterUrl,
+                                    showBanner = loadResponse.backgroundPosterUrl,
+                                    showLogo = loadResponse.logoUrl,
+                                )
+                            }
+
+                            // Cache the newly fetched episodes
+                            resultEpisodes.forEach { episode ->
+                                val cachedEpisode = DownloadObjects.DownloadEpisodeCached(
+                                    name = episode.name,
+                                    poster = episode.poster,
+                                    episode = episode.episode,
+                                    season = episode.season,
+                                    parentId = parentId,
+                                    score = null,
+                                    description = episode.description,
+                                    date = episode.airDate,
+                                    cacheTime = System.currentTimeMillis(),
+                                    dubStatus = indexer.dubStatus.name,
+                                    data = episode.data,
+                                    id = episode.id
+                                )
+                                setKey(DOWNLOAD_EPISODE_CACHE, episode.id.toString(), cachedEpisode)
+                            }
+                            android.util.Log.d("ApiLoadOnDemand", "Cached ${resultEpisodes.size} episodes")
+
+                            // Update currentEpisodes map
+                            val existingEpisodes = currentEpisodes[indexer] ?: emptyList()
+                            val allEpisodes = (existingEpisodes + resultEpisodes)
+                                .sortedBy { it.episode }
+                                .distinctBy { it.id }
+                            val newMap = currentEpisodes.toMutableMap()
+                            newMap[indexer] = allEpisodes
+                            currentEpisodes = newMap
+
+                            // Update selectorMetadata with newly cached episodes (with correct season info)
+                            val newMetadata = resultEpisodes.map { episode ->
+                                EpisodeSelectorMetadata(
+                                    id = episode.id,
+                                    season = episode.season ?: indexer.season,
+                                    episode = episode.episode,
+                                    dubStatus = indexer.dubStatus.name
+                                )
+                            }
+                            selectorMetadata = (selectorMetadata ?: emptyList()) + newMetadata
+                            android.util.Log.d("ApiLoadOnDemand", "Updated selectorMetadata with ${newMetadata.size} new episodes, total: ${selectorMetadata?.size}")
+
+                            android.util.Log.d("ApiLoadOnDemand", "Updated currentEpisodes for indexer $indexer, total: ${allEpisodes.size}")
+                            true
+                        }
+                    } else {
+                        android.util.Log.e("ApiLoadOnDemand", "API response is not LoadResponse")
+                        false
+                    }
+                }
+                else -> {
+                    android.util.Log.w("ApiLoadOnDemand", "API returned unexpected state")
+                    false
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ApiLoadOnDemand", "Exception during API fetch: ${e.message}", e)
+            _refreshError.postValue("Failed to load episodes: ${e.message}")
+            false
+        } finally {
+            _apiFetchInProgress.postValue(false)
+        }
     }
 
     private fun loadOfflineEpisodes(parentId: Int, cachedHeader: DownloadObjects.DownloadHeaderCached, apiName: String, validUrl: String, api: MainAPI) {
         ioSafe {
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Using DOWNLOAD_HEADER_CACHE for: ${cachedHeader.name}")
             android.util.Log.d("CacheFlow", "Cached header fields - plot: ${cachedHeader.plot?.take(30)}, backgroundPosterUrl: ${cachedHeader.backgroundPosterUrl?.take(30)}, tags: ${cachedHeader.tags?.size}, actors: ${cachedHeader.actors?.size}")
+            android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] loadOfflineEpisodes - metadataOnlyMode: ${cachedHeader.metadataOnlyMode}")
+            
+            // Check if header is in metadata-only mode and trigger on-demand fetch if needed
+            if (cachedHeader.metadataOnlyMode) {
+                android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Header is in metadata-only mode - checking if episodes need fetching")
+                val episodeIds = getEpisodesByParentId(parentId)
+                if (episodeIds == null || episodeIds.isEmpty()) {
+                    android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] No cached episodes found - triggering on-demand episode fetch")
+                    triggerOnDemandEpisodeFetch(parentId, cachedHeader, apiName, validUrl, api)
+                    return@ioSafe
+                } else {
+                    android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Found ${episodeIds.size} cached episodes - continuing with offline load")
+                }
+            }
             
             // Load episodes from DOWNLOAD_EPISODE_CACHE using parentId with O(1) index lookup
-            android.util.Log.d("CachePerformance", "=== STARTING EPISODE LOAD FOR PARENT ID: $parentId ===")
             val startTime = System.currentTimeMillis()
             
             val cachedEpisodes = try {
-                // Try to use parent index for O(1) lookup with progressive loading
+                // Try to use parent index for O(1) lookup with hard limit
                 val episodeIds = getEpisodesByParentId(parentId)
                 if (episodeIds != null) {
-                    android.util.Log.d("CachePerformance", "loadOfflineEpisodes - Using parent index for O(1) lookup, found ${episodeIds.size} episode IDs")
-                    android.util.Log.d("CachePerformance", "Episode IDs from index: ${episodeIds.take(5)}${if (episodeIds.size > 5) "..." else ""}")
+                    android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Using parent index for O(1) lookup, found ${episodeIds.size} episode IDs")
                     
-                    // PROGRESSIVE LOADING: Load first 5 episodes immediately for instant UI response
-                    val firstBatchIds = episodeIds.take(5)
-                    val remainingIds = episodeIds.drop(5)
+                    // Store all episode IDs for metadata extraction (UI selectors need this)
+                    val allEpisodeIds = episodeIds
                     
-                    android.util.Log.d("CachePerformance", "=== PROGRESSIVE EPISODE LOADING ===")
-                    android.util.Log.d("CachePerformance", "First batch: ${firstBatchIds.size} episodes for immediate UI")
-                    android.util.Log.d("CachePerformance", "Remaining batch: ${remainingIds.size} episodes for background loading")
+                    // Load ALL episodes - no limits (temporary to match non-cache behavior)
+                    android.util.Log.d("CacheFlow", "=== LOADING ALL EPISODES (NO LIMITS) ===")
+                    android.util.Log.d("CacheFlow", "Total episodes available: ${allEpisodeIds.size}")
                     
-                    // Load first batch immediately
-                    val firstBatchEpisodes = firstBatchIds.mapNotNull { episodeId ->
+                    val initialBatchIds = allEpisodeIds // Load all episodes
+                    val initialBatchEpisodes = initialBatchIds.mapNotNull { episodeId ->
                         getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, episodeId)
                     }
                     
-                    android.util.Log.d("CachePerformance", "First batch loaded: ${firstBatchEpisodes.size} episodes")
+                    android.util.Log.d("CacheFlow", "Loaded ${initialBatchEpisodes.size} episodes from cache")
                     
-                    // Load remaining episodes in background to avoid blocking UI
-                    if (remainingIds.isNotEmpty()) {
-                        ioSafe {
-                            val remainingEpisodes = remainingIds.mapNotNull { episodeId ->
-                                getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, episodeId)
-                            }
-                            android.util.Log.d("CachePerformance", "Background batch loaded: ${remainingEpisodes.size} episodes")
-                            
-                            // Combine and update episodes
-                            val allEpisodes = firstBatchEpisodes + remainingEpisodes
-                            processAndPostEpisodes(allEpisodes, cachedHeader, apiName, validUrl, api, parentId)
-                        }
+                    // Store all episode IDs in ViewModel for UI selector metadata extraction
+                    // This allows us to know season counts, etc., without loading all episodes
+                    allEpisodeIdsForMetadata = allEpisodeIds.toList()
+                    
+                    // Extract minimal metadata from ALL episodes for UI selectors (season, episode, dubStatus)
+                    // This is necessary to show all seasons/dubs in selectors without loading full episode data
+                    // Use episode's own season and dubStatus fields directly (matching non-cache behavior)
+                    android.util.Log.d("SeasonMetadata", "[SELECTOR METADATA] Starting extraction - processing ${allEpisodeIds.size} episodes")
+                    
+                    val metadataStartTime = System.currentTimeMillis()
+                    val allEpisodesMetadata = allEpisodeIds.mapNotNull { episodeId ->
+                        val episode = getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, episodeId)
+                        if (episode != null) {
+                            // Use episode's own season and dubStatus fields directly (no header metadata correction)
+                            android.util.Log.d("SeasonMetadata", "[METADATA] Episode ${episode.episode}: season=${episode.season}, dubStatus=${episode.dubStatus}")
+                            EpisodeSelectorMetadata(
+                                id = episode.id,
+                                season = episode.season,
+                                episode = episode.episode,
+                                dubStatus = episode.dubStatus
+                            )
+                        } else null
                     }
                     
-                    // Return first batch for immediate UI response
-                    android.util.Log.d("CachePerformance", "Progressive loading: ${firstBatchEpisodes.size} episodes ready immediately")
-                    firstBatchEpisodes
+                    val metadataDuration = System.currentTimeMillis() - metadataStartTime
+                    android.util.Log.d("SeasonMetadata", "[SELECTOR METADATA] Extraction completed - duration: ${metadataDuration}ms, extracted: ${allEpisodesMetadata.size} episodes")
+                    android.util.Log.d("CacheFlow", "Extracted lightweight metadata from ${allEpisodesMetadata.size} episodes for UI selectors in ${System.currentTimeMillis() - metadataStartTime}ms")
+                    selectorMetadata = allEpisodesMetadata
+                    
+                    initialBatchEpisodes
                 } else {
-                    // Fallback to full scan if index is missing
-                    android.util.Log.w("CachePerformance", "loadOfflineEpisodes - Parent index missing, falling back to full scan")
+                    // Fallback to full scan if index is missing - load all episodes
+                    android.util.Log.w("CacheFlow", "loadOfflineEpisodes - Parent index missing, falling back to full scan")
                     val allKeys = getKeys(DOWNLOAD_EPISODE_CACHE)
-                    android.util.Log.d("CachePerformance", "Full scan: total keys in cache = ${allKeys?.size}")
                     val episodes = allKeys
                         ?.mapNotNull { getKey<DownloadObjects.DownloadEpisodeCached>(it) }
                         ?.filter { it.parentId == parentId }
-                    android.util.Log.d("CachePerformance", "Full scan loaded ${episodes?.size} episodes in ${System.currentTimeMillis() - startTime}ms")
-                    episodes
+                    android.util.Log.d("CacheFlow", "Full scan loaded ${episodes?.size} episodes")
+                    episodes // Load all episodes
                 }
             } catch (e: Exception) {
-                android.util.Log.e("CachePerformance", "Error using parent index, falling back to full scan: ${e.message}", e)
-                getKeys(DOWNLOAD_EPISODE_CACHE)
+                android.util.Log.e("CacheFlow", "Error using parent index, falling back to full scan: ${e.message}", e)
+                val allKeys = getKeys(DOWNLOAD_EPISODE_CACHE)
+                allKeys
                     ?.mapNotNull { getKey<DownloadObjects.DownloadEpisodeCached>(it) }
-                    ?.filter { it.parentId == parentId }
+                    ?.filter { it.parentId == parentId } // Load all episodes
             }
                 ?.sortedWith(compareBy<DownloadObjects.DownloadEpisodeCached> { it.season ?: 0 }
                     .thenBy { it.episode })
-                ?.distinctBy { it.episode }
             
-            android.util.Log.d("CachePerformance", "=== EPISODE LOAD COMPLETE: ${cachedEpisodes?.size} episodes loaded in ${System.currentTimeMillis() - startTime}ms ===")
+            android.util.Log.d("CacheFlow", "=== EPISODE LOAD COMPLETE: ${cachedEpisodes?.size} episodes loaded in ${System.currentTimeMillis() - startTime}ms ===")
+            
+            // Debug logging for episode distribution
+            android.util.Log.d("CacheFlow", "=== EPISODE DISTRIBUTION DEBUG ===")
+            val episodesBySeasonDebug = cachedEpisodes?.groupBy { it.season ?: 0 }
+            episodesBySeasonDebug?.forEach { (season, eps) ->
+                android.util.Log.d("CacheFlow", "Season $season: ${eps.size} episodes")
+            }
+            val episodesByDubDebug = cachedEpisodes?.groupBy { it.dubStatus }
+            episodesByDubDebug?.forEach { (dub, eps) ->
+                android.util.Log.d("CacheFlow", "Dub status $dub: ${eps.size} episodes")
+            }
+            android.util.Log.d("CacheFlow", "=== END EPISODE DISTRIBUTION DEBUG ===")
 
             if (cachedEpisodes.isNullOrEmpty()) {
                 android.util.Log.d("CacheFlow", "No cached episodes found for parentId: $parentId, falling back to API")
@@ -4032,6 +4708,31 @@ class ResultViewModel2 : ViewModel() {
             }
             
             android.util.Log.d("CacheFlow", "Loaded ${cachedEpisodes.size} cached episodes from DOWNLOAD_EPISODE_CACHE")
+            
+            // Migration: If cached header doesn't have totalSeasons or seasonMetadata, fetch from API to get correct metadata
+            // Don't build from cached episodes as they may have incorrect season info
+            if (cachedHeader.totalSeasons == null || cachedHeader.seasonMetadata == null) {
+                android.util.Log.w("SeasonMetadata", "[MIGRATION] Header missing season metadata - totalSeasons: ${cachedHeader.totalSeasons}, seasonMetadata: ${cachedHeader.seasonMetadata != null}")
+                android.util.Log.w("SeasonMetadata", "[MIGRATION] Triggering API fetch to get correct season metadata instead of building from cached episodes")
+                // Trigger API fetch to get correct season metadata - but continue to display cached episodes
+                viewModelScope.launchSafe {
+                    val repo = APIRepository(api)
+                    when (val data = repo.load(validUrl)) {
+                        is Resource.Success<*> -> {
+                            if (!isActive) return@launchSafe
+                            val loadResponse = data.value as? LoadResponse ?: return@launchSafe
+                            android.util.Log.d("SeasonMetadata", "[MIGRATION] API fetch succeeded - reloading from cache with updated header")
+                            // The API fetch will cache the header with correct season metadata
+                            postSuccessful(loadResponse, cachedHeader.id, updateEpisodes = false, updateFillers = false, apiRepository = repo)
+                        }
+                        is Resource.Failure -> {
+                            android.util.Log.e("SeasonMetadata", "[MIGRATION] API fetch failed: ${data.errorString}")
+                        }
+                        else -> {}
+                    }
+                }
+                // Don't return early - continue to display cached episodes
+            }
 
             android.util.Log.d("LocalLibraryTest", "Loaded ${cachedEpisodes.size} cached episodes for offline mode")
             android.util.Log.d("LocalLibraryTest", "Converting ${cachedEpisodes.size} episodes to ResultEpisode format")
@@ -4076,27 +4777,10 @@ class ResultViewModel2 : ViewModel() {
             }
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Converted ${resultEpisodes.size} episodes to ResultEpisode format")
             
-            // Infer dub status for episodes without cached dubStatus by looking at siblings in same season
-            // This prevents episodes from being misassigned to wrong dub/sub section
-            android.util.Log.d("DubStatusFix", "=== STARTING DUB STATUS INFERENCE ===")
-            android.util.Log.d("DubStatusFix", "Total cached episodes: ${cachedEpisodes.size}")
-            val dubStatusBySeason = mutableMapOf<Int, com.lagradost.cloudstream3.DubStatus>()
-            cachedEpisodes.forEach { cached ->
-                if (cached.dubStatus != null && cached.season != null) {
-                    val status = try { 
-                        com.lagradost.cloudstream3.DubStatus.valueOf(cached.dubStatus) 
-                    } catch (e: Exception) { 
-                        com.lagradost.cloudstream3.DubStatus.Subbed 
-                    }
-                    // If we haven't set a status for this season yet, use this one
-                    dubStatusBySeason.putIfAbsent(cached.season, status)
-                    android.util.Log.d("DubStatusFix", "Season ${cached.season} has dubStatus: $status (from episode ${cached.episode})")
-                }
-            }
-            android.util.Log.d("DubStatusFix", "Dub status by season map: $dubStatusBySeason")
-            
             // Group episodes by season AND their original dub status
-            android.util.Log.d("DubStatusFix", "Grouping ${resultEpisodes.size} episodes by season and dub status")
+            // Use episode's own season and dubStatus fields directly (matching non-cache behavior)
+            android.util.Log.d("DubStatusFix", "Grouping ${resultEpisodes.size} episodes by season and dub status using episode fields")
+            
             val episodesBySeasonAndDub = resultEpisodes.groupBy { 
                 val cachedDub = cachedEpisodes.find { cached -> cached.id == it.id }?.dubStatus
                 val dubStatus = if (cachedDub != null) {
@@ -4106,15 +4790,16 @@ class ResultViewModel2 : ViewModel() {
                         com.lagradost.cloudstream3.DubStatus.Subbed 
                     }
                 } else {
-                    // Infer from season's common dub status, default to Subbed if unknown
-                    val inferred = dubStatusBySeason[it.season ?: 0] ?: com.lagradost.cloudstream3.DubStatus.Subbed
-                    android.util.Log.d("DubStatusFix", "Episode ${it.episode} (season ${it.season}) has no cached dubStatus, inferred: $inferred")
-                    inferred
+                    // Fallback to Subbed if no cached dubStatus
+                    com.lagradost.cloudstream3.DubStatus.Subbed
                 }
-                android.util.Log.d("DubStatusFix", "Episode ${it.episode} assigned to: season=${it.season}, dubStatus=$dubStatus")
-                (it.season ?: 0) to dubStatus
+                
+                // Use episode's own season field directly
+                val season = it.season ?: 0
+                android.util.Log.d("DubStatusFix", "[GROUPING] Episode ${it.episode}: season=$season, dubStatus=$dubStatus")
+                season to dubStatus
             }
-            android.util.Log.d("DubStatusFix", "=== DUB STATUS INFERENCE COMPLETE ===")
+            android.util.Log.d("DubStatusFix", "=== GROUPING COMPLETE ===")
             android.util.Log.d("DubStatusFix", "Final groups: ${episodesBySeasonAndDub.keys}")
             val newEpisodes = mutableMapOf<EpisodeIndexer, List<ResultEpisode>>()
             episodesBySeasonAndDub.forEach { (seasonDubPair, episodes) ->
@@ -4126,15 +4811,32 @@ class ResultViewModel2 : ViewModel() {
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Set currentEpisodes with ${newEpisodes.size} season groups")
             
             // Initialize missing state variables that postEpisodeRange depends on
-            // Collect unique dub statuses and seasons from cached episodes
+            android.util.Log.d("SeasonMetadata", "[SELECTOR INIT] Initializing selector - parentId: $parentId")
+            // Collect unique dub statuses from ALL episodes using selectorMetadata
             val dubSelection = mutableSetOf<String>()
-            val seasonsSelection = mutableSetOf<Int>()
-            resultEpisodes.forEach { ep ->
-                // Use cached dub status or fallback to Subbed
-                val cachedDub = cachedEpisodes.find { it.id == ep.id }?.dubStatus 
-                    ?: com.lagradost.cloudstream3.DubStatus.Subbed.name
-                dubSelection += cachedDub
-                seasonsSelection += ep.season ?: 0
+            
+            // Use selectorMetadata (all episodes) instead of cachedEpisodes (only 20 episodes)
+            selectorMetadata?.forEach { ep ->
+                dubSelection += ep.dubStatus ?: com.lagradost.cloudstream3.DubStatus.Subbed.name
+            }
+            
+            // Use total season count from header for season selector (not just cached seasons)
+            // This shows all available seasons even if not all are downloaded
+            val seasonsSelection = if (cachedHeader.totalSeasons != null && cachedHeader.totalSeasons > 0) {
+                // Use total season count from header metadata (1 to totalSeasons)
+                android.util.Log.d("SeasonMetadata", "[SELECTOR INIT] Data source: Header metadata - totalSeasons: ${cachedHeader.totalSeasons}")
+                (1..cachedHeader.totalSeasons).toList()
+            } else {
+                // Fallback to cached seasons if header has no season info
+                // Prefer season 1 if available, otherwise use all cached seasons
+                android.util.Log.d("SeasonMetadata", "[SELECTOR INIT] Data source: Fallback (cached episodes) - header missing totalSeasons")
+                val cachedSeasons = selectorMetadata?.mapNotNull { it.season }?.distinct()?.sorted() ?: emptyList()
+                if (cachedSeasons.contains(1)) {
+                    // Prefer season 1 if available
+                    listOf(1)
+                } else {
+                    cachedSeasons
+                }
             }
             
             // Convert dub status strings to DubStatus enum
@@ -4145,19 +4847,109 @@ class ResultViewModel2 : ViewModel() {
             currentSeasons = seasonsSelection.toList()
             currentId = parentId
             
+            android.util.Log.d("SeasonMetadata", "[SELECTOR INIT] Selector initialized - seasons: ${seasonsSelection.size}, dubs: ${dubStatusList.size}")
+            // Log detailed selector metadata
+            android.util.Log.d("SelectorDebug", "=== SELECTOR METADATA CACHE ===")
+            android.util.Log.d("SelectorDebug", "Total seasons from header: ${cachedHeader.totalSeasons}")
+            android.util.Log.d("SelectorDebug", "Season data source: ${if (cachedHeader.totalSeasons != null) "Header metadata" else "Fallback (cached episodes)"}")
+            android.util.Log.d("SelectorDebug", "Total seasons in selector: ${seasonsSelection.size}")
+            android.util.Log.d("SelectorDebug", "Seasons: ${seasonsSelection.toList()}")
+            android.util.Log.d("SelectorDebug", "Total dub statuses cached: ${dubStatusList.size}")
+            android.util.Log.d("SelectorDebug", "Dub statuses: $dubStatusList")
+            
+            // Log episodes per season using selectorMetadata (all episodes)
+            val episodesBySeason = selectorMetadata?.groupBy { it.season ?: 0 } ?: emptyMap()
+            android.util.Log.d("SelectorDebug", "Episodes per season:")
+            episodesBySeason.forEach { (season, episodes) ->
+                android.util.Log.d("SelectorDebug", "  Season $season: ${episodes.size} episodes (episodes: ${episodes.map { it.episode }})")
+            }
+            android.util.Log.d("SelectorDebug", "=== END SELECTOR METADATA ===")
+            
             // Post dub/season selections
             _dubSubSelections.postValue(dubStatusList.map { txt(it) to it })
             _seasonSelections.postValue(seasonsSelection.map { seasonNumber ->
-                txt(R.string.season) to seasonNumber
+                txt(R.string.season_format, txt(R.string.season), seasonNumber, "") to seasonNumber
             })
+            
+            // Load recommendations from cache
+            val cachedRecommendations = cachedHeader.recommendations?.map { cached ->
+                object : SearchResponse {
+                    override val name: String = cached.name
+                    override val url: String = cached.url
+                    override val apiName: String = cached.apiName
+                    override var posterUrl: String? = cached.posterUrl
+                    override var posterHeaders: Map<String, String>? = null
+                    override var id: Int? = null
+                    override var type: TvType? = cached.type
+                    override var score: Score? = null
+                    override var quality: SearchQuality? = null
+                    override var tags: List<String>? = null
+                }
+            } ?: emptyList()
+            _recommendations.postValue(cachedRecommendations)
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Loaded ${cachedRecommendations.size} recommendations from cache")
             
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Initialized state - currentDubStatus: $currentDubStatus, currentSeasons: $currentSeasons, currentId: $currentId")
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - newEpisodes keys: ${newEpisodes.keys}, size: ${newEpisodes.size}")
             
-            // Set up ranges like postEpisodes does
-            val ranges = getRanges(newEpisodes, EPISODE_RANGE_SIZE)
-            currentRanges = ranges
+            // Calculate ranges from selectorMetadata (all episodes) instead of limited cached episodes
+            val rangesFromMetadata = selectorMetadata?.let { metadata ->
+                val EPISODE_RANGE_SIZE = 50
+                val groupedByKey = metadata.groupBy { ep ->
+                    val dubStatusEnum = try {
+                        com.lagradost.cloudstream3.DubStatus.valueOf(ep.dubStatus ?: "None")
+                    } catch (e: Exception) {
+                        com.lagradost.cloudstream3.DubStatus.None
+                    }
+                    EpisodeIndexer(dubStatusEnum, ep.season ?: 0)
+                }
+                groupedByKey.mapValues { (index, episodes) ->
+                    val sortedEps = episodes.sortedBy { it.episode }
+                    if (sortedEps.size <= EPISODE_RANGE_SIZE + 10) {
+                        listOf(EpisodeRange(
+                            0,
+                            sortedEps.size,
+                            sortedEps.minOf { it.episode },
+                            sortedEps.maxOf { it.episode }
+                        ))
+                    } else {
+                        val ranges = mutableListOf<EpisodeRange>()
+                        var currentMin = sortedEps.first().episode
+                        var currentMax = currentMin
+                        var count = 0
+                        sortedEps.forEach { ep ->
+                            if (count >= EPISODE_RANGE_SIZE) {
+                                ranges.add(EpisodeRange(ranges.size, count, currentMin, currentMax))
+                                currentMin = ep.episode
+                                currentMax = ep.episode
+                                count = 0
+                            } else {
+                                if (ep.episode < currentMin) currentMin = ep.episode
+                                if (ep.episode > currentMax) currentMax = ep.episode
+                                count++
+                            }
+                        }
+                        if (count > 0) {
+                            ranges.add(EpisodeRange(ranges.size, count, currentMin, currentMax))
+                        }
+                        ranges
+                    }
+                }
+            } ?: emptyMap()
+            
+            currentRanges = rangesFromMetadata
+            
+            // Post range selections from metadata so the dropdown shows all ranges
+            val rangeSelectionsList = rangesFromMetadata.values.flatten().map { r ->
+                txt(R.string.episodes_range, r.startEpisode, r.endEpisode) to r
+            }
+            _rangeSelections.postValue(rangeSelectionsList)
+            
+            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - ranges from selectorMetadata: ${rangesFromMetadata.keys}, total ranges: ${rangesFromMetadata.values.sumOf { it.size }}")
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - currentRanges keys: ${currentRanges.keys}")
+            
+            // Also update currentEpisodes with newEpisodes for display (limited but still needed)
+            currentEpisodes = newEpisodes
             
             // Set up episode sorting for local library
             val sortOptions = mutableListOf<Pair<UiText, EpisodeSortType>>().apply {
@@ -4185,21 +4977,25 @@ class ResultViewModel2 : ViewModel() {
             _selectedSorting.postValue(txt(R.string.sort_button_episode, ""))
             _selectedSortingIndex.postValue(0)
             
-            // Set up range and post episodes
-            val min = ranges.keys.minByOrNull { index ->
-                kotlin.math.abs(
-                    index.season - (preferStartSeason ?: 1)
-                ) + if (index.dubStatus == preferDubStatus) 0 else 100000
+            // Set up range and post episodes - prefer season 1
+            val season1Indexer = rangesFromMetadata.keys.find { it.season == 1 }
+            val firstRange = if (season1Indexer != null) {
+                rangesFromMetadata[season1Indexer]?.firstOrNull()
+            } else {
+                rangesFromMetadata.values.flatten().firstOrNull()
             }
-            
-            val ranger = ranges[min]
-            val range = ranger?.firstOrNull {
-                it.startEpisode >= (preferStartEpisode ?: 0)
-            } ?: ranger?.lastOrNull()
-            
-            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Calling postEpisodeRange with min: $min, range: $range, total episodes in range: ${range?.length ?: 0}")
-            postEpisodeRange(min, range, defaultSorting)
-            android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Called postEpisodeRange successfully")
+            if (firstRange != null) {
+                val indexer = if (season1Indexer != null) {
+                    season1Indexer
+                } else {
+                    rangesFromMetadata.entries.find { it.value.contains(firstRange) }?.key
+                }
+                if (indexer != null) {
+                    android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Calling postEpisodeRange with indexer: $indexer, range: $firstRange")
+                    postEpisodeRange(indexer, firstRange, defaultSorting)
+                    android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Called postEpisodeRange successfully")
+                }
+            }
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - currentResponse episodes count: ${(currentResponse as? AnimeLoadResponse)?.episodes?.values?.flatten()?.size ?: (currentResponse as? TvSeriesLoadResponse)?.episodes?.size}")
             postResume()
         }
@@ -4377,17 +5173,9 @@ class ResultViewModel2 : ViewModel() {
                     val urlIndex = allCachedHeaders?.associateBy { it.url }
                     val idIndex = allCachedHeaders?.associateBy { it.id.toString() }
                     
-                    android.util.Log.d("CachePerformance", "=== CACHE INDEX BUILT ===")
-                    android.util.Log.d("CachePerformance", "URL Index size: ${urlIndex?.size}")
-                    android.util.Log.d("CachePerformance", "ID Index size: ${idIndex?.size}")
-                    
                     // O(1) lookup using HashMap indexes
                     val cachedHeader = urlIndex?.get(url)
                         ?: idIndex?.get(url)
-                    
-                    android.util.Log.d("CachePerformance", "=== CACHE LOOKUP COMPLETE ===")
-                    android.util.Log.d("CachePerformance", "Lookup result: ${cachedHeader != null}")
-                    android.util.Log.d("CachePerformance", "Lookup time: O(1) vs O(n) linear search")
                     
                     cachedHeader
                 }
@@ -4616,8 +5404,93 @@ class ResultViewModel2 : ViewModel() {
                         }
                         val preservedTags = loadResponse.tags ?: existingCachedHeader?.tags
                         
+                        // Extract season metadata from API response
+                        val extractionStartTime = System.currentTimeMillis()
+                        val seasonMetadata = mutableMapOf<Int, DownloadObjects.SeasonMetadata>()
+                        var totalSeasons = 0
+                        
+                        android.util.Log.d("SeasonMetadata", "[API LOAD PATH] Starting season metadata extraction - response type: ${loadResponse.javaClass.simpleName}")
+                        
+                        when (loadResponse) {
+                            is TvSeriesLoadResponse -> {
+                                val seasonNamesList = loadResponse.seasonNames
+                                android.util.Log.d("SeasonMetadata", "[API LOAD PATH] TvSeriesLoadResponse - seasonNames: ${seasonNamesList?.size ?: 0}, episodes: ${loadResponse.episodes.size}")
+                                if (seasonNamesList != null && seasonNamesList.isNotEmpty()) {
+                                    totalSeasons = seasonNamesList.size
+                                    seasonNamesList.forEach { seasonData ->
+                                        val episodes = loadResponse.episodes
+                                            .filter { it.season == seasonData.season }
+                                            .mapNotNull { it.episode }
+                                        seasonMetadata[seasonData.season] = DownloadObjects.SeasonMetadata(
+                                            episodeCount = episodes.size,
+                                            episodes = episodes
+                                        )
+                                    }
+                                } else {
+                                    // Fallback: Extract totalSeasons from episodes when seasonNames is null/empty
+                                    android.util.Log.d("SeasonMetadata", "[API LOAD PATH] seasonNames is null/empty, extracting from episodes")
+                                    val maxSeason = loadResponse.episodes.mapNotNull { it.season }.maxOrNull() ?: 0
+                                    totalSeasons = maxSeason
+                                    android.util.Log.d("SeasonMetadata", "[API LOAD PATH] Extracted totalSeasons from episodes: $totalSeasons")
+                                    // Group episodes by season for metadata
+                                    val episodesBySeason = loadResponse.episodes.groupBy { it.season ?: 0 }
+                                    episodesBySeason.forEach { (season, episodes) ->
+                                        seasonMetadata[season] = DownloadObjects.SeasonMetadata(
+                                            episodeCount = episodes.size,
+                                            episodes = episodes.mapNotNull { it.episode }
+                                        )
+                                    }
+                                }
+                            }
+                            is AnimeLoadResponse -> {
+                                val allEpisodes = loadResponse.episodes.values.flatten()
+                                val seasonNamesList = loadResponse.seasonNames
+                                android.util.Log.d("SeasonMetadata", "[API LOAD PATH] AnimeLoadResponse - seasonNames: ${seasonNamesList?.size ?: 0}, episodes: ${allEpisodes.size}")
+                                // Fallback: Extract totalSeasons from episodes when seasonNames is null/empty
+                                totalSeasons = if (seasonNamesList?.isNotEmpty() == true) {
+                                    seasonNamesList.size
+                                } else {
+                                    allEpisodes.mapNotNull { it.season }.maxOrNull() ?: 1
+                                }
+                                android.util.Log.d("SeasonMetadata", "[API LOAD PATH] AnimeLoadResponse totalSeasons: $totalSeasons")
+                                
+                                if (seasonNamesList?.isNotEmpty() == true) {
+                                    // Use seasonNames to group episodes
+                                    seasonNamesList.forEach { seasonData ->
+                                        val episodes = allEpisodes
+                                            .filter { it.season == seasonData.season }
+                                            .mapNotNull { it.episode }
+                                        seasonMetadata[seasonData.season] = DownloadObjects.SeasonMetadata(
+                                            episodeCount = episodes.size,
+                                            episodes = episodes
+                                        )
+                                    }
+                                } else {
+                                    // Group episodes by their actual season field
+                                    android.util.Log.d("SeasonMetadata", "[API LOAD PATH] seasonNames is null/empty, grouping episodes by actual season field")
+                                    val episodesBySeason = allEpisodes.groupBy { it.season ?: 1 }
+                                    episodesBySeason.forEach { (season, episodes) ->
+                                        seasonMetadata[season] = DownloadObjects.SeasonMetadata(
+                                            episodeCount = episodes.size,
+                                            episodes = episodes.mapNotNull { it.episode }
+                                        )
+                                    }
+                                }
+                            }
+                            else -> {
+                                android.util.Log.w("SeasonMetadata", "[API LOAD PATH] Unknown response type: ${loadResponse.javaClass.simpleName}")
+                            }
+                        }
+                        
+                        val extractionDuration = System.currentTimeMillis() - extractionStartTime
+                        android.util.Log.d("SeasonMetadata", "[API LOAD PATH] Extraction completed - duration: ${extractionDuration}ms, totalSeasons: $totalSeasons, seasonMetadata size: ${seasonMetadata.size}")
+                        android.util.Log.d("LocalLibraryTest", "Extracted season metadata from API: $totalSeasons seasons, ${seasonMetadata.size} seasons with metadata")
+                        android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Header caching started - metadataOnlyMode: true (initial state before episode caching)")
+                        
                         // Preserve originalUrl from existing cache to maintain cache key consistency
                         val originalUrl = existingCachedHeader?.originalUrl ?: existingCachedHeader?.url ?: validUrl
+                        android.util.Log.d("SeasonMetadata", "[API LOAD PATH] Caching header - cacheKey: $originalUrl, totalSeasons: $totalSeasons, seasonMetadata size: ${seasonMetadata.size}")
+                        android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Caching header with metadataOnlyMode=true - id: $mainId, url: $originalUrl")
                         setKey(
                             DOWNLOAD_HEADER_CACHE,
                             originalUrl,
@@ -4640,6 +5513,7 @@ class ResultViewModel2 : ViewModel() {
                                 tags = preservedTags,
                                 id = mainId,
                                 cacheTime = System.currentTimeMillis(),
+                                metadataOnlyMode = true, // Initial header cache is metadata-only
                                 hasCustomPoster = existingCachedHeader?.hasCustomPoster ?: false,
                                 hasSwappedMetadata = existingCachedHeader?.hasSwappedMetadata ?: false,
                                 swappedFields = existingCachedHeader?.swappedFields ?: emptySet(),
@@ -4651,12 +5525,21 @@ class ResultViewModel2 : ViewModel() {
                                 originalScore = existingCachedHeader?.originalScore,
                                 originalYear = existingCachedHeader?.originalYear,
                                 originalShowStatus = existingCachedHeader?.originalShowStatus,
-                                syncData = existingCachedHeader?.syncData
+                                totalSeasons = totalSeasons,
+                                seasonMetadata = seasonMetadata,
+                                recommendations = existingCachedHeader?.recommendations ?: loadResponse.recommendations?.map { rec ->
+                                    DownloadObjects.CachedSearchResponse(
+                                        name = rec.name,
+                                        url = rec.url,
+                                        apiName = rec.apiName,
+                                        posterUrl = rec.posterUrl,
+                                        type = rec.type ?: TvType.Movie
+                                    )
+                                }
                             )
                         )
+                        android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Header cached successfully - metadataOnlyMode: true")
                     }
-                    if (loadTrailers)
-                        loadTrailers(finalResponse)
                     postSuccessful(
                         finalResponse,
                         mainId,

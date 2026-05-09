@@ -108,6 +108,7 @@ object DownloadObjects {
         @JsonProperty("actors") val actors: List<String>?,
         @JsonProperty("tags") val tags: List<String>? = null,
         @JsonProperty("cacheTime") val cacheTime: Long,
+        @JsonProperty("metadataOnlyMode") val metadataOnlyMode: Boolean = false,
         @JsonProperty("hasCustomPoster") val hasCustomPoster: Boolean = false,
         @JsonProperty("hasSwappedMetadata") val hasSwappedMetadata: Boolean = false,
         @JsonProperty("swappedFields") val swappedFields: Set<String> = emptySet(),
@@ -121,8 +122,26 @@ object DownloadObjects {
         @JsonProperty("originalScore") val originalScore: Int? = null,
         @JsonProperty("originalYear") val originalYear: Int? = null,
         @JsonProperty("originalShowStatus") val originalShowStatus: String? = null,
+        @JsonProperty("totalSeasons") val totalSeasons: Int? = null,
+        @JsonProperty("seasonMetadata") val seasonMetadata: Map<Int, SeasonMetadata>? = null,
+        // Cache recommendations for offline display
+        @JsonProperty("recommendations") val recommendations: List<CachedSearchResponse>? = null,
         override val id: Int,
     ) : DownloadCached(id)
+
+    data class SeasonMetadata(
+        @JsonProperty("episodeCount") val episodeCount: Int,
+        @JsonProperty("episodes") val episodes: List<Int> = emptyList()
+    )
+
+    /** Simplified SearchResponse for caching recommendations */
+    data class CachedSearchResponse(
+        @JsonProperty("name") val name: String,
+        @JsonProperty("url") val url: String,
+        @JsonProperty("apiName") val apiName: String,
+        @JsonProperty("posterUrl") val posterUrl: String? = null,
+        @JsonProperty("type") val type: TvType = TvType.Movie
+    )
 
     data class DownloadResumePackage(
         @JsonProperty("item") val item: DownloadItem,

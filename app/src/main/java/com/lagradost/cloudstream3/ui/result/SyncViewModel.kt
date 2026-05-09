@@ -53,6 +53,23 @@ class SyncViewModel : ViewModel() {
 
     val userData: LiveData<Resource<SyncAPI.AbstractSyncStatus>?> = _userDataResponse
 
+    private val _successMessage: MutableLiveData<String?> = MutableLiveData(null)
+    val successMessage: LiveData<String?> = _successMessage
+    
+    fun clearSuccessMessage() {
+        _successMessage.postValue(null)
+    }
+    
+    private val _selectedProvider: MutableLiveData<String?> = MutableLiveData(null)
+    val selectedProvider: LiveData<String?> = _selectedProvider
+    
+    fun setSelectedProvider(provider: String?) {
+        _selectedProvider.postValue(provider)
+    }
+    
+    private val _isSyncing: MutableLiveData<Boolean> = MutableLiveData(false)
+    val isSyncing: LiveData<Boolean> = _isSyncing
+
     // prefix, id
     // [SIMKL_DEFINITIVE_FIX][PHASE3] Mutex-protected syncs map for thread safety
     private val syncsMutex = Mutex()
@@ -76,6 +93,10 @@ class SyncViewModel : ViewModel() {
 
     // pair of name idPrefix isSynced
     val synced: LiveData<List<CurrentSynced>> = _currentSynced
+
+    // Track which providers have valid sync status (not NONE)
+    private val _providersWithValidStatus = MutableLiveData<Set<String>>(emptySet())
+    val providersWithValidStatus: LiveData<Set<String>> = _providersWithValidStatus
 
     private fun getMissing(): List<CurrentSynced> {
         return repos.map {
@@ -413,13 +434,105 @@ class SyncViewModel : ViewModel() {
 
     fun publishUserData() = ioSafe {
         Log.i(TAG, "publishUserData")
-        val user = userData.value
-        if (user is Resource.Success) {
-            syncs.forEach { (prefix, id) ->
-                repos.firstOrNull { it.idPrefix == prefix }?.updateStatus(id, user.value)
+        _isSyncing.postValue(true)
+        
+        try {
+            val user = userData.value
+            val successfulProviders = mutableListOf<String>()
+            val selected = selectedProvider.value
+            
+            if (user is Resource.Success) {
+                syncs.forEach { (prefix, id) ->
+                    // If a specific provider is selected, only sync to that one
+                    if (selected != null && prefix != selected.lowercase()) {
+                        Log.i(TAG, "Skipping $prefix - not selected (selected: $selected)")
+                        return@forEach
+                    }
+                    
+                    val repo = repos.firstOrNull { it.idPrefix == prefix }
+                    if (repo != null) {
+                        try {
+                            // Optimization: if specific provider is selected, skip status check and sync directly
+                            if (selected != null) {
+                                // Specific provider selected - sync directly without status check
+                                repo.updateStatus(id, user.value)
+                                successfulProviders.add(prefix.uppercase())
+                                Log.i(TAG, "Synced to $prefix (direct sync, no status check)")
+                            } else {
+                                // All providers selected - check if provider has account before syncing
+                                val statusResult = repo.status(id)
+                                if (statusResult?.isSuccess == true && statusResult.getOrNull() != null) {
+                                    repo.updateStatus(id, user.value)
+                                    successfulProviders.add(prefix.uppercase())
+                                } else {
+                                    Log.i(TAG, "Skipping $prefix - no account or null status")
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Failed to sync to $prefix", e)
+                        }
+                    }
+                }
             }
+            updateUserData()
+            
+            // Show success message only for providers that succeeded
+            if (successfulProviders.isNotEmpty()) {
+                val animeName = (metadata.value as? Resource.Success)?.value?.title ?: "anime"
+                val syncProviders = successfulProviders.joinToString(", ")
+                _successMessage.postValue("Synced to $syncProviders for $animeName")
+            }
+        } finally {
+            _isSyncing.postValue(false)
         }
-        updateUserData()
+    }
+
+    fun fetchProviderStatus(provider: String) = ioSafe {
+        Log.i(TAG, "fetchProviderStatus for provider: $provider")
+        val providerId = syncs[provider.lowercase()]
+        if (providerId != null) {
+            val repo = repos.firstOrNull { it.idPrefix == provider.lowercase() }
+            if (repo != null) {
+                try {
+                    val statusResult = repo.status(providerId)
+                    if (statusResult?.isSuccess == true) {
+                        val status = statusResult.getOrNull()
+                        if (status != null) {
+                            _userDataResponse.postValue(Resource.Success(status))
+                            Log.i(TAG, "Fetched status for $provider: $status")
+                        } else {
+                            // Entry not synced with this provider
+                            _userDataResponse.postValue(Resource.Success(createEmptyStatus()))
+                            Log.i(TAG, "Entry not synced with $provider")
+                        }
+                    } else {
+                        val error = statusResult?.exceptionOrNull()?.message ?: "Failed to fetch status"
+                        _userDataResponse.postValue(Resource.Failure(false, error))
+                        Log.e(TAG, "Failed to fetch status for $provider: $error")
+                    }
+                } catch (e: Exception) {
+                    _userDataResponse.postValue(Resource.Failure(false, e.message ?: "Error fetching status"))
+                    Log.e(TAG, "Error fetching status for $provider", e)
+                }
+            } else {
+                Log.e(TAG, "Repo not found for provider: $provider")
+            }
+        } else {
+            // No ID for this provider - entry not synced
+            _userDataResponse.postValue(Resource.Success(createEmptyStatus()))
+            Log.i(TAG, "No ID found for provider $provider - entry not synced")
+        }
+    }
+
+    private fun createEmptyStatus(): SyncAPI.AbstractSyncStatus {
+        // Return a default/empty status object using SyncStatus
+        return SyncAPI.SyncStatus(
+            status = SyncWatchType.NONE,
+            score = null,
+            watchedEpisodes = 0,
+            isFavorite = null,
+            maxEpisodes = 0
+        )
     }
 
     fun modifyMaxEpisode(episodeNum: Int) {
@@ -472,29 +585,51 @@ class SyncViewModel : ViewModel() {
                 _userDataResponse.postValue(Resource.Loading())
 
             var triedApis = 0
-            var successApi: String? = null
-            val status = currentSyncs.firstNotNullOfOrNull { (prefix, id) ->
+            var anySuccess = false
+            var status: SyncAPI.AbstractSyncStatus? = null
+            val providersWithValidStatus = mutableSetOf<String>()
+            
+            currentSyncs.forEach { (prefix, id) ->
                 triedApis++
                 Log.i(TAG, "updateUserData - trying $prefix with id $id")
                 val repo = repos.firstOrNull { it.idPrefix == prefix }
                 Log.i(TAG, "updateUserData - repo for $prefix: ${repo != null}")
                 val result = repo?.status(id)
                 Log.i(TAG, "updateUserData - status result for $prefix: isSuccess=${result?.isSuccess}, isFailure=${result?.isFailure}")
-                val statusValue = result?.getOrNull()
-                if (statusValue != null) {
-                    successApi = prefix
-                    Log.i(TAG, "updateUserData - SUCCESS for $prefix")
+                if (result?.isSuccess == true) {
+                    anySuccess = true
+                    val statusValue = result.getOrNull()
+                    if (statusValue != null) {
+                        // Check if status is valid (not NONE or has watched episodes or is favorite)
+                        val isValid = statusValue.status != SyncWatchType.NONE && 
+                                      statusValue.status != null &&
+                                      ((statusValue.watchedEpisodes ?: 0) > 0 || statusValue.isFavorite == true)
+                        if (isValid) {
+                            providersWithValidStatus.add(prefix)
+                        }
+                        status = statusValue
+                        Log.i(TAG, "updateUserData - SUCCESS for $prefix with non-null status, isValid: $isValid")
+                    } else {
+                        Log.i(TAG, "updateUserData - SUCCESS for $prefix with null status - skipping")
+                    }
                 }
-                statusValue
             }
+            
+            // Update providers with valid status
+            _providersWithValidStatus.postValue(providersWithValidStatus)
+            Log.i(TAG, "updateUserData - providers with valid status: $providersWithValidStatus")
 
-            Log.i(TAG, "updateUserData - tried $triedApis APIs, success: $successApi, status is null: ${status == null}")
+            Log.i(TAG, "updateUserData - tried $triedApis APIs, anySuccess: $anySuccess, status is null: ${status == null}")
 
-                if (status == null) {
-                    _userDataResponse.postValue(Resource.Failure(false, "No data"))
-                } else {
-                    _userDataResponse.postValue(Resource.Success(status))
-                }
+            // Post Success with EmptySyncStatus if APIs succeeded but returned null status
+            // This prevents infinite retry loop while signaling that the work is complete
+            if (anySuccess && status == null) {
+                _userDataResponse.postValue(Resource.Success(com.lagradost.cloudstream3.syncproviders.SyncAPI.EmptySyncStatus))
+            } else if (status != null) {
+                _userDataResponse.postValue(Resource.Success(status))
+            } else {
+                _userDataResponse.postValue(Resource.Failure(false, "No data"))
+            }
             } finally {
                 // [RACE_CONDITION_FIX] Always release the flag
                 isFetchingUserData.set(false)

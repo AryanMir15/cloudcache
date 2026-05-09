@@ -546,8 +546,47 @@ object DataStoreHelper {
         season: Int?,
         isFromDownload: Boolean = false,
         updateTime: Long? = null,
+        name: String? = null,
+        url: String? = null,
+        apiName: String? = null,
+        type: TvType? = null,
+        posterUrl: String? = null,
     ) {
         if (parentId == null) return
+        
+        // Create header cache if it doesn't exist (for continue watching without library entry)
+        val existingHeader = getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
+            DOWNLOAD_HEADER_CACHE,
+            parentId.toString()
+        )
+        if (existingHeader == null && name != null) {
+            android.util.Log.d("ContinueWatching", "Creating header cache for continue watching - parentId: $parentId, name: $name")
+            setKey(
+                DOWNLOAD_HEADER_CACHE,
+                parentId.toString(),
+                com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached(
+                    apiName = apiName ?: "Unknown",
+                    url = url ?: "",
+                    type = type ?: TvType.TvSeries,
+                    name = name,
+                    poster = posterUrl,
+                    backgroundPosterUrl = null,
+                    logoUrl = null,
+                    plot = null,
+                    score = null,
+                    showStatus = null,
+                    year = null,
+                    episodeCount = null,
+                    date = null,
+                    actors = null,
+                    tags = null,
+                    cacheTime = System.currentTimeMillis(),
+                    metadataOnlyMode = false,
+                    id = parentId
+                )
+            )
+        }
+        
         setKey(
             "$currentAccount/$RESULT_RESUME_WATCHING",
             parentId.toString(),
@@ -681,7 +720,18 @@ object DataStoreHelper {
      *
      * if nextEpisode is not specified it will not be able to set the next episode as resumable if progress > NEXT_WATCH_EPISODE_PERCENTAGE
      * */
-    fun setViewPosAndResume(id: Int?, position: Long, duration: Long, currentEpisode: Any?, nextEpisode: Any?) {
+    fun setViewPosAndResume(
+        id: Int?,
+        position: Long,
+        duration: Long,
+        currentEpisode: Any?,
+        nextEpisode: Any?,
+        name: String? = null,
+        url: String? = null,
+        apiName: String? = null,
+        type: TvType? = null,
+        posterUrl: String? = null
+    ) {
         setViewPos(id, position, duration)
         if (id != null) {
             when (val meta = currentEpisode) {
@@ -716,7 +766,12 @@ object DataStoreHelper {
                         resumeMeta.id,
                         resumeMeta.episode,
                         resumeMeta.season,
-                        isFromDownload = false
+                        isFromDownload = false,
+                        name = name,
+                        url = url,
+                        apiName = apiName,
+                        type = type,
+                        posterUrl = posterUrl
                     )
                 }
 
@@ -726,7 +781,12 @@ object DataStoreHelper {
                         resumeMeta.id,
                         resumeMeta.episode,
                         resumeMeta.season,
-                        isFromDownload = true
+                        isFromDownload = true,
+                        name = name,
+                        url = url,
+                        apiName = apiName,
+                        type = type,
+                        posterUrl = posterUrl
                     )
                 }
             }

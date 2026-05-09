@@ -17,6 +17,7 @@ import android.view.animation.AlphaAnimation
 import android.view.animation.Animation
 import android.view.animation.DecelerateInterpolator
 import android.widget.AbsListView
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -25,6 +26,8 @@ import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.core.widget.NestedScrollView
 import androidx.core.widget.doOnTextChanged
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -60,6 +63,8 @@ import com.lagradost.cloudstream3.mvvm.observeNullable
 import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.services.SubscriptionWorkManager
 import com.lagradost.cloudstream3.syncproviders.AccountManager.Companion.APP_STRING_SHARE
+import com.lagradost.cloudstream3.syncproviders.SyncAPI
+import com.lagradost.cloudstream3.ui.SyncWatchType
 import com.lagradost.cloudstream3.ui.WatchType
 import com.lagradost.cloudstream3.ui.download.DOWNLOAD_ACTION_DOWNLOAD
 import com.lagradost.cloudstream3.ui.download.DOWNLOAD_ACTION_LONG_CLICK
@@ -335,20 +340,20 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     var selectSort: EpisodeSortType? = null
 
     private fun setUrl(url: String?) {
-        if (url == null) {
-            binding?.resultOpenInBrowser?.isVisible = false
-            return
-        }
-
-        val valid = url.startsWith("http")
-
+        // Show Open in Browser only if URL is valid
         binding?.resultOpenInBrowser?.apply {
-            isVisible = valid
-            setOnClickListener {
-                context?.openBrowser(url)
+            isVisible = url?.startsWith("http") == true
+            isEnabled = url?.startsWith("http") == true
+            if (url?.startsWith("http") == true) {
+                setOnClickListener {
+                    context?.openBrowser(url)
+                }
             }
         }
+    }
 
+    private fun setupUiListeners() {
+        val url = getStoredData()?.url
         binding?.resultRefreshMetadata?.setOnClickListener {
             val metaProviders = viewModel.getAvailableMetaProviders()
             if (metaProviders.isEmpty()) {
@@ -369,11 +374,11 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         }
 
         resultBinding?.resultReloadConnectionOpenInBrowser?.setOnClickListener {
-            view?.context?.openBrowser(url)
+            url?.let { view?.context?.openBrowser(it) }
         }
 
         resultBinding?.resultMetaSite?.setOnClickListener {
-            view?.context?.openBrowser(url)
+            url?.let { view?.context?.openBrowser(it) }
         }
 
         // Setup pull-to-refresh
@@ -435,6 +440,16 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 viewModel.refreshError.observe(viewLifecycleOwner) { error ->
                     if (error != null) {
                         activity?.let { showToast(it, error) }
+                        resultBinding?.resultSwipeRefresh?.isRefreshing = false
+                    }
+                },
+
+                // Observer 3: API fetch in progress (load on demand)
+                viewModel.apiFetchInProgress.observe(viewLifecycleOwner) { isInProgress ->
+                    resultBinding?.resultLoading?.visibility =
+                        if (isInProgress) android.view.View.VISIBLE else android.view.View.GONE
+                    // Sync SwipeRefreshLayout with API fetch state
+                    if (!isInProgress) {
                         resultBinding?.resultSwipeRefresh?.isRefreshing = false
                     }
                 }
@@ -1175,11 +1190,12 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     }
 
     private fun setRecommendations(rec: List<SearchResponse>?, validApiName: String?) {
-        val isInvalid = rec.isNullOrEmpty()
+        val isEmpty = rec.isNullOrEmpty()
         val matchAgainst = validApiName ?: rec?.firstOrNull()?.apiName
 
         recommendationBinding?.apply {
-            root.isGone = isInvalid
+            // UI RESILIENCE: Always show the recommendations section, even if empty
+            root.isGone = false
             root.post {
                 rec?.let { list ->
                     (resultRecommendationsList.adapter as? SearchAdapter)?.submitList(list.filter { it.apiName == matchAgainst })
@@ -1188,8 +1204,15 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         }
 
         binding?.apply {
-            resultRecommendationsBtt.isGone = isInvalid
+            // Always visible - user can click to trigger fetch if empty
+            resultRecommendationsBtt.isGone = false
             resultRecommendationsBtt.setOnClickListener {
+                // If empty, try to fetch recommendations
+                if (isEmpty) {
+                    android.util.Log.d("CacheFlow", "Recommendations empty - triggering fetch")
+                    viewModel.fetchRecommendationsIfNeeded()
+                }
+                
                 val nextFocusDown =
                     if (resultOverlappingPanels.getSelectedPanel().ordinal == 1) {
                         resultOverlappingPanels.openEndPanel()
@@ -1205,8 +1228,9 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     resultShare.nextFocusDownId = nextFocusDown
                 }
             }
-            android.util.Log.d("[PANEL_LOCK_DEBUG]", "Setting end panel lock state - isInvalid: $isInvalid, new state: ${if (isInvalid) "CLOSE" else "UNLOCKED"}")
-            resultOverlappingPanels.setEndPanelLockState(if (isInvalid) OverlappingPanelsLayout.LockState.CLOSE else OverlappingPanelsLayout.LockState.UNLOCKED)
+            // Always unlock the panel - user can access recommendations even if empty
+            android.util.Log.d("[PANEL_LOCK_DEBUG]", "Setting end panel lock state - isEmpty: $isEmpty, new state: UNLOCKED")
+            resultOverlappingPanels.setEndPanelLockState(OverlappingPanelsLayout.LockState.UNLOCKED)
 
             rec?.map { it.apiName }?.distinct()?.let { apiNames ->
                 // very dirty selection
@@ -1548,6 +1572,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         tags = existingCache?.tags ?: swappedResponse.tags,
                         id = id,
                         cacheTime = System.currentTimeMillis(),
+                        metadataOnlyMode = existingCache?.metadataOnlyMode ?: false,
                         hasCustomPoster = true,
                         hasSwappedMetadata = true,
                         swappedFields = fieldsToSwap.map { it.name }.toSet(),
@@ -1758,6 +1783,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 resultCastItems.setRecycledViewPool(ActorAdaptor.sharedPool)
                 resultCastItems.adapter = ActorAdaptor()
                 resultEpisodes.setRecycledViewPool(EpisodeAdapter.sharedPool)
+                resultEpisodes.layoutManager = LinearLayoutManager(view.context)
                 resultEpisodes.adapter =
                     EpisodeAdapter(
                         api?.hasDownloadSupport == true,
@@ -1769,6 +1795,25 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         }
 
                     )
+
+                // Scroll-to-load-more: detect when user scrolls near bottom
+                resultEpisodes.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+                    override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                        if (dy > 0) { // Only trigger when scrolling down
+                            val layoutManager = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager
+                            layoutManager?.let {
+                                val visibleItemCount = it.childCount
+                                val totalItemCount = it.itemCount
+                                val firstVisibleItemPosition = it.findFirstVisibleItemPosition()
+
+                                // Trigger load more when scrolled to near bottom (5 items from end)
+                                if (visibleItemCount + firstVisibleItemPosition >= totalItemCount - 5) {
+                                    viewModel.loadMoreEpisodes()
+                                }
+                            }
+                        }
+                    }
+                })
 
                 observeNullable(viewModel.selectedSorting) {
                     resultSortButton.setText(it)
@@ -1861,9 +1906,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         // If we have sync IDs but userData is null/loading, trigger a refresh
                         val hasSyncIds = syncIds.isNotEmpty()
                         val userData = syncModel.userData.value
-                        val needsRefresh = hasSyncIds && (userData == null || userData is Resource.Loading || userData is Resource.Failure)
+                        val isEmptySuccess = userData is Resource.Success && userData.value is com.lagradost.cloudstream3.syncproviders.SyncAPI.EmptySyncStatus
+                        val needsRefresh = hasSyncIds && (userData == null || userData is Resource.Loading || (userData is Resource.Failure && !isEmptySuccess))
                         
-                        android.util.Log.d("[MINI_SYNC_DATA]", "Sync data validation - hasSyncIds: $hasSyncIds, userData: ${userData?.javaClass?.simpleName ?: "null"}, needsRefresh: $needsRefresh")
+                        android.util.Log.d("[MINI_SYNC_DATA]", "Sync data validation - hasSyncIds: $hasSyncIds, userData: ${userData?.javaClass?.simpleName ?: "null"}, isEmptySuccess: $isEmptySuccess, needsRefresh: $needsRefresh")
                         
                         if (needsRefresh) {
                             android.util.Log.d("[MINI_SYNC_FIX]", "Sync data needs refresh - has IDs but user data is: ${userData?.javaClass?.simpleName ?: "null"}")
@@ -2088,37 +2134,40 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     "[SUBSCRIBE_DEBUG]",
                     "ResultFragmentPhone - subscribeStatus observer - isSubscribed: $isSubscribed"
                 )
-                binding?.resultSubscribe?.isVisible = isSubscribed != null
+                // UI RESILIENCE: Always show the subscribe button
+                binding?.resultSubscribe?.isVisible = true
+                
+                // If no subscription data, show as unsubscribed (can click to subscribe)
+                val displaySubscribed = isSubscribed ?: false
                 android.util.Log.d(
                     "[SUBSCRIBE_DEBUG]",
-                    "ResultFragmentPhone - subscribeStatus observer - button visibility set to: ${isSubscribed != null}"
+                    "ResultFragmentPhone - subscribeStatus observer - button visibility set to: true, displaySubscribed: $displaySubscribed"
                 )
                 if (isSubscribed == null) {
-                    android.util.Log.d(
-                        "[SUBSCRIBE_DEBUG]",
-                        "ResultFragmentPhone - subscribeStatus observer - isSubscribed is null, returning early"
-                    )
-                    return@observeNullable
+                    // Show as not subscribed - user can click to subscribe
+                    // Don't return early, allow the click handler to work
                 }
 
-                val drawable = if (isSubscribed) {
+                val drawable = if (isSubscribed == true) {
                     R.drawable.ic_baseline_notifications_active_24
                 } else {
                     R.drawable.baseline_notifications_none_24
                 }
                 android.util.Log.d(
                     "[SUBSCRIBE_DEBUG]",
-                    "ResultFragmentPhone - subscribeStatus observer - setting drawable: ${if (isSubscribed) "notifications_active" else "notifications_none"}"
+                    "ResultFragmentPhone - subscribeStatus observer - setting drawable: ${if (isSubscribed == true) "notifications_active" else "notifications_none"}"
                 )
 
                 binding?.resultSubscribe?.setImageResource(drawable)
             }
 
             observeNullable(viewModel.favoriteStatus) { isFavorite ->
-                binding?.resultFavorite?.isVisible = isFavorite != null
-                if (isFavorite == null) return@observeNullable
-
-                val drawable = if (isFavorite) {
+                // UI RESILIENCE: Always show the favorite button
+                binding?.resultFavorite?.isVisible = true
+                
+                // If no favorite data, show as not favorited
+                val displayFavorite = isFavorite ?: false
+                val drawable = if (displayFavorite) {
                     R.drawable.ic_baseline_favorite_24
                 } else {
                     R.drawable.ic_baseline_favorite_border_24
@@ -2562,40 +2611,58 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
             observe(viewModel.trailers) { trailers ->
                 setTrailers(trailers.flatMap { it.mirros }) // I dont care about subtitles yet!
-            }
-
             observe(syncModel.synced) { list ->
                 android.util.Log.d("[SYNC_OBSERVER_LIFECYCLE]", "syncModel.synced observer fired - list size: ${list.size}, binding: ${binding != null}, resultMiniSync: ${binding?.resultMiniSync != null}")
-                syncBinding?.resultSyncNames?.text =
-                    list.filter { it.isSynced && it.hasAccount }.joinToString { it.name }
+                syncBinding?.resultSyncNames?.text = "Sync"
+
+                // Note: Status text is now handled by providersWithValidStatus observer
+                // Do not set resultSyncStatus here to avoid conflicts
 
                 val newList = list.filter { it.isSynced && it.hasAccount }
 
-                // MINI_SYNC_FIX: Use sticky flag to prevent "sync gap" where button disappears
-                // when name-based IDs are found but synced list hasn't updated yet
-                val shouldBeVisible = newList.isNotEmpty() || wasNameMatchFound
-                val currentVisibility = binding?.resultMiniSync?.isVisible
-
-                android.util.Log.d(
-                    "[MINI_SYNC_DEBUG]",
-                    "Sync visibility calculation - newList.size: ${newList.size}, wasNameMatchFound: $wasNameMatchFound, shouldBeVisible: $shouldBeVisible, currentVisibility: $currentVisibility"
-                )
-
-                android.util.Log.d(
-                    "[MINI_SYNC_DEBUG]",
-                    "Sync providers in newList: ${newList.map { "${it.name}(${it.idPrefix})" }}"
-                )
-
-                if (currentVisibility != shouldBeVisible) {
-                    android.util.Log.d("[MINI_SYNC_BUTTON]", "Changing button visibility from $currentVisibility to $shouldBeVisible")
-                }
-
+                // Show bell icon only if sync data is available (sync IDs exist)
+                val syncIds = syncModel.getSyncs()
+                val shouldBeVisible = syncIds.isNotEmpty()
                 binding?.resultMiniSync?.isVisible = shouldBeVisible
 
-                android.util.Log.d(
-                    "[MINI_SYNC_DEBUG]",
-                    "Sync visibility check completed - final visibility: ${binding?.resultMiniSync?.isVisible}"
-                )
+                // Populate provider selector dropdown
+                syncBinding?.resultSyncProviderSelector?.let { spinner ->
+                    val providersWithAccounts = list.filter { it.hasAccount }
+                    val providerNames = providersWithAccounts.map { it.name }
+                    val providerPrefixes = providersWithAccounts.map { it.idPrefix }
+                    
+                    if (providerNames.isNotEmpty()) {
+                        val adapter = ArrayAdapter(
+                            requireContext(),
+                            android.R.layout.simple_spinner_item,
+                            providerNames.toMutableList().apply { add(0, "All Providers") }
+                        )
+                        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                        spinner.adapter = adapter
+                        
+                        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                                android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Spinner onItemSelected - position: $position")
+                                if (position == 0) {
+                                    // "All Providers" selected - trigger initial load behavior
+                                    android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "All Providers selected - calling updateUserData")
+                                    syncModel.setSelectedProvider(null)
+                                    syncModel.updateUserData()
+                                } else {
+                                    // Specific provider selected
+                                    val selectedPrefix = providerPrefixes[position - 1]
+                                    android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Setting selectedProvider to: $selectedPrefix")
+                                    syncModel.setSelectedProvider(selectedPrefix)
+                                }
+                            }
+                            
+                            override fun onNothingSelected(parent: AdapterView<*>?) {
+                                android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Spinner onNothingSelected")
+                                syncModel.setSelectedProvider(null)
+                            }
+                        }
+                    }
+                }
 
                 //(binding?.resultMiniSync?.adapter as? ImageAdapter)?.submitList(newList.mapNotNull { it.icon })
             }
@@ -2665,36 +2732,61 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         is Resource.Success -> {
                             resultSyncLoadingShimmer.stopShimmer()
                             resultSyncLoadingShimmer.isVisible = false
-                            resultSyncHolder.isVisible = true
-
+                            
                             val d = status.value
-                            val desiredScore = d.score?.toFloat(1) ?: 0.0f
-                            val totalSteps = (resultSyncRating.valueTo / resultSyncRating.stepSize)
-                            val desiredStep = (totalSteps * desiredScore).roundToInt()
-                            resultSyncRating.value = desiredStep * resultSyncRating.stepSize
-
-                            resultSyncCheck.setItemChecked(d.status.internalId + 1, true)
-                            val watchedEpisodes = d.watchedEpisodes ?: 0
-                            currentSyncProgress = watchedEpisodes
-
-                            d.maxEpisodes?.let {
-                                // don't directly call it because we don't want to override metadata observe
-                                setSyncMaxEpisodes(it)
-                            }
-
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                                resultSyncEpisodes.setProgress(watchedEpisodes * 1000, true)
+                            val selectedProvider = syncModel.selectedProvider.value
+                            
+                            // Check if user is not logged in (EmptySyncStatus)
+                            if (d is SyncAPI.EmptySyncStatus) {
+                                resultSyncHolder.isVisible = false
+                                showToast("Login to sync")
+                                closed = true
                             } else {
-                                resultSyncEpisodes.progress = watchedEpisodes * 1000
-                            }
-                            resultSyncCurrentEpisodes.text =
-                                Editable.Factory.getInstance()
-                                    ?.newEditable(watchedEpisodes.toString())
-                            safe { // format might fail
-                                val text = d.score?.toFloat(10)?.roundToInt()?.let {
-                                    context?.getString(R.string.sync_score_format)?.format(it)
-                                } ?: "?"
-                                resultSyncScoreText.text = text
+                                resultSyncHolder.isVisible = true
+                                
+                                // Check if entry is not synced with the selected provider
+                                val isNotSynced = d.status == SyncWatchType.NONE && d.watchedEpisodes == 0
+                                if (isNotSynced && selectedProvider != null) {
+                                    // Show "Not tracked in [Provider]" message
+                                    val providerName = syncModel.synced.value?.firstOrNull { it.idPrefix == selectedProvider.lowercase() }?.name ?: selectedProvider
+                                    resultSyncStatus.text = "Not tracked in $providerName"
+                                    resultSyncStatus.isVisible = true
+                                } else if (selectedProvider != null) {
+                                    // Show "Synced to [Provider]" when synced
+                                    val providerName = syncModel.synced.value?.firstOrNull { it.idPrefix == selectedProvider.lowercase() }?.name ?: selectedProvider
+                                    resultSyncStatus.text = "Synced to $providerName"
+                                    resultSyncStatus.isVisible = true
+                                }
+                                // Note: For "All providers" (selectedProvider == null), status text is handled by providersWithValidStatus observer
+                                
+                                val desiredScore = d.score?.toFloat(1) ?: 0.0f
+                                val totalSteps = (resultSyncRating.valueTo / resultSyncRating.stepSize)
+                                val desiredStep = (totalSteps * desiredScore).roundToInt()
+                                resultSyncRating.value = desiredStep * resultSyncRating.stepSize
+
+                                resultSyncCheck.setItemChecked(d.status.internalId + 1, true)
+                                val watchedEpisodes = d.watchedEpisodes ?: 0
+                                currentSyncProgress = watchedEpisodes
+
+                                d.maxEpisodes?.let {
+                                    // don't directly call it because we don't want to override metadata observe
+                                    setSyncMaxEpisodes(it)
+                                }
+
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                                    resultSyncEpisodes.setProgress(watchedEpisodes * 1000, true)
+                                } else {
+                                    resultSyncEpisodes.progress = watchedEpisodes * 1000
+                                }
+                                resultSyncCurrentEpisodes.text =
+                                    Editable.Factory.getInstance()
+                                        ?.newEditable(watchedEpisodes.toString())
+                                safe { // format might fail
+                                    val text = d.score?.toFloat(10)?.roundToInt()?.let {
+                                        context?.getString(R.string.sync_score_format)?.format(it)
+                                    } ?: "?"
+                                    resultSyncScoreText.text = text
+                                }
                             }
                         }
 
@@ -2705,6 +2797,26 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 }
                 binding?.resultOverlappingPanels?.setStartPanelLockState(if (closed) OverlappingPanelsLayout.LockState.CLOSE else OverlappingPanelsLayout.LockState.UNLOCKED)
             }
+            observe(syncModel.successMessage) { message ->
+                if (message != null) {
+                    showToast(message)
+                    syncModel.clearSuccessMessage()
+                }
+            }
+            observe(syncModel.isSyncing) { isSyncing ->
+                syncBinding?.apply {
+                    if (isSyncing) {
+                        resultSyncLoadingShimmer.startShimmer()
+                        resultSyncLoadingShimmer.isVisible = true
+                        resultSyncHolder.isVisible = false
+                    } else {
+                        resultSyncLoadingShimmer.stopShimmer()
+                        resultSyncLoadingShimmer.isVisible = false
+                        resultSyncHolder.isVisible = true
+                    }
+                }
+            }
+
             observe(viewModel.recommendations) { recommendations ->
                 setRecommendations(recommendations, null)
             }
@@ -2863,6 +2975,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 //        val preferDub = context?.getApiDubstatusSettings()?.all { it == DubStatus.Dubbed } == true
 
             observe(viewModel.dubSubSelections) { range ->
+                resultBinding?.apply {
+                    // Only show when there are multiple dub statuses
+                    resultDubSelect.visibility = if (range.size > 1) android.view.View.VISIBLE else android.view.View.GONE
+                }
                 resultBinding?.resultDubSelect?.setOnClickListener { view ->
                     view?.context?.let { ctx ->
                         view.popupMenuNoIconsAndNoStringRes(
@@ -2880,6 +2996,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             }
 
             observe(viewModel.rangeSelections) { range ->
+                resultBinding?.apply {
+                    // Only show when there are more than 1 range
+                    resultEpisodeSelect.visibility = if (range.size > 1) android.view.View.VISIBLE else android.view.View.GONE
+                }
                 resultBinding?.resultEpisodeSelect?.setOnClickListener { view ->
                     view?.context?.let { ctx ->
                         val names = range
@@ -2900,6 +3020,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             }
 
             observe(viewModel.seasonSelections) { seasonList ->
+                resultBinding?.apply {
+                    // Only show when there are multiple seasons
+                    resultSeasonButton.visibility = if (seasonList.size > 1) android.view.View.VISIBLE else android.view.View.GONE
+                }
                 resultBinding?.resultSeasonButton?.setOnClickListener { view ->
 
                     view?.context?.let { ctx ->
@@ -2926,6 +3050,74 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     }
                 }
             }
+
+            // Function to update sync panel based on provider selection
+            fun updateSyncPanelForProvider(provider: String?) {
+                syncBinding?.apply {
+                    if (provider == null) {
+                        // "All providers" selected - show loading skeleton briefly then reset to defaults
+                        resultSyncLoadingShimmer.startShimmer()
+                        resultSyncLoadingShimmer.isVisible = true
+                        resultSyncHolder.isVisible = false
+                        
+                        // Delay slightly to show loading state, then reset to defaults
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            resultSyncLoadingShimmer.stopShimmer()
+                            resultSyncLoadingShimmer.isVisible = false
+                            resultSyncHolder.isVisible = true
+                            
+                            // Show default layout (episodes: 0, rating: 0)
+                            resultSyncCurrentEpisodes.setText("0")
+                            resultSyncScoreText.text = "0/10"
+                            resultSyncRating.value = 0f
+                            
+                            // Show which providers the entry is actually tracked based on valid status
+                            val validProviderPrefixes = syncModel.providersWithValidStatus.value ?: emptySet()
+                            val syncedProviders = syncModel.synced.value?.filter { 
+                                it.idPrefix in validProviderPrefixes && it.hasAccount 
+                            }
+                            if (syncedProviders != null && syncedProviders.isNotEmpty()) {
+                                resultSyncStatus.text = "Currently tracked on ${syncedProviders.joinToString { it.name }}"
+                                resultSyncStatus.isVisible = true
+                            } else {
+                                resultSyncStatus.isVisible = false
+                            }
+                        }, 300)
+                    } else {
+                        // Specific provider selected - fetch status immediately
+                        // Show loading skeleton while fetching
+                        resultSyncLoadingShimmer.startShimmer()
+                        resultSyncLoadingShimmer.isVisible = true
+                        resultSyncHolder.isVisible = false
+                        syncModel.fetchProviderStatus(provider)
+                    }
+                }
+            }
+
+            // Observe selected provider to update UI based on selection
+            observe(syncModel.selectedProvider) { provider ->
+                android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Selected provider: $provider")
+                updateSyncPanelForProvider(provider)
+            }
+            
+            // Observe providers with valid status to update "All providers" text
+            observe(syncModel.providersWithValidStatus) { validProviders ->
+                android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Providers with valid status observer fired: $validProviders, selectedProvider: ${syncModel.selectedProvider.value}")
+                syncBinding?.apply {
+                    val syncedProviders = syncModel.synced.value?.filter { 
+                        it.idPrefix in validProviders && it.hasAccount 
+                    }
+                    android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Filtered synced providers: ${syncedProviders?.map { it.name }}")
+                    if (syncedProviders != null && syncedProviders.isNotEmpty()) {
+                        resultSyncStatus.text = "Currently tracked on ${syncedProviders.joinToString { it.name }}"
+                        resultSyncStatus.isVisible = true
+                        android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Updated status text to: ${resultSyncStatus.text}")
+                    } else {
+                        resultSyncStatus.isVisible = false
+                        android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Hiding status text - no synced providers")
+                    }
+                }
+            }
         }
 
-    }
+    }}
