@@ -505,6 +505,14 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
         android.util.Log.d("GENRE_FILTER_REDIRECT", "onStop: MainActivity.nextSearchQuery = ${MainActivity.nextSearchQuery}")
         android.util.Log.d("GENRE_FILTER_REDIRECT", "onStop: sq = $sq")
         android.util.Log.d("GENRE_FILTER_REDIRECT", "onStop: mainSearch.query = ${binding?.mainSearch?.query}")
+        
+        // Save current search bar text to MainActivity for restoration when returning from tab switch
+        val currentQuery = binding?.mainSearch?.query?.toString()
+        if (!currentQuery.isNullOrBlank() && currentQuery != sq) {
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onStop: Saving search bar text to MainActivity.nextSearchQuery: '$currentQuery'")
+            MainActivity.nextSearchQuery = currentQuery
+        }
+        
         afterPluginsLoadedEvent -= ::reloadRepos
     }
 
