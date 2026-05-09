@@ -310,7 +310,14 @@ class SearchFragment : BaseFragment<FragmentSearchBinding>(
                 MainActivity.nextSearchQuery = null
             }
         } else {
-            android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: MainActivity.nextSearchQuery is null, nothing to do")
+            android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: MainActivity.nextSearchQuery is null")
+            // FIX: Preserve search bar text when returning from tab switching
+            // If the search bar has text but sq is empty, restore sq from the search bar
+            val currentSearchQuery = binding?.mainSearch?.query?.toString()
+            if (!currentSearchQuery.isNullOrBlank() && sq.isNullOrBlank()) {
+                android.util.Log.d("GENRE_FILTER_REDIRECT", "onResume: Preserving search bar text: '$currentSearchQuery'")
+                sq = currentSearchQuery
+            }
         }
         
         // Clear suggestions when returning from entry (back navigation)

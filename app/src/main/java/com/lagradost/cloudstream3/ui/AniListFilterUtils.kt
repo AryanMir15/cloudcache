@@ -157,19 +157,28 @@ object AniListFilterUtils {
         fun updateSelectedSet(newSet: Set<String>) {
             android.util.Log.d("MEMORY_LEAK_FIX", "updateSelectedSet: previousStates size=${previousStates.size}, newSet size=${newSet.size}")
             selectedItems = newSet
+            // Clear previous states to force re-animation when set changes
+            previousStates.clear()
             notifyDataSetChanged()
         }
 
         fun updateExcludedSet(newSet: Set<String>) {
             android.util.Log.d("MEMORY_LEAK_FIX", "updateExcludedSet: previousStates size=${previousStates.size}, newSet size=${newSet.size}")
             excludedItems = newSet
+            // Clear previous states to force re-animation when set changes
+            previousStates.clear()
             notifyDataSetChanged()
         }
 
         fun updateSingleItem(item: String, state: Int) {
-            android.util.Log.d("SINGLE_ITEM_UPDATE", "updateSingleItem: item=$item, state=$state")
-            // Don't update previousStates here - let onBindViewHolder handle it naturally
-            // This ensures animations trigger correctly when state actually changes
+            android.util.Log.d("SINGLE_ITEM_UPDATE", "updateSingleItem: item=$item, state=$state, radioMode=$radioMode")
+            // For radio mode, we should NOT use updateSingleItem at all
+            // The callback should update the selected set and call updateSelectedSet instead
+            if (radioMode) {
+                android.util.Log.d("SINGLE_ITEM_UPDATE", "Radio mode - updateSingleItem should not be used, use updateSelectedSet instead")
+                return
+            }
+            // For checkbox mode, update only the clicked item
             val position = items.indexOf(item)
             if (position >= 0) {
                 android.util.Log.d("SINGLE_ITEM_UPDATE", "Notifying item changed at position=$position")

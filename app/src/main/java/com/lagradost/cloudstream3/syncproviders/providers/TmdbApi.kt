@@ -373,6 +373,12 @@ object TmdbApi {
                 params.add("first_air_date_year=$it")
             }
             
+            // Country filter (with_origin_country)
+            country?.takeIf { it != "All" }?.let {
+                params.add("with_origin_country=$it")
+                android.util.Log.d("TMDB_API_DEBUG", "Added with_origin_country=$it")
+            }
+            
             // Watch provider filter using buildTmdbQuery helper for region logic
             val selectedProviderIds = provider?.takeIf { it != "All" }?.let { listOf(it) } ?: emptyList()
             val regionQuery = buildTmdbQuery(selectedProviderIds, country ?: "US")

@@ -1894,10 +1894,16 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     }
                     lastSyncButtonClick = now
 
+                    // Check if user is logged in before opening sync panel
+                    val syncIds = syncModel.getSyncs()
+                    if (syncIds.isEmpty()) {
+                        showToast("Login to sync")
+                        return@setOnClickListener
+                    }
+
                     val currentPanelState = resultOverlappingPanels.getSelectedPanel()
                     val currentPanelStateOrdinal = currentPanelState.ordinal
                     val buttonVisibility = binding?.resultMiniSync?.isVisible
-                    val syncIds = syncModel.getSyncs()
                     android.util.Log.d("[SYNC_CLICK_DEBUG]", "resultMiniSync clicked - panel state: $currentPanelState (ordinal: $currentPanelStateOrdinal), button visible: $buttonVisibility, sync ids: ${syncIds.keys}")
 
                     if (currentPanelStateOrdinal == 1) {
@@ -2739,7 +2745,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                             // Check if user is not logged in (EmptySyncStatus)
                             if (d is SyncAPI.EmptySyncStatus) {
                                 resultSyncHolder.isVisible = false
-                                showToast("Login to sync")
+                                // Don't show toast here - only show when user clicks sync button
                                 closed = true
                             } else {
                                 resultSyncHolder.isVisible = true

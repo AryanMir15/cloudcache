@@ -60,14 +60,14 @@
             app:showSeekBarValue="true" />
 
         <Preference
-            android:icon="@drawable/ic_baseline_folder_open_24"
-            android:key="scan_downloads_key"
-            android:title="Scan for Downloads" />
-
-        <Preference
             android:icon="@drawable/baseline_help_outline_24"
             android:key="scan_downloads_info_key"
             android:title="Scan for Downloads Info" />
+
+        <Preference
+            android:icon="@drawable/ic_baseline_folder_open_24"
+            android:key="scan_downloads_key"
+            android:title="Scan for Downloads" />
 
         <Preference
             android:icon="@drawable/ic_battery"

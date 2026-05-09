@@ -1849,8 +1849,11 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                         dialogBinding.tmdbFormatCount.text = item
                         // Update genre list based on format
                         updateTmdbGenreAdapter(dialogBinding, item, dialogGenres, dialogExcludedGenres, dialogYear, dialogCountry, dialogProvider, dialogTrending, dialogIncludeAdult, dialogSort, dialogMinVotes)
-                        // Update only the single item that was clicked to avoid animating all checkboxes
-                        formatAdapter?.updateSingleItem(item, state)
+                        // For radio mode, update the selected set to update all items
+                        val newSelectedSet = setOf(dialogFormat)
+                        dialogBinding.tmdbFormatRecycler.post {
+                            formatAdapter?.updateSelectedSet(newSelectedSet)
+                        }
                         // Update TMDB Load Defaults button visibility
                         updateTmdbLoadDefaultsButtonVisibility(
                             dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
@@ -1889,8 +1892,11 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     if (state == 1) {
                         dialogYear = item
                         dialogBinding.tmdbYearCount.text = item
-                        // Update only the single item that was clicked to avoid animating all checkboxes
-                        yearAdapter?.updateSingleItem(item, state)
+                        // For radio mode, update the selected set to update all items
+                        val newSelectedSet = setOf(dialogYear)
+                        dialogBinding.tmdbYearRecycler.post {
+                            yearAdapter?.updateSelectedSet(newSelectedSet)
+                        }
                         // Update TMDB Load Defaults button visibility
                         updateTmdbLoadDefaultsButtonVisibility(
                             dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
@@ -1922,8 +1928,11 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     if (state == 1) {
                         dialogCountry = item
                         dialogBinding.tmdbCountryCount.text = item
-                        // Update only the single item that was clicked to avoid animating all checkboxes
-                        countryAdapter?.updateSingleItem(item, state)
+                        // For radio mode, update the selected set to update all items
+                        val newSelectedSet = setOf(dialogCountry)
+                        dialogBinding.tmdbCountryRecycler.post {
+                            countryAdapter?.updateSelectedSet(newSelectedSet)
+                        }
                         // Update TMDB Load Defaults button visibility
                         updateTmdbLoadDefaultsButtonVisibility(
                             dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
@@ -1979,8 +1988,11 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     if (state == 1) {
                         dialogTrending = item
                         dialogBinding.tmdbTrendingCount.text = item
-                        // Update only the single item that was clicked to avoid animating all checkboxes
-                        trendingAdapter?.updateSingleItem(item, state)
+                        // For radio mode, update the selected set to update all items
+                        val newSelectedSet = setOf(dialogTrending)
+                        dialogBinding.tmdbTrendingRecycler.post {
+                            trendingAdapter?.updateSelectedSet(newSelectedSet)
+                        }
                         
                         // When Trending is selected, disable other filters as per hsp1020's feedback
                         val isTrending = item != "Off"
@@ -2016,8 +2028,11 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     if (state == 1) {
                         dialogProvider = item
                         dialogBinding.tmdbProviderCount.text = item
-                        // Update only the single item that was clicked to avoid animating all checkboxes
-                        streamingProviderAdapter?.updateSingleItem(item, state)
+                        // For radio mode, update the selected set to update all items
+                        val newSelectedSet = setOf(dialogProvider)
+                        dialogBinding.tmdbProviderRecycler.post {
+                            streamingProviderAdapter?.updateSelectedSet(newSelectedSet)
+                        }
                         // Update TMDB Load Defaults button visibility
                         updateTmdbLoadDefaultsButtonVisibility(
                             dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
@@ -2048,8 +2063,11 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     if (state == 1) {
                         dialogSort = item
                         dialogBinding.tmdbSortCount.text = item
-                        // Update only the single item that was clicked to avoid animating all checkboxes
-                        sortAdapter?.updateSingleItem(item, state)
+                        // For radio mode, update the selected set to update all items
+                        val newSelectedSet = setOf(dialogSort)
+                        dialogBinding.tmdbSortRecycler.post {
+                            sortAdapter?.updateSelectedSet(newSelectedSet)
+                        }
                         // Update TMDB Load Defaults button visibility
                         updateTmdbLoadDefaultsButtonVisibility(
                             dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
@@ -2081,8 +2099,11 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     if (state == 1) {
                         dialogMinVotes = item.toIntOrNull() ?: 0
                         dialogBinding.tmdbMinVotesCount.text = item
-                        // Update only the single item that was clicked to avoid animating all checkboxes
-                        minVotesAdapter?.updateSingleItem(item, state)
+                        // For radio mode, update the selected set to update all items
+                        val newSelectedSet = setOf(item)
+                        dialogBinding.tmdbMinVotesRecycler.post {
+                            minVotesAdapter?.updateSelectedSet(newSelectedSet)
+                        }
                         // Update TMDB Load Defaults button visibility
                         updateTmdbLoadDefaultsButtonVisibility(
                             dialogBinding, dialogFormat, dialogGenres, dialogExcludedGenres, dialogYear,
