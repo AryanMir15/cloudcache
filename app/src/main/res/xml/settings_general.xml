@@ -146,10 +146,10 @@
         <Preference
             android:icon="@drawable/ic_github_logo"
             android:title="@string/github"
-            app:summary="https://github.com/recloudstream/cloudstream">
+            app:summary="https://github.com/AryanMir15/cloudcache">
             <intent
                 android:action="android.intent.action.VIEW"
-                android:data="https://github.com/recloudstream/cloudstream" />
+                android:data="https://github.com/AryanMir15/cloudcache" />
         </Preference>
 
         <Preference
