@@ -1287,6 +1287,9 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             )
         }
 
+        // Setup UI listeners including swap metadata FAB observer
+        setupUiListeners()
+
         // Reset sticky flag when loading a new entry to prevent ghosting previous sync state
         wasNameMatchFound = false
         android.util.Log.d(
