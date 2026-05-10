@@ -16,9 +16,9 @@
         <LinearLayout
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_vertical|start">
+                android:layout_gravity="center_vertical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
             <ImageView
                     android:nextFocusRight="@id/result_mini_sync"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
@@ -44,15 +44,15 @@
 
                 android:layout_width="30dp"
                 android:layout_height="30dp"
-                android:layout_marginStart="@dimen/result_icon_margin"
+                android:layout_marginStart="5dp"
                 android:src="@drawable/bookmark_star_24px"
                 app:tint="?attr/white" />
         </LinearLayout>
 
         <LinearLayout
                 android:gravity="end"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_width="match_parent"
+                android:layout_height="50dp"
                 android:id="@+id/media_route_button_holder"
                 android:animateLayoutChanges="true"
                 android:layout_gravity="center_vertical|end">
@@ -78,7 +78,7 @@
                     android:id="@+id/result_subscribe"
                     android:layout_width="25dp"
                     android:layout_height="25dp"
-                    android:layout_margin="@dimen/result_icon_margin"
+                    android:layout_margin="5dp"
                     android:elevation="10dp"
                     android:tooltipText="@string/subscribe_tooltip"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
@@ -95,7 +95,7 @@
                 android:id="@+id/result_favorite"
                 android:layout_width="25dp"
                 android:layout_height="25dp"
-                android:layout_margin="@dimen/result_icon_margin"
+                android:layout_margin="5dp"
                 android:elevation="10dp"
                 android:tooltipText="@string/action_add_to_favorites"
                 android:background="?android:attr/selectableItemBackgroundBorderless"
@@ -112,7 +112,7 @@
                     android:id="@+id/result_share"
                     android:layout_width="25dp"
                     android:layout_height="25dp"
-                    android:layout_margin="@dimen/result_icon_margin"
+                    android:layout_margin="5dp"
                     android:elevation="10dp"
                     android:tooltipText="@string/result_share"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
@@ -130,7 +130,7 @@
                     android:id="@+id/result_open_in_browser"
                     android:layout_width="25dp"
                     android:layout_height="25dp"
-                    android:layout_margin="@dimen/result_icon_margin"
+                    android:layout_margin="5dp"
                     android:elevation="10dp"
                     android:tooltipText="@string/result_open_in_browser"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
@@ -148,7 +148,7 @@
                     android:focusable="true"
                     android:layout_width="25dp"
                     android:layout_height="25dp"
-                    android:layout_margin="@dimen/result_icon_margin"
+                    android:layout_margin="5dp"
                     android:elevation="10dp"
                     android:tooltipText="@string/refresh_metadata_summary"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
@@ -165,7 +165,7 @@
                     android:id="@+id/result_search"
                     android:layout_width="25dp"
                     android:layout_height="25dp"
-                    android:layout_margin="@dimen/result_icon_margin"
+                    android:layout_margin="5dp"
                     android:elevation="10dp"
                     android:tooltipText="@string/result_search_tooltip"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
@@ -183,7 +183,7 @@
                     android:id="@+id/result_recommendations_btt"
                     android:layout_width="25dp"
                     android:layout_height="25dp"
-                    android:layout_margin="@dimen/result_icon_margin"
+                    android:layout_margin="5dp"
                     android:elevation="10dp"
                     android:tooltipText="@string/recommendations_tooltip"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
