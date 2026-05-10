@@ -309,7 +309,7 @@ fun LoadResponse.toResultData(repo: APIRepository): ResultData {
         url = url,
         tags = tags ?: emptyList(),
         comingSoon = comingSoon,
-        actors = if (hasActorImages) actorsList else null,
+        actors = if (actorsList.isNullOrEmpty()) null else actorsList,
         actorsText = if (hasActorImages) null else if (actorsList.isNullOrEmpty()) null else txt(
             R.string.cast_format,
             actorsList?.joinToString { it.actor.name }),
@@ -2624,10 +2624,12 @@ class ResultViewModel2 : ViewModel() {
 
     fun refreshMetadata(providerName: String? = null) {
         viewModelScope.launchSafe {
-            currentResponse?.let { response ->
-                Log.i(TAG, "Manual metadata refresh for: ${response.name}")
-                Log.d(TAG, "ACTORS_REFRESH_DEBUG - Response source - type: ${response::class.simpleName}, actors: ${response.actors?.size}, is LoadResponseFromSearch: ${response is LoadResponseFromSearch}")
-                _refreshError.value = null // Clear previous error
+            _metadataLoading.value = true
+            try {
+                currentResponse?.let { response ->
+                    Log.i(TAG, "Manual metadata refresh for: ${response.name}")
+                    Log.d(TAG, "ACTORS_REFRESH_DEBUG - Response source - type: ${response::class.simpleName}, actors: ${response.actors?.size}, is LoadResponseFromSearch: ${response is LoadResponseFromSearch}")
+                    _refreshError.value = null // Clear previous error
                 
                 // Guard against blank names which cause API errors
                 if (response.name.isNullOrBlank()) {
@@ -2650,81 +2652,10 @@ class ResultViewModel2 : ViewModel() {
                     return@launchSafe
                 }
 
-                // Get existing cache to check for swapped fields
+                // CLEAR CACHE before fetching to ensure full refresh like initial load
                 val cacheKeyForSwap = response.url
-                val existingCache = getKey<DownloadObjects.DownloadHeaderCached>(
-                    DOWNLOAD_HEADER_CACHE,
-                    cacheKeyForSwap
-                )
-                Log.d(TAG, "ACTORS_REFRESH_DEBUG - Existing cache state - actors count: ${existingCache?.actors?.size}, plot: ${existingCache?.plot?.take(30)}, hasSwappedMetadata: ${existingCache?.hasSwappedMetadata}")
-
-                // Determine which fields to update based on current response
-                // If a field is null, pull it from provider (full refresh for broken entries)
-                // If a field is not null, only pull refreshable fields
-                val allFields: Set<MetadataField> = MetadataField.values().toSet()
-                val refreshableFields: Set<MetadataField> = RefreshableField.values().map { refreshableField ->
-                    when (refreshableField) {
-                        RefreshableField.SCORE -> MetadataField.SCORE
-                        RefreshableField.STATUS -> MetadataField.STATUS
-                        RefreshableField.POSTER -> MetadataField.POSTER
-                        RefreshableField.BANNER -> MetadataField.BANNER
-                        RefreshableField.LOGO -> MetadataField.LOGO
-                    }
-                }.toSet()
-
-                // Check which fields are null in current response
-                val nullFields = mutableSetOf<MetadataField>()
-                if (response.posterUrl.isNullOrBlank()) nullFields.add(MetadataField.POSTER)
-                if (response.backgroundPosterUrl.isNullOrBlank()) nullFields.add(MetadataField.BANNER)
-                if (response.logoUrl.isNullOrBlank()) nullFields.add(MetadataField.LOGO)
-                if (response.plot.isNullOrBlank()) nullFields.add(MetadataField.PLOT)
-                if (response.score == null) nullFields.add(MetadataField.SCORE)
-                if (response.year == null) nullFields.add(MetadataField.YEAR)
-
-                val statusNull = when (response) {
-                    is AnimeLoadResponse -> response.showStatus == null
-                    is TvSeriesLoadResponse -> response.showStatus == null
-                    else -> true
-                }
-                if (statusNull) nullFields.add(MetadataField.STATUS)
-
-                val actorsNull = when (response) {
-                    is AnimeLoadResponse -> response.actors.isNullOrEmpty()
-                    is TvSeriesLoadResponse -> response.actors.isNullOrEmpty()
-                    is LoadResponseFromSearch -> response.actors.isNullOrEmpty()
-                    else -> true
-                }
-                Log.d(TAG, "ACTORS_REFRESH_DEBUG - response type: ${response::class.simpleName}, actorsNull: $actorsNull, actors count: ${when(response) { is AnimeLoadResponse -> response.actors?.size; is TvSeriesLoadResponse -> response.actors?.size; is LoadResponseFromSearch -> response.actors?.size; else -> null }}")
-                if (actorsNull) nullFields.add(MetadataField.ACTORS)
-
-                // For null fields, include all fields. For non-null fields, only include refreshable fields
-                val fieldsToConsider = mutableSetOf<MetadataField>()
-                for (field in MetadataField.values()) {
-                    val isNull = field in nullFields
-                    val isRefreshable = field == MetadataField.SCORE || field == MetadataField.STATUS || field == MetadataField.POSTER || field == MetadataField.BANNER || field == MetadataField.LOGO
-                    if (isNull || isRefreshable) {
-                        fieldsToConsider.add(field)
-                    }
-                }
-
-                // Determine non-swapped fields to update
-                val fieldsToUpdate = mutableSetOf<MetadataField>()
-                if (existingCache?.hasSwappedMetadata == true) {
-                    val swappedFields = existingCache.swappedFields.mapNotNull {
-                        try { MetadataField.valueOf(it) } catch (e: IllegalArgumentException) { null }
-                    }.toSet()
-                    for (field in fieldsToConsider) {
-                        if (field !in swappedFields) {
-                            fieldsToUpdate.add(field)
-                        }
-                    }
-                } else {
-                    for (field in fieldsToConsider) {
-                        fieldsToUpdate.add(field)
-                    }
-                }
-
-                Log.i(TAG, "Refresh metadata - null fields: $nullFields, updating fields: $fieldsToUpdate, swapped fields: ${existingCache?.swappedFields}")
+                Log.d(TAG, "ACTORS_REFRESH_DEBUG - Clearing cache for full refresh: $cacheKeyForSwap")
+                CloudStreamApp.removeKey(DOWNLOAD_HEADER_CACHE, cacheKeyForSwap)
 
                 // Fetch metadata with 30-second timeout
                 val metadata = try {
@@ -2772,73 +2703,35 @@ class ResultViewModel2 : ViewModel() {
                         }
                     }
                     
-                    // Preserve existing actors if provider returns null for actors
-                    val existingActors = when (response) {
-                        is AnimeLoadResponse -> response.actors
-                        is TvSeriesLoadResponse -> response.actors
-                        is LoadResponseFromSearch -> response.actors
-                        else -> null
-                    }
-                    val metadataActors = when (finalMetadata) {
-                        is AnimeLoadResponse -> finalMetadata.actors
-                        is TvSeriesLoadResponse -> finalMetadata.actors
-                        is LoadResponseFromSearch -> finalMetadata.actors
-                        else -> null
-                    }
-                    Log.d(TAG, "ACTORS_REFRESH_DEBUG - finalMetadata type: ${finalMetadata::class.simpleName}, finalMetadata actors count: ${finalMetadata.actors?.size}")
-                    Log.d(TAG, "ACTORS_REFRESH_DEBUG - existingActors count: ${existingActors?.size}, metadataActors count: ${metadataActors?.size}")
-                    
-                    // If metadata has no actors, check if cache has actors to preserve
-                    // This prevents overwriting existing cache actors with null from provider
-                    val cacheActors = existingCache?.actors
-                    val adjustedFieldsToUpdate = if (metadataActors.isNullOrEmpty()) {
-                        if (!cacheActors.isNullOrEmpty()) {
-                            Log.d(TAG, "ACTORS_REFRESH_DEBUG - metadataActors is null/empty but cache has ${cacheActors.size} actors, removing ACTORS from fieldsToUpdate to preserve cache actors")
-                            // Load actors from cache into response before merge
-                            when (response) {
-                                is LoadResponseFromSearch -> response.actors = parseActorsFromCache(cacheActors)
-                                is AnimeLoadResponse -> response.actors = parseActorsFromCache(cacheActors)
-                                is TvSeriesLoadResponse -> response.actors = parseActorsFromCache(cacheActors)
-                            }
-                            fieldsToUpdate - MetadataField.ACTORS
-                        } else {
-                            Log.d(TAG, "ACTORS_REFRESH_DEBUG - metadataActors is null/empty and cache has no actors, removing ACTORS from fieldsToUpdate")
-                            fieldsToUpdate - MetadataField.ACTORS
-                        }
-                    } else {
-                        fieldsToUpdate
-                    }
-                    
-                    val mergedResponse = mergeMetadataFromLoadResponse(response, finalMetadata, adjustedFieldsToUpdate)
+                    // Full refresh - update all fields like initial load
+                    val allFields = MetadataField.values().toSet()
+                    val mergedResponse = mergeMetadataFromLoadResponse(response, finalMetadata, allFields)
 
                     // Handle poster separately since it's not in merge function
-                    if (MetadataField.POSTER in adjustedFieldsToUpdate) {
-                        mergedResponse.posterUrl = finalMetadata.posterUrl
-                    }
+                    mergedResponse.posterUrl = finalMetadata.posterUrl
 
                     android.util.Log.d("[SUBSCRIBE_DEBUG]", "manualMetadataRefresh - Setting currentResponse to mergedResponse, type: ${mergedResponse.javaClass.simpleName}")
                     android.util.Log.d("[SUBSCRIBE_DEBUG]", "manualMetadataRefresh - CALL STACK: ${Thread.currentThread().stackTrace.take(10).joinToString("\n") { "    at ${it.className}.${it.methodName}(${it.fileName}:${it.lineNumber})" }}")
                     currentResponse = mergedResponse
                     android.util.Log.d("[SUBSCRIBE_DEBUG]", "manualMetadataRefresh - currentResponse set, type: ${currentResponse?.javaClass?.simpleName}")
 
-                    // Update cache with new metadata while preserving swapped fields
+                    // Update UI by calling postPage
+                    currentRepo?.let { repo ->
+                        postPage(mergedResponse, repo)
+                    }
+
+                    // Update cache with new metadata
                     currentId?.let { id ->
                         val mergedActors = mergedResponse.actors
                         val mergedPlot = mergedResponse.plot
                         val mergedPoster = mergedResponse.posterUrl
                         val mergedLogo = mergedResponse.logoUrl
                         
-                        // If mergedActors is null but cache has actors, preserve cache actors
-                        val actorsToSave = if (mergedActors.isNullOrEmpty() && !existingCache?.actors.isNullOrEmpty()) {
-                            Log.d(TAG, "ACTORS_CACHE_DEBUG - mergedActors is null but cache has ${existingCache?.actors?.size} actors, preserving cache actors")
-                            existingCache?.actors
-                        } else {
-                            mergedActors?.map { actorData ->
-                                "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
-                            }
+                        val actorsToSave = mergedActors?.map { actorData ->
+                            "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
                         }
                         
-                        Log.d(TAG, "ACTORS_CACHE_DEBUG - Saving to cache - actorsToSave count: ${actorsToSave?.size}, mergedActors count: ${mergedActors?.size}, mergedPlot: ${mergedPlot?.take(30)}, mergedPoster: ${mergedPoster?.take(30)}")
+                        Log.d(TAG, "ACTORS_CACHE_DEBUG - Saving to cache after full refresh - actorsToSave count: ${actorsToSave?.size}, mergedActors count: ${mergedActors?.size}, mergedPlot: ${mergedPlot?.take(30)}, mergedPoster: ${mergedPoster?.take(30)}")
 
                         setKey(
                             DOWNLOAD_HEADER_CACHE,
@@ -2861,47 +2754,30 @@ class ResultViewModel2 : ViewModel() {
                                 tags = mergedResponse.tags,
                                 id = id,
                                 cacheTime = System.currentTimeMillis(),
-                                metadataOnlyMode = existingCache?.metadataOnlyMode ?: false,
-                                hasCustomPoster = existingCache?.hasCustomPoster ?: false,
-                                hasSwappedMetadata = existingCache?.hasSwappedMetadata ?: false,
-                                swappedFields = existingCache?.swappedFields ?: emptySet(),
-                                originalPoster = existingCache?.originalPoster,
-                                originalBanner = existingCache?.originalBanner,
-                                originalLogo = existingCache?.originalLogo,
-                                originalPlot = existingCache?.originalPlot,
-                                originalActors = existingCache?.originalActors,
-                                originalScore = existingCache?.originalScore,
-                                originalYear = existingCache?.originalYear,
-                                originalShowStatus = existingCache?.originalShowStatus,
-                                syncData = existingCache?.syncData,
-                                recommendations = existingCache?.recommendations ?: mergedResponse.recommendations?.map { rec ->
-                                    DownloadObjects.CachedSearchResponse(
-                                        name = rec.name,
-                                        url = rec.url,
-                                        apiName = rec.apiName,
-                                        posterUrl = rec.posterUrl,
-                                        type = rec.type ?: TvType.Movie
-                                    )
-                                }
+                                metadataOnlyMode = false,
+                                hasCustomPoster = false,
+                                hasSwappedMetadata = false,
+                                swappedFields = emptySet(),
+                                originalPoster = null,
+                                originalBanner = null,
+                                originalLogo = null,
+                                originalPlot = null,
+                                originalActors = null,
+                                originalScore = null,
+                                originalYear = null,
+                                originalShowStatus = null
                             )
                         )
-                        Log.d(TAG, "ACTORS_CACHE_DEBUG - Cache updated successfully - saved actors count: ${mergedActors?.size ?: 0}")
-                        
-                        // Verify cache was actually saved by reading it back
-                        val verifyCache = getKey<DownloadObjects.DownloadHeaderCached>(
-                            DOWNLOAD_HEADER_CACHE,
-                            cacheKeyForSwap
-                        )
-                        Log.d(TAG, "ACTORS_CACHE_DEBUG - Cache verification - read back actors count: ${verifyCache?.actors?.size ?: 0}, plot: ${verifyCache?.plot?.take(30)}")
                     }
-
-                    currentRepo?.let { repo ->
-                        postPage(mergedResponse, repo)
-                    }
+                    
+                    Log.i(TAG, "Refresh metadata completed successfully")
+                    _refreshError.value = "Metadata refreshed successfully"
                 } else {
-                    Log.w(TAG, "Failed to fetch metadata from $providerName")
-                    _refreshError.value = "Failed to fetch metadata from $providerName"
+                    Log.e(TAG, "Failed to refresh metadata - metadata is null")
                 }
+                }
+            } finally {
+                _metadataLoading.value = false
             }
         }
     }

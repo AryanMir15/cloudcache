@@ -439,6 +439,8 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     // Sync SwipeRefreshLayout with metadata loading state
                     if (!isLoading) {
                         resultBinding?.resultSwipeRefresh?.isRefreshing = false
+                        // Hide undo swap button after refresh completes
+                        binding?.resultUndoMetadataFab?.visibility = android.view.View.GONE
                     }
                 },
 
@@ -481,10 +483,17 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             }
         }
 
-        // Reset metadata button - clears cache to trigger fresh fetch from provider
+        // Reset metadata button - triggers full refresh to get original data
         binding?.resultUndoMetadataFab?.setOnClickListener {
-            android.util.Log.d("MetadataSwap", "Reset metadata FAB clicked")
-            resetMetadata()
+            android.util.Log.d("MetadataSwap", "Reset metadata FAB clicked - triggering full refresh")
+            viewModel._metadataLoading.value = true
+            val providerName = viewModel.currentResponse?.apiName
+            if (providerName != null) {
+                viewModel.refreshMetadata(providerName)
+            } else {
+                android.util.Log.e("MetadataSwap", "Cannot refresh metadata - provider name is null")
+                viewModel._metadataLoading.value = false
+            }
         }
 
         // Observe metadata swap mode to show/hide swap metadata FAB
@@ -714,7 +723,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             true
         ) // All fields selected by default
 
-        val builder = androidx.appcompat.app.AlertDialog.Builder(context)
+        val builder = androidx.appcompat.app.AlertDialog.Builder(context, R.style.Theme_AlertDialog_FieldSelection)
         builder.setTitle("Select fields to swap")
         builder.setMultiChoiceItems(fieldNames, fieldChecked) { _, which, isChecked ->
             // Prevent unselecting the last field
