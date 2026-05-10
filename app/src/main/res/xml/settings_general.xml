@@ -28,6 +28,38 @@
         android:key="@string/episode_check_frequency_key"
         android:title="@string/episode_check_frequency" />
 
+    <PreferenceCategory android:title="Result Screen Buttons">
+
+        <SwitchPreference
+            android:defaultValue="true"
+            android:icon="@drawable/ic_baseline_favorite_border_24"
+            android:key="@string/show_favorites_key"
+            android:summary="@string/show_favorites_summary"
+            android:title="@string/show_favorites_title" />
+
+        <SwitchPreference
+            android:defaultValue="true"
+            android:icon="@drawable/ic_baseline_public_24"
+            android:key="@string/show_open_in_browser_key"
+            android:summary="@string/show_open_in_browser_summary"
+            android:title="@string/show_open_in_browser_title" />
+
+        <SwitchPreference
+            android:defaultValue="true"
+            android:icon="@drawable/ic_outline_share_24"
+            android:key="@string/show_share_key"
+            android:summary="@string/show_share_summary"
+            android:title="@string/show_share_title" />
+
+        <SwitchPreference
+            android:defaultValue="true"
+            android:icon="@drawable/ic_baseline_ondemand_video_24"
+            android:key="@string/show_cast_key"
+            android:summary="@string/show_cast_summary"
+            android:title="@string/show_cast_title" />
+
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/title_downloads">
 
         <Preference

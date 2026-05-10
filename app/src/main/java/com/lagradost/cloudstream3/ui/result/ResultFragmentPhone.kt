@@ -31,6 +31,7 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.preference.PreferenceManager
 import kotlinx.coroutines.withContext
 import com.discord.panels.OverlappingPanelsLayout
 import com.discord.panels.PanelState
@@ -340,11 +341,16 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     var selectSort: EpisodeSortType? = null
 
     private fun setUrl(url: String?) {
-        // Show Open in Browser only if URL is valid
+        // Show Open in Browser only if URL is valid and setting is enabled
         binding?.resultOpenInBrowser?.apply {
-            isVisible = url?.startsWith("http") == true
-            isEnabled = url?.startsWith("http") == true
-            if (url?.startsWith("http") == true) {
+            val showButton = context?.let { ctx ->
+                PreferenceManager.getDefaultSharedPreferences(ctx)
+                    .getBoolean(getString(R.string.show_open_in_browser_key), true)
+            } ?: true
+            val hasValidUrl = url?.startsWith("http") == true
+            isVisible = hasValidUrl && showButton
+            isEnabled = hasValidUrl && showButton
+            if (hasValidUrl) {
                 setOnClickListener {
                     context?.openBrowser(url)
                 }
@@ -2036,7 +2042,11 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                 CastContext.getSharedInstance(act.applicationContext) {
                                     it.run()
                                 }.addOnCompleteListener {
-                                    isGone = !it.isSuccessful
+                                    val showCastButton = act.let { ctx ->
+                                        PreferenceManager.getDefaultSharedPreferences(ctx)
+                                            .getBoolean(getString(R.string.show_cast_key), true)
+                                    } ?: true
+                                    isGone = !it.isSuccessful || !showCastButton
                                 }
                                 // this shit leaks for some reason
                                 //castContext.addCastStateListener { state ->
@@ -2168,8 +2178,14 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             }
 
             observeNullable(viewModel.favoriteStatus) { isFavorite ->
-                // UI RESILIENCE: Always show the favorite button
-                binding?.resultFavorite?.isVisible = true
+                // Check settings to show/hide Favorites button
+                val showFavoritesButton = context?.let { ctx ->
+                    PreferenceManager.getDefaultSharedPreferences(ctx)
+                        .getBoolean(getString(R.string.show_favorites_key), true)
+                } ?: true
+
+                // UI RESILIENCE: Always show the favorite button if setting is enabled
+                binding?.resultFavorite?.isVisible = showFavoritesButton
                 
                 // If no favorite data, show as not favorited
                 val displayFavorite = isFavorite ?: false
@@ -2527,6 +2543,13 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                     navRail?.selectedItemId = R.id.navigation_search
                                 }
                             }
+
+                            // Check settings to show/hide Share button
+                            val showShareButton = context?.let { ctx ->
+                                PreferenceManager.getDefaultSharedPreferences(ctx)
+                                    .getBoolean(getString(R.string.show_share_key), true)
+                            } ?: true
+                            resultShare.isVisible = showShareButton
 
                             resultShare.setOnClickListener {
                                 try {

@@ -32,4 +32,5 @@
     <dimen name="continue_watching_progress_size">25dp</dimen>
     <dimen name="circular_progress_thickness">2dp</dimen>
     <dimen name="download_header_progress_size">35dp</dimen>
+    <dimen name="result_icon_margin">2dp</dimen>
 </resources>
