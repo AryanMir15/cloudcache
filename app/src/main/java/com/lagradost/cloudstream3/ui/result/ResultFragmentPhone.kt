@@ -2067,7 +2067,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                 }.addOnCompleteListener {
                                     val showCastButton = act.let { ctx ->
                                         PreferenceManager.getDefaultSharedPreferences(ctx)
-                                            .getBoolean(getString(R.string.show_cast_key), true)
+                                            .getBoolean(ctx.getString(R.string.show_cast_key), true)
                                     } ?: true
                                     isGone = !it.isSuccessful || !showCastButton
                                 }
