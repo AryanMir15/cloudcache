@@ -1267,6 +1267,26 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         fixSystemBarsPadding(view)
         val storedData = getStoredData() ?: return
 
+        // Setup refresh metadata click listener
+        binding?.resultRefreshMetadata?.setOnClickListener {
+            val metaProviders = viewModel.getAvailableMetaProviders()
+            if (metaProviders.isEmpty()) {
+                activity?.let { showToast(it, "No providers available") }
+                return@setOnClickListener
+            }
+            activity?.showBottomDialog(
+                metaProviders,
+                -1,
+                "Select metadata source",
+                false,
+                {},
+                { providerIndex ->
+                    val selectedProvider = metaProviders[providerIndex]
+                    openSearchForMetadata(selectedProvider)
+                }
+            )
+        }
+
         // Reset sticky flag when loading a new entry to prevent ghosting previous sync state
         wasNameMatchFound = false
         android.util.Log.d(
