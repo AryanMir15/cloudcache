@@ -55,6 +55,7 @@ kotlin {
 commonMain.dependencies {
             implementation(libs.nicehttp) // HTTP Lib
             implementation(libs.jackson.module.kotlin) // JSON Parser
+            implementation(libs.kotlinx.atomicfu)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.annotation)
             implementation(libs.jsoup) // HTML Parser

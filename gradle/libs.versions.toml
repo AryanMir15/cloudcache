@@ -27,6 +27,11 @@ junitKtx = "1.3.0"
 junitVersion = "1.3.0"
 juniversalchardet = "2.5.0"
 kotlinGradlePlugin = "2.3.20"
+<<<<<<< HEAD
+=======
+kotlinxAtomicfu = "0.32.1"
+kotlinxCollectionsImmutable = "0.4.0"
+>>>>>>> 00e943eb (Replace synchronized usage in library with kotlinx-atomicfu (#2808))
 kotlinxCoroutinesCore = "1.10.2"
 ktor = "2.3.12" # Required for plugin ABI compatibility (plugins use io.ktor.http.*)
 lifecycleKtx = "2.10.0"
@@ -85,6 +90,11 @@ jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
 junit = { module = "junit:junit", version.ref = "junit" }
 junit-ktx = { module = "androidx.test.ext:junit-ktx", version.ref = "junitKtx" }
 juniversalchardet = { module = "com.github.albfernandez:juniversalchardet", version.ref = "juniversalchardet" }
+<<<<<<< HEAD
+=======
+kotlinx-atomicfu = { module = "org.jetbrains.kotlinx:atomicfu", version.ref = "kotlinxAtomicfu" }
+kotlinx-collections-immutable = { module = "org.jetbrains.kotlinx:kotlinx-collections-immutable", version.ref = "kotlinxCollectionsImmutable" }
+>>>>>>> 00e943eb (Replace synchronized usage in library with kotlinx-atomicfu (#2808))
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutinesCore" }
 ktor-http = { module = "io.ktor:ktor-http", version.ref = "ktor" }
 lifecycle-livedata-ktx = { module = "androidx.lifecycle:lifecycle-livedata-ktx", version.ref = "lifecycleKtx" }
