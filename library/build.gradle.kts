@@ -70,12 +70,18 @@ kotlin {
             implementation(libs.bundles.cryptography) // Cryptography
 
             // Deprecated; will be removed once extensions have time to migrate from using it
-            implementation("me.xdrop:fuzzywuzzy:1.4.0")
         }
 
         commonTest.dependencies {
             implementation(libs.kotlin.test)
             implementation(libs.kotlinx.coroutines.test)
+            implementation(libs.jsoup) // HTML Parser
+            implementation(libs.rhino) // Run JavaScript
+            implementation(libs.newpipeextractor)
+            implementation(libs.tmdb.java) // TMDB API v3 Wrapper Made with RetroFit
+
+            // Deprecated; will be removed once extensions have time to migrate from using it
+            implementation("me.xdrop:fuzzywuzzy:1.4.0")
         }
     }
 }
