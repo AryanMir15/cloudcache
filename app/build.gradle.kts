@@ -8,8 +8,7 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.dokka)
-    id("org.jetbrains.kotlin.android")
-    id("kotlin-kapt")
+    alias(libs.plugins.kotlin.serialization)
 }
 
 val javaTarget = JvmTarget.fromTarget(libs.versions.jvmTarget.get())
@@ -74,8 +73,6 @@ android {
         includeInBundle = false
     }
 
-    namespace = "com.lagradost.cloudstream3"
-
     androidComponents {
         onVariants { variant ->
             variant.sources.assets?.addGeneratedSourceDirectory(
@@ -104,38 +101,52 @@ android {
     compileSdk = libs.versions.compileSdk.get().toInt()
 
     defaultConfig {
-        applicationId = "com.lagradost.cloudcache"
+        applicationId = "com.lagradost.cloudstream3"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 71
-        versionName = "4.10.0"
+        versionCode = libs.versions.versionCode.get().toInt()
+        versionName = libs.versions.versionName.get()
 
         manifestPlaceholders["target_sdk_version"] = libs.versions.targetSdk.get()
 
+        // Reads local.properties
         val localProperties = gradleLocalProperties(rootDir, project.providers)
-        buildConfigField("long", "BUILD_DATE", "0L")
-        buildConfigField("String", "SIMKL_CLIENT_ID", "\"${System.getenv("SIMKL_CLIENT_ID") ?: localProperties["simkl.id"] ?: ""}\"")
-        buildConfigField("String", "SIMKL_CLIENT_SECRET", "\"${System.getenv("SIMKL_CLIENT_SECRET") ?: localProperties["simkl.secret"] ?: ""}\"")
 
+        buildConfigField(
+            "long",
+            "BUILD_DATE",
+            "${System.currentTimeMillis()}"
+        )
+        buildConfigField(
+            "String",
+            "SIMKL_CLIENT_ID",
+            "\"" + (System.getenv("SIMKL_CLIENT_ID") ?: localProperties["simkl.id"]) + "\""
+        )
+        buildConfigField(
+            "String",
+            "SIMKL_CLIENT_SECRET",
+            "\"" + (System.getenv("SIMKL_CLIENT_SECRET") ?: localProperties["simkl.secret"]) + "\""
+        )
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
         release {
-            buildConfigField("long", "BUILD_DATE", "${System.currentTimeMillis()}L")
+            isDebuggable = false
             isMinifyEnabled = false
             isShrinkResources = false
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
         debug {
-            buildConfigField("long", "BUILD_DATE", "0L")
             isDebuggable = true
-            // Debug builds get their own package so they can be installed
-            // alongside release builds of the same flavor (different signatures
-            // on the same applicationId cause install conflicts otherwise)
             applicationIdSuffix = ".debug"
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 
@@ -147,6 +158,11 @@ android {
         create("prerelease") {
             dimension = "state"
             applicationIdSuffix = ".prerelease"
+            if (signingConfigs.names.contains("prerelease")) {
+                signingConfig = signingConfigs.getByName("prerelease")
+            } else {
+                logger.warn("No prerelease signing config!")
+            }
             versionNameSuffix = "-PRE"
             versionCode = (System.currentTimeMillis() / 60000).toInt()
         }
@@ -170,18 +186,6 @@ android {
         checkReleaseBuilds = false
     }
 
-    kotlin {
-        compilerOptions {
-            jvmTarget.set(javaTarget)
-            jvmDefault.set(JvmDefaultMode.ENABLE)
-            freeCompilerArgs.add("-Xannotation-default-target=param-property")
-            optIn.addAll(
-                "com.lagradost.cloudstream3.InternalAPI",
-                "com.lagradost.cloudstream3.Prerelease",
-            )
-        }
-    }
-
     buildFeatures {
         buildConfig = true
         viewBinding = true
@@ -195,15 +199,7 @@ android {
         }
     }
 
-    applicationVariants.all {
-        val variant = this
-        variant.outputs
-            .map { it as com.android.build.gradle.internal.api.BaseVariantOutputImpl }
-            .forEach { output ->
-                val outputFileName = "CloudCache-${variant.versionName}-${variant.buildType.name}.apk"
-                output.outputFileName = outputFileName
-            }
-    }
+    namespace = "com.lagradost.cloudstream3"
 }
 
 dependencies {
@@ -211,31 +207,37 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.json)
     androidTestImplementation(libs.core)
-    implementation(libs.junit.ktx)
-    androidTestImplementation(libs.ext.junit)
+    androidTestImplementation(libs.classgraph)
     androidTestImplementation(libs.espresso.core)
+    androidTestImplementation(libs.ext.junit)
+    androidTestImplementation(libs.instancio.core)
+    androidTestImplementation(libs.junit.ktx)
+    androidTestImplementation(libs.kotlin.test)
 
-    // Android Core
+    // Android Core & Lifecycle
     implementation(libs.core.ktx)
     implementation(libs.activity.ktx)
+    implementation(libs.annotation)
     implementation(libs.appcompat)
     implementation(libs.fragment.ktx)
     implementation(libs.bundles.lifecycle)
     implementation(libs.bundles.navigation)
+    implementation(libs.kotlinx.collections.immutable)
+    implementation(libs.kotlinx.serialization.json) // JSON Parser
 
-    // Room Database (FIXES UNRESOLVED DAO/ENTITY)
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    kapt(libs.androidx.room.compiler)
-
-    // UI & Media
+    // Design & UI
     implementation(libs.preference.ktx)
     implementation(libs.material)
     implementation(libs.constraintlayout)
+
+    // Coil Image Loading
     implementation(libs.bundles.coil)
+
+    // Media 3 (ExoPlayer)
     implementation(libs.bundles.media3)
-    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation(libs.video)
+
+    // FFmpeg Decoding
     implementation(libs.bundles.nextlib)
 
     // Anime-db for filler
@@ -248,27 +250,31 @@ dependencies {
 
     // UI Stuff
     implementation(libs.shimmer) // Shimmering Effect (Loading Skeleton)
-    implementation("com.airbnb.android:lottie:6.6.2") // Lottie animations
     implementation(libs.palette.ktx) // Palette for Images -> Colors
     implementation(libs.tvprovider)
-    implementation(libs.overlappingpanels)
-    implementation(libs.biometric)
-    implementation(libs.previewseekbar.media3)
-    implementation(libs.qrcode.kotlin)
-    implementation(libs.jsoup)
-    implementation(libs.rhino)
-    implementation(libs.fuzzywuzzy)
-    implementation(libs.safefile)
-    coreLibraryDesugaring(libs.desugar.jdk.libs.nio)
-    implementation(libs.conscrypt.android)
-    implementation(libs.jackson.module.kotlin)
+    implementation(libs.overlappingpanels) // Gestures
+    implementation(libs.biometric) // Fingerprint Authentication
+    implementation(libs.previewseekbar.media3) // SeekBar Preview
+    implementation(libs.qrcode.kotlin) // QR Code for PIN Auth on TV
+
+    // Extensions & Other Libs
+    implementation(libs.jsoup) // HTML Parser
+    implementation(libs.rhino) // Run JavaScript
+    implementation(libs.safefile) // To Prevent the URI File Fu*kery
+    coreLibraryDesugaring(libs.desugar.jdk.libs.nio) // NIO Flavor Needed for NewPipeExtractor
+    implementation(libs.conscrypt.android) // To Fix SSL Fu*kery on Android 9
+    implementation(libs.jackson.module.kotlin) // JSON Parser
     implementation(libs.zipline)
+
+    // Deprecated; will be removed once extensions have time to migrate from using it
+    implementation("me.xdrop:fuzzywuzzy:1.4.0")
+
+    // Torrent Support
     implementation(libs.torrentserver)
+
+    // Downloading & Networking
     implementation(libs.work.runtime.ktx)
-    implementation(libs.nicehttp)
-    // Ktor HTTP classes must stay on the app classpath: plugins are compiled against
-    // the CloudStream ABI which exposes io.ktor.http.* (e.g. io.ktor.http.Url).
-    implementation(libs.ktor.http)
+    implementation(libs.nicehttp) // HTTP Lib
 
     implementation(project(":library"))
 }

@@ -613,7 +613,7 @@ object PluginManager {
                     return false
                 }
                 InputStreamReader(stream).use { reader ->
-                    manifest = parseJson(reader, BasePlugin.Manifest::class.java)
+                    manifest = parseJson<BasePlugin.Manifest>(reader.readText())
                 }
             }
 
