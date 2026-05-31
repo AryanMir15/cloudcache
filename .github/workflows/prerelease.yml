@@ -47,6 +47,10 @@ jobs:
         SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
         SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+        SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
+        SIMKL_CLIENT_SECRET: ${{ secrets.SIMKL_CLIENT_SECRET }}
+        TRAKT_CLIENT_ID: ${{ secrets.TRAKT_CLIENT_ID }}
+        MDL_API_KEY: ${{ secrets.MDL_API_KEY }}
 
     - name: Force-update pre-release tag to current commit
       run: |
