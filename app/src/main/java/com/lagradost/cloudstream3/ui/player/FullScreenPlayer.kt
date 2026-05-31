@@ -2065,7 +2065,9 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
 
         if (event.action == KeyEvent.ACTION_DOWN) {
             when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_CENTER -> {
+                // KEYCODE_DPAD_CENTER and KEYCODE_ENTER both act as a "select/confirm" button.
+                // Some remotes (e.g. LG Magic Remote) send KEYCODE_ENTER instead of KEYCODE_DPAD_CENTER.
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                     if (!isShowing) {
                         // If UI is not shown make click instantly skip to next chapter even if locked
                         if (timestampShowState) {
