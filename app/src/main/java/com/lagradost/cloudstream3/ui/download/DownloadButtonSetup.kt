@@ -10,6 +10,8 @@ import com.lagradost.cloudstream3.CloudStreamApp.Companion.getKeys
 import com.lagradost.cloudstream3.CloudStreamApp.Companion.setKey
 import com.lagradost.cloudstream3.CommonActivity.activity
 import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.TvType
+import com.lagradost.cloudstream3.utils.DataStore.getFolderName
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.ui.player.DownloadFileGenerator
 import com.lagradost.cloudstream3.ui.player.ExtractorUri
@@ -124,33 +126,50 @@ object DownloadButtonSetup {
                     val parent = getKey<DownloadObjects.DownloadHeaderCached>(
                         DOWNLOAD_HEADER_CACHE,
                         click.data.parentId.toString()
-                    ) ?: return
+                    )
+
+                    val fileInfoForHeader = getDownloadFileInfo(act, click.data.id)
+                    val headerName = parent?.headerName ?: run {
+                        val rel = fileInfoForHeader?.relativePath ?: click.data.name ?: ""
+                        rel.split('/', '\\').lastOrNull().takeIf { it?.isNotBlank() == true } ?: "Unknown"
+                    }
+                    val tvType = parent?.type ?: TvType.SHOW
 
                     android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Playing downloaded episode: id=${click.data.id}, episode=${click.data.episode}, parentId=${click.data.parentId}")
-                    android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Parent header: name=${parent.name}, apiName=${parent.apiName}, url=${parent.url}, type=${parent.type}")
+                    android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Parent header: name=${headerName}, apiName=${parent?.apiName}, url=${parent?.url}, type=$tvType")
 
                     // Update the clicked episode cache with proper name from API if available
                     // This ensures the episode title is preserved for the player sidebar
                     if (click.data.name != null) {
+                        val episodeFolder = getFolderName(DOWNLOAD_EPISODE_CACHE, click.data.parentId.toString())
                         val existingEpisode = getKey<DownloadObjects.DownloadEpisodeCached>(
+                            episodeFolder,
+                            click.data.id.toString()
+                        ) ?: getKey<DownloadObjects.DownloadEpisodeCached>(
                             DOWNLOAD_EPISODE_CACHE,
                             click.data.id.toString()
                         )
                         if (existingEpisode?.name == null) {
                             android.util.Log.d("LocalLibraryTest", "Updating episode ${click.data.id} cache with name: ${click.data.name}")
                             setKey(
-                                DOWNLOAD_EPISODE_CACHE,
+                                episodeFolder,
                                 click.data.id.toString(),
                                 click.data.copy(cacheTime = System.currentTimeMillis())
                             )
                         }
                     }
 
-                    // 1. Load cached episodes for this show
-                    val cachedEpisodes = getKeys(DOWNLOAD_EPISODE_CACHE)
-                        ?.mapNotNull { getKey<DownloadObjects.DownloadEpisodeCached>(it) }
-                        ?.filter { it.parentId == click.data.parentId }
-                        ?: emptyList()
+                    // 1. Load cached episodes for this show using optimized folder-based lookup
+                    val episodeKeys = try {
+                        getKeys(getFolderName(DOWNLOAD_EPISODE_CACHE, click.data.parentId.toString()))
+                    } catch (e: Exception) {
+                        // fallback to full scan for compatibility
+                        getKeys(DOWNLOAD_EPISODE_CACHE) ?: emptyList()
+                    }
+                    
+                    val cachedEpisodes = episodeKeys.mapNotNull { key ->
+                        getKey<DownloadObjects.DownloadEpisodeCached>(key)
+                    }.filter { it.parentId == click.data.parentId } ?: emptyList()
 
                     // Map for quick lookup by episode number
                     val cachedByEpisode = cachedEpisodes.associateBy { it.episode }
@@ -178,6 +197,7 @@ object DownloadButtonSetup {
 
                     // Add cached episodes first
                     cachedEpisodes.forEach { ep ->
+                        val episodeFolder = getFolderName(DOWNLOAD_EPISODE_CACHE, ep.parentId.toString())
                         val fileInfo = getKey<DownloadObjects.DownloadedFileInfo>(
                             VideoDownloadManager.KEY_DOWNLOAD_INFO,
                             ep.id.toString()
@@ -195,8 +215,8 @@ object DownloadButtonSetup {
                                     parentId = ep.parentId,
                                     episode = ep.episode,
                                     season = ep.season,
-                                    headerName = parent.name,
-                                    tvType = parent.type
+                                    headerName = headerName,
+                                    tvType = tvType
                                 )
                             )
                         }
@@ -221,7 +241,8 @@ object DownloadButtonSetup {
                                 existingIds
                             )
 
-                            // Cache the new episode for future use
+                            // Cache the new episode for future use using 3-deep key structure
+                            val episodeFolder = getFolderName(DOWNLOAD_EPISODE_CACHE, click.data.parentId.toString())
                             val newCachedEp = DownloadObjects.DownloadEpisodeCached(
                                 name = scanned.fileName,
                                 episode = scanned.episodeNumber,
@@ -235,7 +256,7 @@ object DownloadButtonSetup {
                                 cacheTime = System.currentTimeMillis(),
                                 data = null
                             )
-                            setKey(DOWNLOAD_EPISODE_CACHE, newId.toString(), newCachedEp)
+                            setKey(episodeFolder, newId.toString(), newCachedEp)
                             
                             // Update parent index for O(1) lookup
                             android.util.Log.d("CachePerformance", "=== DOWNLOADBUTTONSETUP: UPDATING PARENT INDEX ===")
@@ -276,10 +297,10 @@ object DownloadButtonSetup {
                                     parentId = click.data.parentId,
                                     episode = scanned.episodeNumber,
                                     season = null,
-                                    headerName = parent.name,
-                                    tvType = parent.type
-                                )
-                            )
+                                    headerName = headerName,
+                                    tvType = tvType
+                                 )
+                             )
 
                             android.util.Log.d("DownloadButtonSetup", "Added scanned episode ${scanned.episodeNumber} with ID $newId")
                         }

@@ -60,6 +60,7 @@
     <string name="automatic_backup_key">automatic_backup_key</string>
     <string name="prefer_media_type_key">prefer_media_type_key_2</string>
     <string name="app_theme_key">app_theme_key</string>
+    <string name="app_identity_key">app_identity_key</string>
     <string name="episode_sync_enabled_key">episode_sync_enabled_key</string>
     <string name="log_enabled_key">log_enabled_key</string>
     <string name="show_logcat_key">show_logcat_key</string>

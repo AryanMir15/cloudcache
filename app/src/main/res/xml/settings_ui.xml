@@ -12,6 +12,10 @@
             android:key="@string/app_theme_key"
             android:title="@string/app_theme_settings" />
         <Preference
+            android:icon="@drawable/ic_baseline_color_lens_24"
+            android:key="@string/app_identity_key"
+            android:title="App Identity" />
+        <Preference
             android:icon="@drawable/ic_baseline_tv_24"
             android:key="@string/app_layout_key"
             android:title="@string/app_layout" />

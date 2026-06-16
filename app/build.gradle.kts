@@ -244,6 +244,7 @@ dependencies {
 
     // UI Stuff
     implementation(libs.shimmer) // Shimmering Effect (Loading Skeleton)
+    implementation("com.airbnb.android:lottie:6.6.2") // Lottie animations
     implementation(libs.palette.ktx) // Palette for Images -> Colors
     implementation(libs.tvprovider)
     implementation(libs.overlappingpanels)

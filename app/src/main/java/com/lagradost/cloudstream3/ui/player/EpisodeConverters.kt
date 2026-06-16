@@ -14,6 +14,7 @@ import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
 import com.lagradost.cloudstream3.ui.result.ResultEpisode
 import com.lagradost.cloudstream3.ui.result.VideoWatchState
 import com.lagradost.safefile.SafeFile
+import com.lagradost.cloudstream3.utils.DataStore.getFolderName
 
 /**
  * Extension functions to convert between different episode representations.
@@ -64,14 +65,32 @@ fun ExtractorUri.toResultEpisode(
 
 /**
  * Loads cached episode data for a given episode ID.
+ * If parentId is provided, uses 3-deep key structure with fallback to flat keys.
  */
-fun loadCachedEpisode(episodeId: Int?): DownloadObjects.DownloadEpisodeCached? {
-    return episodeId?.let { id ->
-        CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(
-            DOWNLOAD_EPISODE_CACHE,
-            id.toString()
-        )
+suspend fun loadCachedEpisode(episodeId: String, parentId: String? = null): DownloadObjects.DownloadEpisodeCached? {
+    // try 3-deep lookup first if parentId is known
+    if (parentId != null) {
+        try {
+            val folder = getFolderName(DOWNLOAD_EPISODE_CACHE, parentId)
+            CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(folder, episodeId)?.let { return it }
+        } catch (e: Exception) {
+            // ignore and fallback
+        }
     }
+
+    // fallback to flat key
+    CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, episodeId)?.let { return it }
+
+    // last resort: suffix match
+    val allKeys = try {
+        if (parentId != null) CloudStreamApp.getKeys(getFolderName(DOWNLOAD_EPISODE_CACHE, parentId))
+        else CloudStreamApp.getKeys(DOWNLOAD_EPISODE_CACHE)
+    } catch (e: Exception) {
+        CloudStreamApp.getKeys(DOWNLOAD_EPISODE_CACHE)
+    } ?: emptyList()
+
+    val match = allKeys.firstOrNull { it.endsWith("/$episodeId") || it.endsWith(episodeId) }
+    return match?.let { CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(it) }
 }
 
 /**
@@ -90,47 +109,15 @@ fun loadCachedHeader(parentId: Int?): DownloadObjects.DownloadHeaderCached? {
  * Loads all cached episodes for a given show (parent ID).
  * This is used to show the full episode list when playing local files.
  */
-fun loadAllCachedEpisodes(parentId: Int?): List<DownloadObjects.DownloadEpisodeCached> {
-    if (parentId == null) return emptyList()
-    
-    val allKeys = CloudStreamApp.getKeys(DOWNLOAD_EPISODE_CACHE)
-    android.util.Log.d("EpisodeConverters", "loadAllCachedEpisodes: parentId=$parentId, total keys in cache=${allKeys?.size}")
-    
-    // Check first few keys to see what's stored
-    allKeys?.take(5)?.forEach { key ->
-        android.util.Log.d("EpisodeConverters", "Sample cache key: $key")
-    }
-    
-    val allEpisodes = allKeys?.mapNotNull { key ->
-        // Keys from getKeys already include cache name prefix, so use getKey without cache name parameter
-        val data = CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(key)
-        when {
-            data == null -> {
-                // Corrupted entry - clean it up
-                android.util.Log.d("EpisodeConverters", "Corrupted cache entry for key: $key, cleaning up")
-                CloudStreamApp.removeKey(key)
-                null
-            }
-            data.id == 0 || data.episode <= 0 -> {
-                // Invalid data - clean it up
-                android.util.Log.d("EpisodeConverters", "Invalid cache entry for key: $key (id=${data.id}, episode=${data.episode}), cleaning up")
-                CloudStreamApp.removeKey(key)
-                null
-            }
-            else -> data
-        }
+suspend fun loadAllCachedEpisodes(parentId: String?): List<DownloadObjects.DownloadEpisodeCached> {
+    val keys = try {
+        if (parentId != null) CloudStreamApp.getKeys(getFolderName(DOWNLOAD_EPISODE_CACHE, parentId))
+        else CloudStreamApp.getKeys(DOWNLOAD_EPISODE_CACHE)
+    } catch (e: Exception) {
+        CloudStreamApp.getKeys(DOWNLOAD_EPISODE_CACHE)
     } ?: emptyList()
-    
-    android.util.Log.d("EpisodeConverters", "loadAllCachedEpisodes: loaded ${allEpisodes.size} episodes, parentIds=${allEpisodes.map { it.parentId }.distinct()}")
-    
-    val filtered = allEpisodes.filter { it.parentId == parentId }
-    android.util.Log.d("EpisodeConverters", "loadAllCachedEpisodes: filtered to ${filtered.size} episodes with matching parentId")
-    
-    // Deduplicate by episode number (keep the first occurrence)
-    val deduplicated = filtered.distinctBy { it.episode }
-    android.util.Log.d("EpisodeConverters", "loadAllCachedEpisodes: deduplicated to ${deduplicated.size} episodes")
-    
-    return deduplicated.sortedBy { it.episode }
+
+    return keys.mapNotNull { CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(it) }
 }
 
 /**

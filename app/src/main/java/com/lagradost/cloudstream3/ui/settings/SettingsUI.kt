@@ -208,6 +208,42 @@ class SettingsUI : BasePreferenceFragmentCompat() {
             return@setOnPreferenceClickListener true
         }
 
+        getPref(R.string.app_identity_key)?.setOnPreferenceClickListener {
+            val prefNames = listOf("CloudCache", "Netflix")
+            val prefValues = listOf("default", "netflix")
+            val currentIdentity = settingsManager.getString(getString(R.string.app_identity_key), "default") ?: "default"
+
+            activity?.showBottomDialog(
+                prefNames,
+                prefValues.indexOf(currentIdentity),
+                "App Identity",
+                true,
+                {}
+            ) { selected ->
+                val newIdentity = prefValues[selected]
+                settingsManager.edit {
+                    putString(getString(R.string.app_identity_key), newIdentity)
+                }
+                when (newIdentity) {
+                    "netflix" -> {
+                        settingsManager.edit {
+                            putString(getString(R.string.app_theme_key), "Amoled")
+                            putString(getString(R.string.primary_color_key), "Red")
+                        }
+                    }
+                    else -> {
+                        settingsManager.edit {
+                            putString(getString(R.string.app_theme_key), "AmoledLight")
+                            putString(getString(R.string.primary_color_key), "Normal")
+                        }
+                    }
+                }
+                switchAppIdentity(requireContext(), newIdentity)
+                activity?.recreate()
+            }
+            return@setOnPreferenceClickListener true
+        }
+
         getPref(R.string.pref_filter_search_quality_key)?.setOnPreferenceClickListener {
             val names = enumValues<SearchQuality>().sorted().map { it.name }
             val currentList = settingsManager.getStringSet(
@@ -252,6 +288,40 @@ class SettingsUI : BasePreferenceFragmentCompat() {
                 }
             )
             return@setOnPreferenceClickListener true
+        }
+    }
+
+    companion object {
+        private const val PACKAGE = "com.lagradost.cloudstream3"
+
+        private val IDENTITY_ALIASES = mapOf(
+            "default" to "$PACKAGE.AliasDefault",
+            "netflix" to "$PACKAGE.AliasNetflix"
+        )
+
+        fun switchAppIdentity(context: android.content.Context, identity: String) {
+            val pm = context.packageManager
+
+            // Disable all aliases first
+            for ((_, aliasName) in IDENTITY_ALIASES) {
+                try {
+                    pm.setComponentEnabledSetting(
+                        android.content.ComponentName(context, aliasName),
+                        android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                        0
+                    )
+                } catch (_: Exception) { }
+            }
+
+            // Enable the selected alias
+            val selectedAlias = IDENTITY_ALIASES[identity] ?: IDENTITY_ALIASES["default"]!!
+            try {
+                pm.setComponentEnabledSetting(
+                    android.content.ComponentName(context, selectedAlias),
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                    android.content.pm.PackageManager.DONT_KILL_APP
+                )
+            } catch (_: Exception) { }
         }
     }
 }

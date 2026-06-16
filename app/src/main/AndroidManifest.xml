@@ -118,19 +118,13 @@
             android:launchMode="singleTask"
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true" />
-
         <activity
             android:name=".ui.account.AccountSelectActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden"
             android:exported="true">
             <intent-filter android:exported="true">
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
+
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
@@ -202,6 +196,45 @@
                     android:scheme="https" />
             </intent-filter>
         </activity>
+
+        <!-- Default launcher alias (CloudCache) -->
+        <activity-alias
+            android:name=".AliasDefault"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:label="@string/app_name"
+            android:targetActivity=".ui.account.AccountSelectActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- Netflix splash activity -->
+        <activity
+            android:name=".ui.player.NetflixSplashActivity"
+            android:exported="false"
+            android:theme="@style/NetflixBg"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden" />
+
+        <!-- Netflix identity alias -->
+        <activity-alias
+            android:name=".AliasNetflix"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_netflix"
+            android:roundIcon="@mipmap/ic_launcher_netflix_round"
+            android:label="Netflix"
+            android:targetActivity=".ui.player.NetflixSplashActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <receiver
             android:name=".receivers.VideoDownloadRestartReceiver"

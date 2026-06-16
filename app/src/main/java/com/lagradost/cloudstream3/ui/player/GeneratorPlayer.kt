@@ -526,7 +526,7 @@ class GeneratorPlayer : FullScreenPlayer() {
             when (meta) {
                 is ExtractorUri -> {
                     // Local playback - convert ExtractorUri to ResultEpisode
-                    val cachedEpisode = loadCachedEpisode(meta.id)
+                    val cachedEpisode = loadCachedEpisode(meta.id?.toString() ?: "", meta.parentId?.toString())
                     val cachedHeader = loadCachedHeader(meta.parentId)
                     meta.toResultEpisode(index, cachedEpisode, cachedHeader)
                 }

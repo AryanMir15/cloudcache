@@ -32,10 +32,11 @@ class DownloadFileGenerator(
 
         android.util.Log.d("DownloadFileGenerator", "generateLinks for episode ${meta.id}, uri=${meta.uri}, relativePath=${meta.relativePath}, basePath=${meta.basePath}")
 
-        if (meta.uri == Uri.EMPTY) {
+        var resolvedMeta = meta
+        if (resolvedMeta.uri == Uri.EMPTY) {
             // We do this here so that we only load it when
             // we actually need it as it can be more expensive.
-            val info = meta.id?.let { id ->
+            val info = resolvedMeta.id?.let { id ->
                 activity?.let { act ->
                     android.util.Log.d("DownloadFileGenerator", "Calling getDownloadFileInfo for episode $id")
                     getDownloadFileInfo(act, id)
@@ -44,19 +45,20 @@ class DownloadFileGenerator(
 
             android.util.Log.d("DownloadFileGenerator", "getDownloadFileInfo returned: $info")
             if (info != null) {
-                val newMeta = meta.copy(uri = info.path)
+                val updatedMeta = meta.copy(uri = info.path)
+                resolvedMeta = updatedMeta
                 android.util.Log.d("DownloadFileGenerator", "Updated meta.uri to: ${info.path}")
-                callback(null to newMeta)
-            } else callback(null to meta)
-        } else callback(null to meta)
+            }
+        }
+        callback(null to resolvedMeta)
 
         val ctx = context ?: return true
-        val relative = meta.relativePath ?: return true
-        val display = meta.displayName ?: return true
+        val relative = resolvedMeta.relativePath ?: return true
+        val display = resolvedMeta.displayName ?: return true
 
         val cleanDisplay = cleanDisplayName(display)
 
-        getFolder(ctx, relative, meta.basePath)?.forEach { (name, uri) ->
+        getFolder(ctx, relative, resolvedMeta.basePath)?.forEach { (name, uri) ->
             if (isMatchingSubtitle(name, display, cleanDisplay)) {
                 val cleanName = cleanDisplayName(name)
                 val lastNum = Regex(" ([0-9]+)$")
