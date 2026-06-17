@@ -52,6 +52,7 @@ import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.base64Encode
+import com.lagradost.cloudstream3.databinding.BottomInputDialogBinding
 import com.lagradost.cloudstream3.databinding.FragmentResultBinding
 import com.lagradost.cloudstream3.databinding.FragmentResultSwipeBinding
 import com.lagradost.cloudstream3.databinding.MetadataPreviewDialogBinding
@@ -2674,53 +2675,46 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 setTrailers(trailers.flatMap { it.mirros }) // I dont care about subtitles yet!
             observe(syncModel.synced) { list ->
                 android.util.Log.d("[SYNC_OBSERVER_LIFECYCLE]", "syncModel.synced observer fired - list size: ${list.size}, binding: ${binding != null}, resultMiniSync: ${binding?.resultMiniSync != null}")
-                syncBinding?.resultSyncNames?.text = "Sync"
-
-                // Note: Status text is now handled by providersWithValidStatus observer
-                // Do not set resultSyncStatus here to avoid conflicts
-
-                val newList = list.filter { it.isSynced && it.hasAccount }
 
                 // Show bell icon only if sync data is available (sync IDs exist)
                 val syncIds = syncModel.getSyncs()
                 val shouldBeVisible = syncIds.isNotEmpty()
                 binding?.resultMiniSync?.isVisible = shouldBeVisible
+                syncBinding?.resultSyncChangeEntry?.isVisible = shouldBeVisible
 
-                // Populate provider selector dropdown
+                // Populate provider selector dropdown (no "All Providers" — just direct providers)
                 syncBinding?.resultSyncProviderSelector?.let { spinner ->
                     val providersWithAccounts = list.filter { it.hasAccount }
                     val providerNames = providersWithAccounts.map { it.name }
                     val providerPrefixes = providersWithAccounts.map { it.idPrefix }
                     
                     if (providerNames.isNotEmpty()) {
-                        val adapter = ArrayAdapter(
-                            requireContext(),
-                            android.R.layout.simple_spinner_item,
-                            providerNames.toMutableList().apply { add(0, "All Providers") }
-                        )
-                        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-                        spinner.adapter = adapter
+                        // Check if spinner already has this data to avoid re-populating
+                        val currentAdapter = spinner.adapter
+                        val alreadyPopulated = currentAdapter != null && currentAdapter.count == providerNames.size &&
+                            (0 until providerNames.size).all { currentAdapter.getItem(it).toString() == providerNames[it] }
                         
-                        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-                            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                                android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Spinner onItemSelected - position: $position")
-                                if (position == 0) {
-                                    // "All Providers" selected - trigger initial load behavior
-                                    android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "All Providers selected - calling updateUserData")
-                                    syncModel.setSelectedProvider(null)
-                                    syncModel.updateUserData()
-                                } else {
-                                    // Specific provider selected
-                                    val selectedPrefix = providerPrefixes[position - 1]
+                        if (!alreadyPopulated) {
+                            // Set listener BEFORE adapter so auto-selection fires
+                            spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                                    android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Spinner onItemSelected - position: $position")
+                                    val selectedPrefix = providerPrefixes[position]
                                     android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Setting selectedProvider to: $selectedPrefix")
                                     syncModel.setSelectedProvider(selectedPrefix)
                                 }
+                                
+                                override fun onNothingSelected(parent: AdapterView<*>?) {
+                                    android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Spinner onNothingSelected")
+                                }
                             }
-                            
-                            override fun onNothingSelected(parent: AdapterView<*>?) {
-                                android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Spinner onNothingSelected")
-                                syncModel.setSelectedProvider(null)
-                            }
+                            val adapter = ArrayAdapter(
+                                requireContext(),
+                                android.R.layout.simple_spinner_item,
+                                providerNames
+                            )
+                            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+                            spinner.adapter = adapter
                         }
                     }
                 }
@@ -2748,9 +2742,24 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 when (meta) {
                     is Resource.Success -> {
                         val d = meta.value
-                        android.util.Log.d("[SYNC_METADATA_DEBUG]", "Metadata Success - totalEpisodes: ${d.totalEpisodes}, publicScore: ${d.publicScore}")
+                        android.util.Log.d("[SYNC_METADATA_DEBUG]", "Metadata Success - title: ${d.title}, totalEpisodes: ${d.totalEpisodes}, publicScore: ${d.publicScore}")
                         syncBinding?.resultSyncEpisodes?.progress = currentSyncProgress * 1000
                         setSyncMaxEpisodes(d.totalEpisodes)
+
+                        // Update title from provider metadata
+                        syncBinding?.resultSyncNames?.text = d.title ?: viewModel.currentResponse?.name ?: "Sync"
+
+                        // Show public score from provider near rating bar
+                        syncBinding?.resultSyncPublicScore?.let { scoreView ->
+                            val score = d.publicScore
+                            if (score != null) {
+                                val scoreStr = score.toString()
+                                scoreView.text = getString(R.string.public_score_format, scoreStr)
+                                scoreView.isVisible = true
+                            } else {
+                                scoreView.isVisible = false
+                            }
+                        }
 
                         viewModel.setMeta(d, syncModel.getSyncs())
                     }
@@ -2795,30 +2804,26 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                             resultSyncLoadingShimmer.isVisible = false
                             
                             val d = status.value
-                            val selectedProvider = syncModel.selectedProvider.value
                             
                             // Check if user is not logged in (EmptySyncStatus)
                             if (d is SyncAPI.EmptySyncStatus) {
                                 resultSyncHolder.isVisible = false
-                                // Don't show toast here - only show when user clicks sync button
                                 closed = true
                             } else {
                                 resultSyncHolder.isVisible = true
                                 
-                                // Check if entry is not synced with the selected provider
+                                // Update subtitle based on sync status
                                 val isNotSynced = d.status == SyncWatchType.NONE && d.watchedEpisodes == 0
-                                if (isNotSynced && selectedProvider != null) {
-                                    // Show "Not tracked in [Provider]" message
-                                    val providerName = syncModel.synced.value?.firstOrNull { it.idPrefix == selectedProvider.lowercase() }?.name ?: selectedProvider
-                                    resultSyncStatus.text = "Not tracked in $providerName"
-                                    resultSyncStatus.isVisible = true
-                                } else if (selectedProvider != null) {
-                                    // Show "Synced to [Provider]" when synced
-                                    val providerName = syncModel.synced.value?.firstOrNull { it.idPrefix == selectedProvider.lowercase() }?.name ?: selectedProvider
-                                    resultSyncStatus.text = "Synced to $providerName"
-                                    resultSyncStatus.isVisible = true
+                                val selectedProvider = syncModel.selectedProvider.value
+                                val providerName = selectedProvider?.let { prefix ->
+                                    syncModel.synced.value?.firstOrNull { it.idPrefix == prefix }?.name
                                 }
-                                // Note: For "All providers" (selectedProvider == null), status text is handled by providersWithValidStatus observer
+                                syncBinding?.resultSyncSubtitle?.let { sub ->
+                                    if (providerName != null) {
+                                        sub.text = getString(R.string.tracked_on_provider, providerName)
+                                        sub.isVisible = true
+                                    }
+                                }
                                 
                                 val desiredScore = d.score?.toFloat(1) ?: 0.0f
                                 val totalSteps = (resultSyncRating.valueTo / resultSyncRating.stepSize)
@@ -2934,6 +2939,101 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
             syncBinding?.resultSyncSetScore?.setOnClickListener {
                 syncModel.publishUserData()
+            }
+
+            // Change Entry button - search and replace tracker entry
+            syncBinding?.resultSyncChangeEntry?.let { changeBtn ->
+                changeBtn.setOnClickListener {
+                    val act = activity ?: return@setOnClickListener
+                    val currentSyncs = syncModel.getSyncs()
+                    if (currentSyncs.isEmpty()) {
+                        showToast("No tracker entry to change")
+                        return@setOnClickListener
+                    }
+
+                    val binding = BottomInputDialogBinding.inflate(
+                        act.layoutInflater
+                    )
+                    val dialog = BottomSheetDialog(act)
+                    dialog.setContentView(binding.root)
+
+                    binding.text1.setText(R.string.search_tracker_title)
+                    binding.nginxTextInput.apply {
+                        hint = getString(R.string.search_tracker_hint)
+                        isFocusableInTouchMode = true
+                        requestFocus()
+                    }
+                    binding.applyBtt.setText(R.string.search_tracker_action)
+                    binding.applyBttHolder.isVisible = true
+
+                    binding.applyBtt.setOnClickListener {
+                        val query = binding.nginxTextInput.text.toString().trim()
+                        if (query.isNotEmpty()) {
+                            syncModel.searchTracker(query)
+                            dialog.dismissSafe(act)
+                        }
+                    }
+                    binding.cancelBtt.setOnClickListener {
+                        dialog.dismissSafe(act)
+                    }
+
+                    dialog.show()
+                    // Show keyboard
+                    binding.nginxTextInput.post {
+                        val imm = act.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                        imm.showSoftInput(binding.nginxTextInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                    }
+                }
+            }
+
+            // Observe search results (must be outside let{} so `this` is LifecycleOwner)
+            observe(syncModel.searchResults) { results ->
+                val act = activity ?: return@observe
+                if (results.isNullOrEmpty()) {
+                    showToast(R.string.no_results_found)
+                    return@observe
+                }
+
+                val resultNames = results.map { result ->
+                    buildString {
+                        append(result.name)
+                        result.type?.let { append(" • $it") }
+                    }
+                }
+
+                act.showBottomDialogInstant(
+                    resultNames,
+                    getString(R.string.search_tracker_title),
+                    {},
+                ) { which ->
+                    val selected = results[which]
+                    val syncId = selected.syncId
+                    val providerPrefix = com.lagradost.cloudstream3.syncproviders.AccountManager.aniListApi.idPrefix
+
+                    syncModel.replaceSyncEntry(providerPrefix, syncId)
+
+                    viewModel.currentResponse?.let { response ->
+                        val syncData = HashMap(response.syncData)
+                        syncData[providerPrefix] = syncId
+                        response.syncData = syncData
+
+                        ioSafe {
+                            val bookmarks = com.lagradost.cloudstream3.utils.DataStoreHelper.getAllBookmarkedData()
+                            val bookmark = bookmarks.find { b ->
+                                b.name == response.name && b.apiName == response.apiName
+                            }
+                            bookmark?.let { b ->
+                                val updatedBookmark = b.copy(syncData = syncData)
+                                com.lagradost.cloudstream3.utils.DataStoreHelper.setBookmarkedData(
+                                    b.id,
+                                    updatedBookmark
+                                )
+                            }
+                        }
+
+                        showToast(getString(R.string.entry_changed))
+                    }
+                }
             }
 
             observe(viewModel.watchStatus) { watchType ->
@@ -3114,70 +3214,36 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
             // Function to update sync panel based on provider selection
             fun updateSyncPanelForProvider(provider: String?) {
+                if (provider == null) return
                 syncBinding?.apply {
-                    if (provider == null) {
-                        // "All providers" selected - show loading skeleton briefly then reset to defaults
-                        resultSyncLoadingShimmer.startShimmer()
-                        resultSyncLoadingShimmer.isVisible = true
-                        resultSyncHolder.isVisible = false
-                        
-                        // Delay slightly to show loading state, then reset to defaults
-                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                            resultSyncLoadingShimmer.stopShimmer()
-                            resultSyncLoadingShimmer.isVisible = false
-                            resultSyncHolder.isVisible = true
-                            
-                            // Show default layout (episodes: 0, rating: 0)
-                            resultSyncCurrentEpisodes.setText("0")
-                            resultSyncScoreText.text = "0/10"
-                            resultSyncRating.value = 0f
-                            
-                            // Show which providers the entry is actually tracked based on valid status
-                            val validProviderPrefixes = syncModel.providersWithValidStatus.value ?: emptySet()
-                            val syncedProviders = syncModel.synced.value?.filter { 
-                                it.idPrefix in validProviderPrefixes && it.hasAccount 
-                            }
-                            if (syncedProviders != null && syncedProviders.isNotEmpty()) {
-                                resultSyncStatus.text = "Currently tracked on ${syncedProviders.joinToString { it.name }}"
-                                resultSyncStatus.isVisible = true
-                            } else {
-                                resultSyncStatus.isVisible = false
-                            }
-                        }, 300)
-                    } else {
-                        // Specific provider selected - fetch status immediately
-                        // Show loading skeleton while fetching
-                        resultSyncLoadingShimmer.startShimmer()
-                        resultSyncLoadingShimmer.isVisible = true
-                        resultSyncHolder.isVisible = false
-                        syncModel.fetchProviderStatus(provider)
-                    }
+                    // Show loading skeleton while fetching
+                    resultSyncLoadingShimmer.startShimmer()
+                    resultSyncLoadingShimmer.isVisible = true
+                    resultSyncHolder.isVisible = false
+                    syncModel.fetchProviderStatus(provider)
                 }
             }
 
             // Observe selected provider to update UI based on selection
             observe(syncModel.selectedProvider) { provider ->
                 android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Selected provider: $provider")
-                updateSyncPanelForProvider(provider)
-            }
-            
-            // Observe providers with valid status to update "All providers" text
-            observe(syncModel.providersWithValidStatus) { validProviders ->
-                android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Providers with valid status observer fired: $validProviders, selectedProvider: ${syncModel.selectedProvider.value}")
-                syncBinding?.apply {
-                    val syncedProviders = syncModel.synced.value?.filter { 
-                        it.idPrefix in validProviders && it.hasAccount 
-                    }
-                    android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Filtered synced providers: ${syncedProviders?.map { it.name }}")
-                    if (syncedProviders != null && syncedProviders.isNotEmpty()) {
-                        resultSyncStatus.text = "Currently tracked on ${syncedProviders.joinToString { it.name }}"
-                        resultSyncStatus.isVisible = true
-                        android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Updated status text to: ${resultSyncStatus.text}")
+                // Set subtitle to show which provider is selected
+                val providerDisplayName = syncModel.synced.value?.firstOrNull { it.idPrefix == provider }?.name
+                syncBinding?.resultSyncSubtitle?.let { sub ->
+                    if (providerDisplayName != null) {
+                        sub.text = getString(R.string.tracked_on_provider, providerDisplayName)
+                        sub.isVisible = true
                     } else {
-                        resultSyncStatus.isVisible = false
-                        android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Hiding status text - no synced providers")
+                        sub.isVisible = false
                     }
                 }
+                // Reset title to bookmark name — metadata observer will update with provider title
+                val bookmarkName = viewModel.currentResponse?.name
+                syncBinding?.resultSyncNames?.text = bookmarkName ?: "Sync"
+                // Hide public score until metadata loads
+                syncBinding?.resultSyncPublicScore?.isVisible = false
+
+                updateSyncPanelForProvider(provider)
             }
         }
 

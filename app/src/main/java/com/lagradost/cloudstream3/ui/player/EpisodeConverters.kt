@@ -67,7 +67,7 @@ fun ExtractorUri.toResultEpisode(
  * Loads cached episode data for a given episode ID.
  * If parentId is provided, uses 3-deep key structure with fallback to flat keys.
  */
-suspend fun loadCachedEpisode(episodeId: String, parentId: String? = null): DownloadObjects.DownloadEpisodeCached? {
+fun loadCachedEpisode(episodeId: String, parentId: String? = null): DownloadObjects.DownloadEpisodeCached? {
     // try 3-deep lookup first if parentId is known
     if (parentId != null) {
         try {

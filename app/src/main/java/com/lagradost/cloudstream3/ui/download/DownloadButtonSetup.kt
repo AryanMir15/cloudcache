@@ -128,12 +128,12 @@ object DownloadButtonSetup {
                         click.data.parentId.toString()
                     )
 
-                    val fileInfoForHeader = getDownloadFileInfo(act, click.data.id)
-                    val headerName = parent?.headerName ?: run {
-                        val rel = fileInfoForHeader?.relativePath ?: click.data.name ?: ""
-                        rel.split('/', '\\').lastOrNull().takeIf { it?.isNotBlank() == true } ?: "Unknown"
-                    }
-                    val tvType = parent?.type ?: TvType.SHOW
+                    val fileInfo = getKey<DownloadObjects.DownloadedFileInfo>(
+                        VideoDownloadManager.KEY_DOWNLOAD_INFO,
+                        click.data.id.toString()
+                    )
+                    val headerName = parent?.name ?: fileInfo?.relativePath?.split('/', '\\')?.lastOrNull()?.takeIf { it.isNotBlank() } ?: click.data.name ?: "Unknown"
+                    val tvType = parent?.type ?: TvType.TvSeries
 
                     android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Playing downloaded episode: id=${click.data.id}, episode=${click.data.episode}, parentId=${click.data.parentId}")
                     android.util.Log.d("DownloadButtonSetup", "[EPISODE_LIST_DEBUG] Parent header: name=${headerName}, apiName=${parent?.apiName}, url=${parent?.url}, type=$tvType")
@@ -167,9 +167,9 @@ object DownloadButtonSetup {
                         getKeys(DOWNLOAD_EPISODE_CACHE) ?: emptyList()
                     }
                     
-                    val cachedEpisodes = episodeKeys.mapNotNull { key ->
+                    val cachedEpisodes = (episodeKeys ?: emptyList()).mapNotNull { key ->
                         getKey<DownloadObjects.DownloadEpisodeCached>(key)
-                    }.filter { it.parentId == click.data.parentId } ?: emptyList()
+                    }.filter { it.parentId == click.data.parentId }
 
                     // Map for quick lookup by episode number
                     val cachedByEpisode = cachedEpisodes.associateBy { it.episode }

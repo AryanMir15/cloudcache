@@ -1722,16 +1722,17 @@ class GeneratorPlayer : FullScreenPlayer() {
         var isOpVisible = false
         when (val meta = currentMeta) {
             is ResultEpisode -> {
+                val absoluteEpisode = meta.totalEpisodeIndex ?: meta.episode
                 if (percentage >= UPDATE_SYNC_PROGRESS_PERCENTAGE && (maxEpisodeSet
-                        ?: -1) < meta.episode
+                        ?: -1) < absoluteEpisode
                 ) {
                     context?.let { ctx ->
                         val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
                         if (settingsManager.getBoolean(
                                 ctx.getString(R.string.episode_sync_enabled_key), true
                             )
-                        ) maxEpisodeSet = meta.episode
-                        sync.modifyMaxEpisode(meta.totalEpisodeIndex ?: meta.episode)
+                        ) maxEpisodeSet = absoluteEpisode
+                        sync.modifyMaxEpisode(absoluteEpisode)
                     }
                 }
 

@@ -1842,6 +1842,7 @@ class ResultViewModel2 : ViewModel() {
                                                 description = click.data.description,
                                                 date = click.data.airDate,
                                                 cacheTime = System.currentTimeMillis(),
+                                                dubStatus = click.data.dubStatus?.name,
                                                 data = click.data.data
                                             )
                                         )
@@ -2021,6 +2022,7 @@ class ResultViewModel2 : ViewModel() {
                                                         description = click.data.description,
                                                         date = click.data.airDate,
                                                         cacheTime = System.currentTimeMillis(),
+                                                        dubStatus = click.data.dubStatus?.name,
                                                         data = click.data.data
                                                     )
                                                 )
@@ -2174,6 +2176,7 @@ class ResultViewModel2 : ViewModel() {
                         response.apiName,
                         response.getId(),
                         response.url,
+                        dubStatus = click.data.dubStatus,
                     ).toWrapper()
                 )
             }
@@ -2197,6 +2200,7 @@ class ResultViewModel2 : ViewModel() {
                             response.url,
                             listOf(result.links[index]),
                             result.subs,
+                            dubStatus = click.data.dubStatus,
                         ).toWrapper()
                     )
                     showToast(
@@ -3602,6 +3606,7 @@ class ResultViewModel2 : ViewModel() {
                                     showPoster = loadResponse.posterUrl,
                                     showBanner = loadResponse.backgroundPosterUrl,
                                     showLogo = loadResponse.logoUrl,
+                                    dubStatus = ep.key,
                                 )
 
                             // Collect episodes for lazy caching instead of caching immediately
@@ -4098,6 +4103,9 @@ class ResultViewModel2 : ViewModel() {
         val resultEpisodes = episodes.mapIndexed { index, cached ->
             val posDur = getViewPos(cached.id)
             val episodeData = cached.data ?: ""
+            val parsedDubStatus = try {
+                cached.dubStatus?.let { DubStatus.valueOf(it) }
+            } catch (_: Exception) { null }
             ResultEpisode(
                 headerName = cachedHeader.name ?: "",
                 name = cached.name ?: "Episode ${cached.episode}",
@@ -4122,6 +4130,7 @@ class ResultViewModel2 : ViewModel() {
                 showPoster = cachedHeader.poster,
                 showBanner = null,
                 showLogo = null,
+                dubStatus = parsedDubStatus,
             )
         }
         
@@ -4388,6 +4397,7 @@ class ResultViewModel2 : ViewModel() {
                                     showPoster = loadResponse.posterUrl,
                                     showBanner = loadResponse.backgroundPosterUrl,
                                     showLogo = loadResponse.logoUrl,
+                                    dubStatus = indexer.dubStatus,
                                 )
                             }
 
@@ -4625,6 +4635,9 @@ class ResultViewModel2 : ViewModel() {
                 // Use cached episode data if available
                 // If not available, use empty string - the app will load from API when needed
                 val episodeData = cached.data ?: ""
+                val parsedDubStatus = try {
+                    cached.dubStatus?.let { DubStatus.valueOf(it) }
+                } catch (_: Exception) { null }
                 ResultEpisode(
                     headerName = cachedHeader.name ?: "",
                     name = cached.name ?: "Episode ${cached.episode}",
@@ -4649,6 +4662,7 @@ class ResultViewModel2 : ViewModel() {
                     showPoster = cachedHeader.poster,
                     showBanner = null, // Not cached in header
                     showLogo = null, // Not cached in header
+                    dubStatus = parsedDubStatus,
                 )
             }
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Converted ${resultEpisodes.size} episodes to ResultEpisode format")

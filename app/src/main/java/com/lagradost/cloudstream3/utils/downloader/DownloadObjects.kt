@@ -3,6 +3,7 @@ package com.lagradost.cloudstream3.utils.downloader
 import android.net.Uri
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.Score
+import com.lagradost.cloudstream3.DubStatus
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.services.DownloadQueueService
 import com.lagradost.cloudstream3.ui.player.SubtitleData
@@ -49,6 +50,7 @@ object DownloadObjects {
         @JsonProperty("resultUrl") val resultUrl: String,
         @JsonProperty("links") val links: List<ExtractorLink>? = null,
         @JsonProperty("subs") val subs: List<SubtitleData>? = null,
+        @JsonProperty("dubStatus") val dubStatus: DubStatus? = null,
     ) {
         fun toWrapper(): DownloadQueueWrapper {
             return DownloadQueueWrapper(null, this)

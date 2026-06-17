@@ -97,6 +97,11 @@
     <string name="error_loading_links_toast">Error Loading Links</string>
     <string name="links_reloaded_toast">Links Reloaded</string>
     <string name="download_storage_text">Internal Storage</string>
+    <string name="download_preferences_title">Download Preferences</string>
+    <string name="download_quality_title">Preferred Quality</string>
+    <string name="download_quality_summary">Best effort: falls back to any available quality</string>
+    <string name="download_audio_title">Preferred Audio</string>
+    <string name="download_audio_summary">Best effort: falls back to any available audio</string>
     <string name="app_dubbed_text">Dub</string>
     <string name="app_subbed_text">Sub</string>
     <string name="popup_delete_file">Delete File</string>
@@ -459,6 +464,15 @@
     <string name="sync_score_format" formatted="true">%d / 10</string>
     <string name="sync_total_episodes_none">/??</string>
     <string name="sync_total_episodes_some" formatted="true">/%d</string>
+    <string name="change_entry">Change</string>
+    <string name="search_tracker_hint">Search AniList…</string>
+    <string name="search_tracker_title">Change Tracker Entry</string>
+    <string name="no_results_found">No results found</string>
+    <string name="entry_changed">Tracker entry updated</string>
+    <string name="search_tracker_action">Search</string>
+    <string name="searching">Searching…</string>
+    <string name="tracked_on_provider">Tracked on %s</string>
+    <string name="public_score_format">avg %s</string>
     <string name="authenticated_user" formatted="true">%s authenticated</string>
     <string name="authenticated_user_fail" formatted="true">Could not log in at %s</string>
     <!-- ============ -->

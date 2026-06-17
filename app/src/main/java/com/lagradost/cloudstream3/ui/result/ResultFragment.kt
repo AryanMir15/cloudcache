@@ -65,6 +65,7 @@ data class ResultEpisode(
     val showPoster: String? = null,
     val showBanner: String? = null,
     val showLogo: String? = null,
+    val dubStatus: DubStatus? = null,
 )
 
 fun ResultEpisode.getRealPosition(): Long {
@@ -106,6 +107,7 @@ fun buildResultEpisode(
     showPoster: String? = null,
     showBanner: String? = null,
     showLogo: String? = null,
+    dubStatus: DubStatus? = null,
 ): ResultEpisode {
     val posDur = getViewPos(id)
     val videoWatchState = getVideoWatchState(id) ?: VideoWatchState.None
@@ -134,7 +136,8 @@ fun buildResultEpisode(
         seasonData = seasonData,
         showPoster = showPoster,
         showBanner = showBanner,
-        showLogo = showLogo
+        showLogo = showLogo,
+        dubStatus = dubStatus
     )
 }
 

@@ -27,4 +27,8 @@ class SyncRepo(override val api: SyncAPI) : AuthRepo(api) {
     suspend fun library(): Result<SyncAPI.LibraryMetadata?> = runCatching {
         api.library(freshAuth())
     }
+
+    suspend fun search(query: String): Result<List<SyncAPI.SyncSearchResult>?> = runCatching {
+        api.search(freshAuth(), query)
+    }
 }

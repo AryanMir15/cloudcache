@@ -108,6 +108,28 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/download_preferences_title">
+
+        <ListPreference
+            android:icon="@drawable/netflix_download"
+            android:key="@string/download_quality_pref_key"
+            android:title="@string/download_quality_title"
+            android:summary="@string/download_quality_summary"
+            android:defaultValue="best"
+            android:entries="@array/download_quality_entries"
+            android:entryValues="@array/download_quality_values" />
+
+        <ListPreference
+            android:icon="@drawable/netflix_download"
+            android:key="@string/download_audio_pref_key"
+            android:title="@string/download_audio_title"
+            android:summary="@string/download_audio_summary"
+            android:defaultValue="any"
+            android:entries="@array/download_audio_entries"
+            android:entryValues="@array/download_audio_values" />
+
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="Auto-Download (Subscribed)">
 
         <SwitchPreference

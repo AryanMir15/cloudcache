@@ -22,26 +22,63 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:orientation="vertical">
 
-                <TextView
-                    android:id="@+id/result_sync_names"
-                    android:layout_width="0dp"
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="MyAnimeList, AniList"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
 
-                <Spinner
-                    android:id="@+id/result_sync_provider_selector"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:minWidth="120dp"
-                    android:minHeight="36dp" />
-            </LinearLayout>
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/result_sync_names"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:text="Sync"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/result_sync_subtitle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:textColor="?attr/grayTextColor"
+                            android:textSize="12sp"
+                            android:visibility="gone" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/result_sync_change_entry"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center_vertical"
+                        android:background="?android:attr/selectableItemBackgroundBorderless"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp"
+                        android:text="@string/change_entry"
+                        android:textColor="?attr/colorPrimary"
+                        android:textSize="12sp"
+                        android:visibility="gone" />
+
+                    <Spinner
+                        android:id="@+id/result_sync_provider_selector"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:minWidth="120dp"
+                        android:minHeight="36dp" />
+                </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -108,7 +145,8 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal">
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -129,24 +167,36 @@
                     android:layout_marginStart="0dp"
                     android:minWidth="0dp"
                     android:text="7/10" />
+
+                <TextView
+                    android:id="@+id/result_sync_public_score"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginStart="8dp"
+                    android:textColor="?attr/grayTextColor"
+                    android:textSize="12sp"
+                    android:visibility="gone"
+                    tools:text="avg 8.1"
+                    tools:visibility="visible" />
             </LinearLayout>
 
-            <com.google.android.material.slider.Slider
-                android:id="@+id/result_sync_rating"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="-5dp"
-                android:layout_marginEnd="-5dp"
-                app:thumbHeight="20dp"
-                android:stepSize="1"
-                android:value="4"
-                android:valueFrom="0"
-                android:valueTo="10"
-                app:labelStyle="@style/BlackLabel"
-                app:thumbRadius="10dp"
-                app:tickVisible="false" />
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/result_sync_rating"
+                    android:layout_width="wrap_content"
+                    android:layout_height="249dp"
+                    android:layout_marginStart="-5dp"
+                    android:layout_marginEnd="-5dp"
+                    android:stepSize="1"
+                    android:value="4"
+                    android:valueFrom="0"
+                    android:valueTo="10"
+                    app:labelStyle="@style/BlackLabel"
+                    app:thumbHeight="20dp"
+                    app:thumbRadius="10dp"
+                    app:tickVisible="false" />
 
-            <FrameLayout
+                <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
@@ -190,16 +240,7 @@
                 android:layout_marginTop="10dp"
                 android:text="@string/upload_sync"
                 app:icon="@drawable/baseline_sync_24" />
-
-            <TextView
-                android:id="@+id/result_sync_status"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:gravity="center"
-                android:text="Synced to SIMKL"
-                android:textColor="?attr/grayTextColor"
-                android:textSize="12sp" />
+        </LinearLayout>
         </LinearLayout>
 
     </ScrollView>

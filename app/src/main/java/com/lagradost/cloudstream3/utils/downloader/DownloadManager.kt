@@ -2270,10 +2270,18 @@ object VideoDownloadManager {
                 )
             }
 
-            val sortedLinks = currentLinks.sortedBy { link ->
-                // Negative, because the highest priority should be first
-                -getLinkPriority(profile.id, link)
-            }
+            // Use download preferences for link selection with fallback chain
+            val episodeDubStatus = downloadItem.dubStatus
+            val preferredLinks = DownloadPreferences.selectBestLinks(
+                context,
+                currentLinks.toList(),
+                episodeDubStatus
+            )
+
+            // Sort by quality (highest first) as final tiebreaker
+            val sortedLinks = preferredLinks.sortedByDescending { it.quality }
+
+            Log.d(TAG, "downloadEpisodeWithoutLinks: Selected ${sortedLinks.size} links from ${currentLinks.size} total (dubStatus=$episodeDubStatus)")
 
             downloadEpisodeWithLinks(
                 sortedLinks,

@@ -84,6 +84,13 @@ class SyncViewModel : ViewModel() {
     private val _syncsFlow = MutableStateFlow<Map<String, String>>(emptyMap())
     val syncsFlow: StateFlow<Map<String, String>> = _syncsFlow
 
+    // Manual entry search state
+    private val _searchResults: MutableLiveData<List<SyncAPI.SyncSearchResult>> = MutableLiveData()
+    val searchResults: LiveData<List<SyncAPI.SyncSearchResult>> = _searchResults
+
+    private val _isSearching: MutableLiveData<Boolean> = MutableLiveData(false)
+    val isSearching: LiveData<Boolean> = _isSearching
+
     fun getSyncs(): Map<String, String> {
         return syncs.toMap()
     }
@@ -727,6 +734,76 @@ class SyncViewModel : ViewModel() {
         _metaResponse.postValue(null)
         _currentSynced.postValue(getMissing())
         _userDataResponse.postValue(null)
+    }
+
+    /**
+     * Search a specific tracker provider for entries matching the query.
+     * Currently only AniList is supported.
+     */
+    fun searchTracker(query: String, providerPrefix: String = aniListApi.idPrefix) = ioSafe {
+        Log.i(TAG, "searchTracker - query: $query, provider: $providerPrefix")
+        _isSearching.postValue(true)
+        _searchResults.postValue(emptyList())
+
+        try {
+            val repo = repos.firstOrNull { it.idPrefix == providerPrefix }
+            if (repo == null) {
+                Log.e(TAG, "searchTracker - repo not found for provider: $providerPrefix")
+                _isSearching.postValue(false)
+                return@ioSafe
+            }
+
+            val result = repo.search(query)
+            if (result.isSuccess) {
+                val results = result.getOrNull() ?: emptyList()
+                Log.i(TAG, "searchTracker - found ${results.size} results")
+                _searchResults.postValue(results)
+            } else {
+                Log.e(TAG, "searchTracker - search failed", result.exceptionOrNull())
+                _searchResults.postValue(emptyList())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "searchTracker - error", e)
+            _searchResults.postValue(emptyList())
+        } finally {
+            _isSearching.postValue(false)
+        }
+    }
+
+    /**
+     * Remove sync entry for a specific provider.
+     */
+    fun removeSyncForProvider(prefix: String) = ioSafe {
+        Log.i(TAG, "removeSyncForProvider - prefix: $prefix")
+        syncsMutex.withLock {
+            syncs.remove(prefix)
+            _syncsFlow.value = syncs.toMap()
+        }
+        updateSynced()
+        // Reset metadata and user data since the entry was removed
+        _metaResponse.postValue(null)
+        _userDataResponse.postValue(null)
+    }
+
+    /**
+     * Replace sync entry for a specific provider with a new ID.
+     * Then refreshes metadata and user data.
+     */
+    fun replaceSyncEntry(prefix: String, newId: String) = ioSafe {
+        Log.i(TAG, "replaceSyncEntry - prefix: $prefix, newId: $newId")
+        syncsMutex.withLock {
+            syncs[prefix] = newId
+            _syncsFlow.value = syncs.toMap()
+        }
+        updateSynced()
+        updateMetaAndUser()
+    }
+
+    /**
+     * Get the current syncs map as a mutable copy for external persistence updates.
+     */
+    fun getCurrentSyncData(): Map<String, String> {
+        return syncs.toMap()
     }
 
     fun updateMetaAndUser() {
