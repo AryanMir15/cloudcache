@@ -97,7 +97,7 @@ object InAppUpdater {
             app.get(url, headers = headers).text
         )
 
-        val versionRegex = Regex("""(.*?((\d+)\.(\d+)\.(\d+))\.apk)""")
+        val versionRegex = Regex("""(.*?((\d+)\.(\d+)\.(\d+)).*\.apk)""")
         val versionRegexLocal = Regex("""(.*?((\d+)\.(\d+)\.(\d+)).*)""")
         val foundList = response.filter { rel ->
             !rel.prerelease

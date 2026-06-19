@@ -4867,19 +4867,19 @@ class ResultViewModel2 : ViewModel() {
             _selectedSorting.postValue(txt(R.string.sort_button_episode, ""))
             _selectedSortingIndex.postValue(0)
             
-            // Set up range and post episodes - prefer season 1
-            val season1Indexer = rangesFromMetadata.keys.find { it.season == 1 }
-            val firstRange = if (season1Indexer != null) {
-                rangesFromMetadata[season1Indexer]?.firstOrNull()
+            // Restore saved season from DataStore, fall back to season 1, then first available
+            val savedSeason = getResultSeason(parentId)
+            val preferredSeason = savedSeason ?: 1
+            val savedIndexer = rangesFromMetadata.keys.find { it.season == preferredSeason }
+                ?: rangesFromMetadata.keys.find { it.season == 1 }
+            val firstRange = if (savedIndexer != null) {
+                rangesFromMetadata[savedIndexer]?.firstOrNull()
             } else {
                 rangesFromMetadata.values.flatten().firstOrNull()
             }
             if (firstRange != null) {
-                val indexer = if (season1Indexer != null) {
-                    season1Indexer
-                } else {
-                    rangesFromMetadata.entries.find { it.value.contains(firstRange) }?.key
-                }
+                val indexer = savedIndexer
+                    ?: rangesFromMetadata.entries.find { it.value.contains(firstRange) }?.key
                 if (indexer != null) {
                     android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Calling postEpisodeRange with indexer: $indexer, range: $firstRange")
                     postEpisodeRange(indexer, firstRange, defaultSorting)

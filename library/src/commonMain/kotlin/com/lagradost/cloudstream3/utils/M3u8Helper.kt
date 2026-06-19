@@ -411,10 +411,18 @@ object M3u8Helper2 {
             println("M3u8Helper2 DEBUG: Detected as MASTER playlist with ${parsed.variants.size} variants")
             // find first with no audio group if audio is required, as otherwise muxing is required
             // as m3u8 files can include separate tracks for dubs/subs
-            val variants = if (requireAudio) {
+            val standaloneVariants = if (requireAudio) {
                 parsed.variants.filter { it.isPlayableStandalone(parsed) }
             } else {
                 parsed.variants.filter { !it.isTrickPlay() }
+            }
+
+            // When requireAudio filters out all variants (e.g., higher qualities have separate
+            // audio tracks), fall back to all non-trickplay variants to pick the highest quality
+            val variants = if (standaloneVariants.isEmpty()) {
+                parsed.variants.filter { !it.isTrickPlay() }
+            } else {
+                standaloneVariants
             }
 
             if (variants.isEmpty()) {
