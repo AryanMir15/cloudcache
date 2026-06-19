@@ -6,8 +6,8 @@
 
     <com.airbnb.lottie.LottieAnimationView
         android:id="@+id/lottie_splash"
-        android:layout_width="250dp"
-        android:layout_height="250dp"
+        android:layout_width="300dp"
+        android:layout_height="300dp"
         android:layout_gravity="center"
         android:foregroundGravity="center"
         app:lottie_rawRes="@raw/netflix_splash"

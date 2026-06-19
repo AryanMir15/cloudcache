@@ -89,6 +89,14 @@ class CloudStreamApp : Application(), SingletonImageLoader.Factory {
         android.util.Log.d("CloudStreamApp", "Loading persisted download status on app startup")
         com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.loadPersistedDownloadStatus(applicationContext)
         android.util.Log.d("CloudStreamApp", "Download status after loading: ${com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager.downloadStatus}")
+
+        // Schedule episode check periodic work if enabled
+        val episodeCheckEnabled = com.lagradost.cloudstream3.utils.DataStoreHelper.episodeCheckEnabled
+        val episodeCheckFrequency = com.lagradost.cloudstream3.utils.DataStoreHelper.episodeCheckFrequencyHours
+        if (episodeCheckEnabled && episodeCheckFrequency > 0) {
+            com.lagradost.cloudstream3.services.EpisodeCheckWorkManager.enqueuePeriodicWork(this, episodeCheckFrequency)
+            android.util.Log.d("CloudStreamApp", "Scheduled episode check every ${episodeCheckFrequency}h")
+        }
     }
 
     override fun attachBaseContext(base: Context?) {

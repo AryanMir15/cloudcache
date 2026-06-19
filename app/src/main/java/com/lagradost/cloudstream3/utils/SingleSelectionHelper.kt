@@ -5,6 +5,7 @@ import android.app.Dialog
 import android.text.Spanned
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.AbsListView
 import android.widget.ArrayAdapter
 import android.widget.LinearLayout
@@ -131,7 +132,27 @@ object SingleSelectionHelper {
         textView.text = name
         textView.isGone = name.isBlank()
 
-        val arrayAdapter = ArrayAdapter<String>(this, itemLayout)
+        var currentCheckedIndex = selectedIndex.firstOrNull() ?: -1
+
+        val checkDrawable = getDrawable(R.drawable.ic_baseline_check_24_listview)
+        val arrayAdapter = object : ArrayAdapter<String>(this, itemLayout) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getView(position, convertView, parent)
+                val textView = view.findViewById<TextView>(android.R.id.text1)
+                if (textView != null) {
+                    val isChecked = if (isMultiSelect) {
+                        listView.checkedItemPositions.get(position)
+                    } else {
+                        position == currentCheckedIndex
+                    }
+                    textView.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                        if (isChecked) checkDrawable else null,
+                        null, null, null
+                    )
+                }
+                return view
+            }
+        }
         arrayAdapter.addAll(items)
 
         listView.adapter = arrayAdapter
@@ -158,9 +179,13 @@ object SingleSelectionHelper {
         listView.setOnItemClickListener { _, _, which, _ ->
             //  lastSelectedIndex = which
             if (realShowApply) {
-                if (!isMultiSelect) {
+                if (isMultiSelect) {
+                    listView.setItemChecked(which, !listView.checkedItemPositions.get(which))
+                } else {
                     listView.setItemChecked(which, true)
+                    currentCheckedIndex = which
                 }
+                arrayAdapter.notifyDataSetChanged()
             } else {
                 callback.invoke(listOf(which))
                 dialog.dismissSafe(this)

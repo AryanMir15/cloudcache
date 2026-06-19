@@ -573,7 +573,7 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
              * highlight the wrong one in UI.
              */
             when (destination.id) {
-                in listOf(R.id.navigation_downloads, R.id.navigation_download_child, R.id.navigation_download_queue) -> {
+                R.id.navigation_downloads -> {
                     navRailView.menu.findItem(R.id.navigation_downloads).isChecked = true
                     navView.menu.findItem(R.id.navigation_downloads).isChecked = true
                 }
@@ -590,7 +590,10 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
                     R.id.navigation_settings_general,
                     R.id.navigation_settings_extensions,
                     R.id.navigation_settings_plugins,
-                    R.id.navigation_test_providers
+                    R.id.navigation_test_providers,
+                    R.id.navigation_downloads_page,
+                    R.id.navigation_download_child,
+                    R.id.navigation_download_queue
                 ) -> {
                     navRailView.menu.findItem(R.id.navigation_settings).isChecked = true
                     navView.menu.findItem(R.id.navigation_settings).isChecked = true
@@ -811,7 +814,7 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
             // R.id.navigation_home -> R.id.home_preview_change_api
             R.id.navigation_search -> R.id.main_search
             R.id.navigation_library -> R.id.main_search
-            R.id.navigation_downloads -> R.id.download_appbar
+            R.id.navigation_downloads -> R.id.schedule_toolbar
             else -> null
         }
         if (targetView != null && isLayout(TV or EMULATOR)) {

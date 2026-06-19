@@ -47,6 +47,7 @@ import com.lagradost.cloudstream3.ui.result.ResultViewModel2
 import com.lagradost.cloudstream3.ui.result.START_ACTION_RESUME_LATEST
 import com.lagradost.cloudstream3.ui.result.getId
 import com.lagradost.cloudstream3.ui.result.setLinearListLayout
+import com.lagradost.cloudstream3.ui.schedule.WeeklyScheduleItem
 import com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_LOAD
 import com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_SHOW_METADATA
 import com.lagradost.cloudstream3.ui.search.SearchClickCallback
@@ -65,7 +66,6 @@ import com.lagradost.cloudstream3.utils.UIHelper.fixPaddingStatusbarView
 import com.lagradost.cloudstream3.utils.UIHelper.populateChips
 import com.lagradost.cloudstream3.utils.UIHelper.navigate
 import androidx.core.graphics.toColorInt
-import androidx.fragment.app.FragmentActivity
 import com.lagradost.cloudstream3.ui.setRecycledViewPool
 
 class HomeParentItemAdapterPreview(
@@ -342,6 +342,22 @@ class HomeParentItemAdapterPreview(
             */
         }
 
+        private val scheduleAdapter = HomeChildItemAdapter(
+            id = "scheduleAdapter".hashCode(),
+            nextFocusUp = itemView.nextFocusUpId,
+            nextFocusDown = itemView.nextFocusDownId
+        ) { callback ->
+            if (callback.action != SEARCH_ACTION_SHOW_METADATA) {
+                viewModel.click(callback)
+                return@HomeChildItemAdapter
+            }
+
+            (callback.view.context?.getActivity() as? MainActivity)?.loadPopup(
+                callback.card,
+                load = false
+            )
+        }
+
         private val previewViewpager: ViewPager2 =
             itemView.findViewById(R.id.home_preview_viewpager)
 
@@ -355,6 +371,10 @@ class HomeParentItemAdapterPreview(
         private val bookmarkHolder: View = itemView.findViewById(R.id.home_bookmarked_holder)
         private val bookmarkRecyclerView: RecyclerView =
             itemView.findViewById(R.id.home_bookmarked_child_recyclerview)
+        private val scheduleHolder: View = itemView.findViewById(R.id.home_schedule_holder)
+        private val scheduleRecyclerView: RecyclerView =
+            itemView.findViewById(R.id.home_schedule_child_recyclerview)
+        private val scheduleTitle: View? = itemView.findViewById(R.id.home_schedule_parent_item_title)
 
         private val headProfilePic: ImageView? = itemView.findViewById(R.id.home_head_profile_pic)
         private val headProfilePicCard: View? =
@@ -548,6 +568,8 @@ class HomeParentItemAdapterPreview(
             resumeRecyclerView.adapter = resumeAdapter
             bookmarkRecyclerView.setRecycledViewPool(HomeChildItemAdapter.sharedPool)
             bookmarkRecyclerView.adapter = bookmarkAdapter
+            scheduleRecyclerView.setRecycledViewPool(HomeChildItemAdapter.sharedPool)
+            scheduleRecyclerView.adapter = scheduleAdapter
 
             resumeRecyclerView.setLinearListLayout(
                 nextLeft = R.id.nav_rail_view,
@@ -555,6 +577,11 @@ class HomeParentItemAdapterPreview(
             )
 
             bookmarkRecyclerView.setLinearListLayout(
+                nextLeft = R.id.nav_rail_view,
+                nextRight = FOCUS_SELF
+            )
+
+            scheduleRecyclerView.setLinearListLayout(
                 nextLeft = R.id.nav_rail_view,
                 nextRight = FOCUS_SELF
             )
@@ -809,6 +836,17 @@ class HomeParentItemAdapterPreview(
             }
         }
 
+        private fun updateSchedule(items: List<WeeklyScheduleItem>) {
+            scheduleHolder.isVisible = items.isNotEmpty()
+            scheduleAdapter.submitList(items)
+
+            // Arrow click opens full schedule fragment
+            scheduleTitle?.setOnClickListener { view ->
+                androidx.navigation.Navigation.findNavController(view)
+                    .navigate(R.id.action_navigation_home_to_navigation_schedule)
+            }
+        }
+
         fun onViewAttachedToWindow() {
             previewViewpager.registerOnPageChangeCallback(previewCallback)
 
@@ -829,6 +867,10 @@ class HomeParentItemAdapterPreview(
                 observe(viewModel.bookmarks) {
                     android.util.Log.d("HomeParentItemAdapterPreview", "bookmarks observer received visible=${it.first}, size=${it.second.size}")
                     updateBookmarks(it)
+                }
+                observe(viewModel.scheduleItems) {
+                    android.util.Log.d("HomeParentItemAdapterPreview", "scheduleItems observer received ${it.size} items")
+                    updateSchedule(it)
                 }
                 // Load stored data after observers are attached to ensure they receive the data
                 viewModel.reloadStored()

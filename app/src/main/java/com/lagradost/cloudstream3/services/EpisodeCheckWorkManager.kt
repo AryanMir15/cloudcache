@@ -22,6 +22,7 @@ import com.lagradost.cloudstream3.utils.Coroutines.ioWork
 import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
 import com.lagradost.cloudstream3.utils.downloader.DownloadQueueManager
+import com.lagradost.cloudstream3.utils.downloader.DownloadPreferences
 import com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager
 import com.lagradost.cloudstream3.utils.downloader.DownloadUtils.getImageBitmapFromUrl
 import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
@@ -156,6 +157,12 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
 
     @Suppress("DEPRECATION_ERROR")
     override suspend fun doWork(): Result {
+        // Check if episode checking is enabled
+        if (!DataStoreHelper.episodeCheckEnabled) {
+            android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_DISABLED] Episode checking is disabled, skipping")
+            return Result.success()
+        }
+
         val retryCount = inputData.getInt(KEY_RETRY_COUNT, 0)
         
         try {
@@ -267,12 +274,18 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         // Update cache with fresh episode count (for offline mode support)
         updateCachedEpisodeCount(id, latestEpisodes)
         
-        // Update subscription tracking
-        DataStoreHelper.updateSubscribedData(id, subscription, response)
-        
         // Notify or auto-download for each dub status with new episodes
+        var allHandled = true
         newEpisodesByStatus.forEach { (status, latestEpisode) ->
-            handleNewEpisodes(subscription, response, status, latestEpisode)
+            val handled = handleNewEpisodes(subscription, response, status, latestEpisode)
+            if (!handled) allHandled = false
+        }
+        
+        // Only update subscription tracking if all episodes were handled successfully
+        // (or if there were no new episodes). This ensures failed auto-downloads
+        // will be retried on the next check.
+        if (allHandled || newEpisodesByStatus.isEmpty()) {
+            DataStoreHelper.updateSubscribedData(id, subscription, response)
         }
     }
 
@@ -305,15 +318,16 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         response: EpisodeResponse,
         dubStatus: DubStatus,
         latestEpisode: Int
-    ) {
+    ): Boolean {
         val shouldAutoDownload = DataStoreHelper.autoDownloadSubscribedEpisodes
         
-        if (shouldAutoDownload) {
+        return if (shouldAutoDownload) {
             android.util.Log.d("EpisodeCheck", "[AUTO_DOWNLOAD_TRIGGER] Auto-downloading ${subscription.name} ep $latestEpisode ($dubStatus)")
             autoDownloadEpisode(subscription, response, dubStatus, latestEpisode)
         } else {
             android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_NOTIFY] Showing notification for ${subscription.name} ep $latestEpisode")
             showNotification(subscription, latestEpisode, dubStatus)  // Pass dubStatus
+            true // Notifications are always "successful"
         }
     }
 
@@ -322,30 +336,30 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         response: EpisodeResponse,
         dubStatus: DubStatus,
         episodeNumber: Int
-    ) {
+    ): Boolean {
         try {
             // Check safeguards before auto-downloading
             if (!hasEnoughStorage()) {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Not enough storage available")
-                showNotification(subscription, episodeNumber)
-                return
+                showNotification(subscription, episodeNumber, dubStatus)
+                return true // Handled via notification fallback
             }
             
             if (!isDownloadPathConfigured()) {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Download path not configured")
-                showNotification(subscription, episodeNumber)
-                return
+                showNotification(subscription, episodeNumber, dubStatus)
+                return true // Handled via notification fallback
             }
             
             if (!isNetworkAllowedForAutoDownload()) {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Network type not allowed for auto-download")
                 showNotification(subscription, episodeNumber, dubStatus)
-                return
+                return true // Handled via notification fallback
             }
             
             val api = getApiFromNameNull(subscription.apiName) ?: run {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] API not found: ${subscription.apiName}")
-                return
+                return false // Could not handle, will retry on next check
             }
             
             android.util.Log.d("EpisodeCheck", "[AUTO_DOWNLOAD_START] Starting auto-download for ${subscription.name} ep $episodeNumber")
@@ -363,7 +377,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             // Find the specific episode
             val targetEpisode = episodes.find { it.episode == episodeNumber } ?: run {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Episode $episodeNumber not found in response")
-                return
+                return false // Could not handle, will retry on next check
             }
             
             android.util.Log.d("EpisodeCheck", "[AUTO_DOWNLOAD_EPISODE] Found episode: ${targetEpisode.name}")
@@ -377,7 +391,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             
             if (linkData == null || linkData.isEmpty()) {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] No links found for episode $episodeNumber")
-                return
+                return false // Could not handle, will retry on next check
             }
             
             android.util.Log.d("EpisodeCheck", "[AUTO_DOWNLOAD_LINKS] Found ${linkData.size} links")
@@ -389,14 +403,14 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             // Check for duplicate downloads
             if (isAlreadyDownloadedOrQueued(id)) {
                 android.util.Log.d("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Episode already downloaded or queued, skipping")
-                return
+                return true // Already handled
             }
             
             // Check storage availability
             if (!hasEnoughStorageForEstimatedSize()) {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Insufficient storage for download")
                 showNotification(subscription, episodeNumber, dubStatus)
-                return
+                return true // Handled via notification fallback
             }
             
             val resultEpisode = ResultEpisode(
@@ -417,21 +431,38 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
                 isFiller = null,
                 tvType = subscription.type ?: com.lagradost.cloudstream3.TvType.TvSeries,
                 parentId = subscription.id ?: 0,
-                videoWatchState = VideoWatchState.None
+                videoWatchState = VideoWatchState.None,
+                dubStatus = dubStatus
             )
+            
+            // Apply download preferences (quality/language) to filter links
+            val preferredLinks = DownloadPreferences.selectBestLinks(
+                context,
+                linkData,
+                dubStatus
+            ).sortedByDescending { it.quality }
+            
+            if (preferredLinks.isEmpty()) {
+                android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] No links matched download preferences for episode $episodeNumber")
+                showNotification(subscription, episodeNumber, dubStatus)
+                return true // Handled via notification fallback
+            }
+            
+            android.util.Log.d("EpisodeCheck", "[AUTO_DOWNLOAD_PREFERRED] Selected ${preferredLinks.size} links from ${linkData.size} total (dubStatus=$dubStatus)")
             
             // Create DownloadQueueItem
             val queueItem = DownloadObjects.DownloadQueueItem(
                 episode = resultEpisode,
-                isMovie = false,
+                isMovie = subscription.type == com.lagradost.cloudstream3.TvType.Movie,
                 resultName = subscription.name,
                 resultType = subscription.type ?: com.lagradost.cloudstream3.TvType.TvSeries,
                 resultPoster = subscription.posterUrl,
                 apiName = api.name,
                 resultId = subscription.id ?: 0,
                 resultUrl = subscription.url,
-                links = linkData,
-                subs = emptyList()
+                links = preferredLinks,
+                subs = emptyList(),
+                dubStatus = dubStatus
             )
             
             // Add to download queue
@@ -441,11 +472,13 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             
             // Show notification that download was queued
             showAutoDownloadNotification(subscription, episodeNumber)
+            return true // Successfully queued
             
         } catch (t: Throwable) {
             android.util.Log.e("EpisodeCheck", "[AUTO_DOWNLOAD_ERROR] Failed to auto-download ${subscription.name} ep $episodeNumber", t)
             // Still show notification so user knows there's a new episode
-            showNotification(subscription, episodeNumber)
+            showNotification(subscription, episodeNumber, dubStatus)
+            return true // Handled via notification fallback
         }
     }
 

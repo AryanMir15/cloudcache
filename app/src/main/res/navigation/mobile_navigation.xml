@@ -321,6 +321,13 @@
             app:exitAnim="@anim/exit_anim"
             app:popEnterAnim="@anim/enter_anim"
             app:popExitAnim="@anim/exit_anim" />
+        <action
+            android:id="@+id/action_navigation_home_to_navigation_schedule"
+            app:destination="@id/navigation_schedule"
+            app:enterAnim="@anim/enter_anim"
+            app:exitAnim="@anim/exit_anim"
+            app:popEnterAnim="@anim/enter_anim"
+            app:popExitAnim="@anim/exit_anim" />
     </fragment>
 
     <fragment
@@ -350,36 +357,21 @@
 
     <fragment
         android:id="@+id/navigation_downloads"
-        android:name="com.lagradost.cloudstream3.ui.download.DownloadFragment"
-        android:label="@string/title_downloads"
+        android:name="com.lagradost.cloudstream3.ui.schedule.ScheduleFragment"
+        android:label="@string/weekly_schedule"
         app:enterAnim="@anim/enter_anim"
         app:exitAnim="@anim/exit_anim"
         app:popEnterAnim="@anim/enter_anim"
         app:popExitAnim="@anim/exit_anim"
-        tools:layout="@layout/fragment_downloads">
+        tools:layout="@layout/fragment_schedule" />
 
-        <action
-            android:id="@+id/action_navigation_downloads_to_navigation_download_child"
-            app:destination="@id/navigation_download_child"
-            app:enterAnim="@anim/enter_anim"
-            app:exitAnim="@anim/exit_anim"
-            app:popEnterAnim="@anim/enter_anim"
-            app:popExitAnim="@anim/exit_anim">
-            <argument
-                android:name="name"
-                app:argType="string" />
-            <argument
-                android:name="folder"
-                app:argType="string" />
-        </action>
-        <action
-            android:id="@+id/action_navigation_downloads_to_navigation_player"
-            app:destination="@id/navigation_player"
-            app:enterAnim="@anim/enter_anim"
-            app:exitAnim="@anim/exit_anim"
-            app:popEnterAnim="@anim/enter_anim"
-            app:popExitAnim="@anim/exit_anim" />
-    </fragment>
+    <action
+        android:id="@+id/action_navigation_global_to_navigation_downloads"
+        app:destination="@id/navigation_downloads"
+        app:enterAnim="@anim/enter_anim"
+        app:exitAnim="@anim/exit_anim"
+        app:popEnterAnim="@anim/enter_anim"
+        app:popExitAnim="@anim/exit_anim" />
     <fragment
         android:id="@+id/navigation_settings"
         android:name="com.lagradost.cloudstream3.ui.settings.SettingsFragment"
@@ -390,6 +382,17 @@
         app:popEnterAnim="@anim/enter_anim"
         app:popExitAnim="@anim/exit_anim"
         tools:layout="@layout/main_settings" />
+
+    <fragment
+        android:id="@+id/navigation_schedule"
+        android:name="com.lagradost.cloudstream3.ui.schedule.ScheduleFragment"
+        android:label="@string/weekly_schedule"
+        app:enterAnim="@anim/enter_anim"
+        app:exitAnim="@anim/exit_anim"
+        app:popEnterAnim="@anim/enter_anim"
+        app:popExitAnim="@anim/exit_anim"
+        tools:layout="@layout/fragment_schedule" />
+
     <action
         android:id="@+id/action_navigation_global_to_navigation_settings_ui"
         app:destination="@id/navigation_settings_ui"
@@ -435,6 +438,46 @@
     <action
         android:id="@+id/action_navigation_global_to_navigation_settings_extensions"
         app:destination="@id/navigation_settings_extensions"
+        app:enterAnim="@anim/enter_anim"
+        app:exitAnim="@anim/exit_anim"
+        app:popEnterAnim="@anim/enter_anim"
+        app:popExitAnim="@anim/exit_anim" />
+
+    <fragment
+        android:id="@+id/navigation_downloads_page"
+        android:name="com.lagradost.cloudstream3.ui.download.DownloadFragment"
+        android:label="@string/title_downloads"
+        app:enterAnim="@anim/enter_anim"
+        app:exitAnim="@anim/exit_anim"
+        app:popEnterAnim="@anim/enter_anim"
+        app:popExitAnim="@anim/exit_anim"
+        tools:layout="@layout/fragment_downloads">
+        <action
+            android:id="@+id/action_navigation_downloads_page_to_navigation_download_child"
+            app:destination="@id/navigation_download_child"
+            app:enterAnim="@anim/enter_anim"
+            app:exitAnim="@anim/exit_anim"
+            app:popEnterAnim="@anim/enter_anim"
+            app:popExitAnim="@anim/exit_anim">
+            <argument
+                android:name="name"
+                app:argType="string" />
+            <argument
+                android:name="folder"
+                app:argType="string" />
+        </action>
+        <action
+            android:id="@+id/action_navigation_downloads_page_to_navigation_player"
+            app:destination="@id/navigation_player"
+            app:enterAnim="@anim/enter_anim"
+            app:exitAnim="@anim/exit_anim"
+            app:popEnterAnim="@anim/enter_anim"
+            app:popExitAnim="@anim/exit_anim" />
+    </fragment>
+
+    <action
+        android:id="@+id/action_navigation_global_to_navigation_downloads_page"
+        app:destination="@id/navigation_downloads_page"
         app:enterAnim="@anim/enter_anim"
         app:exitAnim="@anim/exit_anim"
         app:popEnterAnim="@anim/enter_anim"

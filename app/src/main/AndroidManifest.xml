@@ -236,6 +236,29 @@
             </intent-filter>
         </activity-alias>
 
+        <!-- Crunchyroll splash activity -->
+        <activity
+            android:name=".ui.player.CrunchyrollSplashActivity"
+            android:exported="false"
+            android:theme="@style/CrunchyrollBg"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden" />
+
+        <!-- Crunchyroll identity alias -->
+        <activity-alias
+            android:name=".AliasCrunchyroll"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_crunchyroll"
+            android:roundIcon="@mipmap/ic_launcher_crunchyroll_round"
+            android:label="Crunchyroll"
+            android:targetActivity=".ui.player.CrunchyrollSplashActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
         <receiver
             android:name=".receivers.VideoDownloadRestartReceiver"
             android:enabled="false"

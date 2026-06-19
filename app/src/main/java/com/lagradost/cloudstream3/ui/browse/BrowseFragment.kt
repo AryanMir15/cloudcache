@@ -665,15 +665,26 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                     }
                 }
                 
-                // Load TMDB defaults when switching to TMDB
-                if (selectedProvider == FilterProvider.TMDB) {
-                    android.util.Log.d("PROVIDER_SWITCH", "Switched to TMDB, loading TMDB defaults")
-                    loadTmdbDefaultFilters()
+                // Save current sort for the provider we're leaving, then load the target provider's saved sort
+                val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+                // We already switched selectedProvider above, so the OLD provider is the opposite
+                val oldSortKey = when (selectedProvider) {
+                    FilterProvider.TMDB -> "browse_sort_anilist"    // just switched to TMDB, old was AniList
+                    FilterProvider.ANILIST -> "browse_sort_tmdb"    // just switched to AniList, old was TMDB
                 }
-                
-                // SORT_SYNC_FIX: Sync sort value when switching providers
-                selectedSort = syncSortValueForProvider(selectedSort, selectedProvider)
-                android.util.Log.d("SORT_SYNC_FIX", "Synced sort value to: $selectedSort for provider: $selectedProvider")
+                prefs.edit().putString(oldSortKey, selectedSort).apply()
+
+                // Load the target provider's previously saved sort, or fall back to its default
+                val targetSortKey = when (selectedProvider) {
+                    FilterProvider.ANILIST -> "browse_sort_anilist"
+                    FilterProvider.TMDB -> "browse_sort_tmdb"
+                }
+                val targetDefaultSort = when (selectedProvider) {
+                    FilterProvider.ANILIST -> "Popularity"
+                    FilterProvider.TMDB -> "Popularity (High to Low)"
+                }
+                selectedSort = prefs.getString(targetSortKey, null) ?: targetDefaultSort
+                android.util.Log.d("PROVIDER_SWITCH", "Restored sort for $selectedProvider: $selectedSort")
                 
                 android.util.Log.d("UI_DEBUG_LOG", "New provider after switch: $selectedProvider")
                 
@@ -1779,6 +1790,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             dialogBinding.tmdbTrendingCount.text = dialogTrending
             dialogBinding.tmdbSortCount.text = dialogSort
             dialogBinding.tmdbKeywordCount.text = if (dialogKeywords.isBlank()) "None" else dialogKeywords
+            dialogBinding.tmdbMinVotesCount.text = dialogMinVotes.toString()
             
             // Check if user is in search mode (main search bar has text)
             val isSearchMode = !searchQuery.isNullOrBlank()
@@ -2407,10 +2419,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         // Enable/disable filter sections based on trending state
         val isEnabled = !isTrending
         
-        // Format section - always enabled for trending selection
-        dialogBinding.tmdbFormatHeader.alpha = if (isEnabled) 1.0f else 0.5f
-        dialogBinding.tmdbFormatRecycler.alpha = if (isEnabled) 1.0f else 0.5f
-        dialogBinding.tmdbFormatHeader.isEnabled = isEnabled
+        // Format section - always enabled (trending uses it to filter movie vs TV)
         
         // Genres section - disable when trending
         dialogBinding.tmdbGenresHeader.alpha = if (isEnabled) 1.0f else 0.5f

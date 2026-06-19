@@ -209,8 +209,8 @@ class SettingsUI : BasePreferenceFragmentCompat() {
         }
 
         getPref(R.string.app_identity_key)?.setOnPreferenceClickListener {
-            val prefNames = listOf("CloudCache", "Netflix")
-            val prefValues = listOf("default", "netflix")
+            val prefNames = listOf("CloudCache", "Netflix", "Crunchyroll")
+            val prefValues = listOf("default", "netflix", "crunchyroll")
             val currentIdentity = settingsManager.getString(getString(R.string.app_identity_key), "default") ?: "default"
 
             activity?.showBottomDialog(
@@ -229,6 +229,12 @@ class SettingsUI : BasePreferenceFragmentCompat() {
                         settingsManager.edit {
                             putString(getString(R.string.app_theme_key), "Amoled")
                             putString(getString(R.string.primary_color_key), "Red")
+                        }
+                    }
+                    "crunchyroll" -> {
+                        settingsManager.edit {
+                            putString(getString(R.string.app_theme_key), "Amoled")
+                            putString(getString(R.string.primary_color_key), "Orange")
                         }
                     }
                     else -> {
@@ -294,33 +300,35 @@ class SettingsUI : BasePreferenceFragmentCompat() {
     companion object {
         private const val PACKAGE = "com.lagradost.cloudstream3"
 
-        private val IDENTITY_ALIASES = mapOf(
+        val IDENTITY_ALIASES = mapOf(
             "default" to "$PACKAGE.AliasDefault",
-            "netflix" to "$PACKAGE.AliasNetflix"
+            "netflix" to "$PACKAGE.AliasNetflix",
+            "crunchyroll" to "$PACKAGE.AliasCrunchyroll"
         )
 
         fun switchAppIdentity(context: android.content.Context, identity: String) {
             val pm = context.packageManager
+            val selectedAlias = IDENTITY_ALIASES[identity] ?: IDENTITY_ALIASES["default"]!!
 
-            // Disable all aliases first
+            // Enable the selected alias
             for ((_, aliasName) in IDENTITY_ALIASES) {
+                val state = if (aliasName == selectedAlias)
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+                else
+                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
                 try {
                     pm.setComponentEnabledSetting(
                         android.content.ComponentName(context, aliasName),
-                        android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                        0
+                        state,
+                        android.content.pm.PackageManager.DONT_KILL_APP
                     )
                 } catch (_: Exception) { }
             }
 
-            // Enable the selected alias
-            val selectedAlias = IDENTITY_ALIASES[identity] ?: IDENTITY_ALIASES["default"]!!
+            // Force launcher to refresh its icon cache
             try {
-                pm.setComponentEnabledSetting(
-                    android.content.ComponentName(context, selectedAlias),
-                    android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
-                    android.content.pm.PackageManager.DONT_KILL_APP
-                )
+                val intent = android.content.Intent(android.content.Intent.ACTION_PACKAGE_CHANGED, android.net.Uri.parse("package:${context.packageName}"))
+                context.sendBroadcast(intent)
             } catch (_: Exception) { }
         }
     }

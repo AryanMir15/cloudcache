@@ -113,7 +113,8 @@
     <color name="colorPrimaryGrey">#515151</color>
     <color name="colorPrimaryWhite">#FFFFFF</color>
     <color name="colorPrimaryBrown">#622C00</color>
-    <color name="colorPrimaryOrange">#CE8500</color>
+    <color name="colorPrimaryOrange">#F47521</color>
+    <color name="crunchyroll_orange">#F47521</color>
     <color name="colorPrimaryDandelionYellow">#F5BB00</color>
     <color name="colorPrimaryCoolBlue">#408cac</color>
     <color name="colorPrimaryLavender">#6F55AF</color>

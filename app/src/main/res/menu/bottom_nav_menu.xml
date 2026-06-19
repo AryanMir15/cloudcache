@@ -18,8 +18,8 @@
             android:title="@string/library" />
         <item
             android:id="@+id/navigation_downloads"
-            android:icon="@drawable/netflix_download"
-            android:title="@string/title_downloads" />
+            android:icon="@drawable/ic_schedule_calendar"
+            android:title="@string/weekly_schedule" />
         <item
             android:id="@+id/navigation_settings"
             android:icon="@drawable/settings_icon_selector"

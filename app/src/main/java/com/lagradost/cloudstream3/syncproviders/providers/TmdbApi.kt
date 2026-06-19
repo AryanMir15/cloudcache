@@ -368,6 +368,12 @@ object TmdbApi {
                 params.add("without_genres=${excludedGenres.joinToString(",")}")
             }
             
+            // Minimum votes filter
+            if (minVotes > 0) {
+                params.add("vote_count.gte=$minVotes")
+                android.util.Log.d("TMDB_API_DEBUG", "discoverTv: Added vote_count.gte=$minVotes")
+            }
+            
             // Year filter (first_air_date_year for TV)
             year?.takeIf { it != "All" }?.toIntOrNull()?.let {
                 params.add("first_air_date_year=$it")
