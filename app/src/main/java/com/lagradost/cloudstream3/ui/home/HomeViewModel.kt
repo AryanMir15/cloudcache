@@ -51,6 +51,8 @@ import com.lagradost.cloudstream3.utils.DataStoreHelper.getCurrentAccount
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getLastWatched
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getResultWatchState
 import com.lagradost.cloudstream3.utils.DataStoreHelper.getViewPos
+import com.lagradost.cloudstream3.ui.schedule.WeeklyScheduleItem
+import com.lagradost.cloudstream3.ui.schedule.WeeklyScheduleManager
 import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -163,11 +165,13 @@ class HomeViewModel : ViewModel() {
     val bookmarks: LiveData<Pair<Boolean, List<SearchResponse>>> = _bookmarks
 
     private val _resumeWatching = MutableLiveData<List<SearchResponse>>()
+    private val _scheduleItems = MutableLiveData<List<WeeklyScheduleItem>>()
     private val _preview = MutableLiveData<Resource<Pair<Boolean, List<LoadResponse>>>>()
     private val previewResponses = CopyOnWriteArrayList<LoadResponse>()
     private val previewResponsesAdded = mutableSetOf<String>()
 
     val resumeWatching: LiveData<List<SearchResponse>> = _resumeWatching
+    val scheduleItems: LiveData<List<WeeklyScheduleItem>> = _scheduleItems
     val preview: LiveData<Resource<Pair<Boolean, List<LoadResponse>>>> = _preview
 
     private fun loadResumeWatching() = viewModelScope.launchSafe {
@@ -184,6 +188,28 @@ class HomeViewModel : ViewModel() {
             android.util.Log.d("HomeViewModel", "loadResumeWatching() posting ${it.size} items to LiveData")
             _resumeWatching.postValue(it)
         } ?: android.util.Log.d("HomeViewModel", "loadResumeWatching() result is null, not posting to LiveData")
+    }
+
+    private fun loadSchedule() = viewModelScope.launchSafe {
+        try {
+            // Show cached data instantly
+            val cached = withContext(Dispatchers.IO) {
+                WeeklyScheduleManager.getCachedOrEmpty()
+            }
+            if (cached.isNotEmpty()) {
+                _scheduleItems.postValue(cached)
+            }
+
+            // Fetch fresh data in background
+            val fresh = withContext(Dispatchers.IO) {
+                WeeklyScheduleManager.fetchFreshSchedule()
+            }
+
+            android.util.Log.d("HomeViewModel", "loadSchedule() got ${fresh.size} items")
+            _scheduleItems.postValue(fresh)
+        } catch (e: Exception) {
+            android.util.Log.e("HomeViewModel", "loadSchedule() error", e)
+        }
     }
 
     fun loadStoredData(preferredWatchStatus: Set<WatchType>?) = viewModelScope.launchSafe {
@@ -527,6 +553,7 @@ class HomeViewModel : ViewModel() {
         android.util.Log.d("HomeViewModel", "reloadStored() called")
         loadResumeWatching()
         loadStoredData()
+        loadSchedule()
     }
 
     // only save the key if it is from UI, as we don't want internal functions changing the setting

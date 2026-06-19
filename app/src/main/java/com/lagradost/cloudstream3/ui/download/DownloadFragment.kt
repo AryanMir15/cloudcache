@@ -267,7 +267,7 @@ class DownloadFragment : BaseFragment<FragmentDownloadsBinding>(
                     val folder =
                         getFolderName(DOWNLOAD_EPISODE_CACHE, click.data.id.toString())
                     activity?.navigate(
-                        R.id.action_navigation_downloads_to_navigation_download_child,
+                        R.id.action_navigation_downloads_page_to_navigation_download_child,
                         DownloadChildFragment.newInstance(click.data.name, folder)
                     )
                 }

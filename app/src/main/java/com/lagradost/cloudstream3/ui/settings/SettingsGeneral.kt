@@ -571,6 +571,7 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
         findPreference<androidx.preference.Preference>("manual_episode_check")?.setOnPreferenceClickListener {
             android.util.Log.d("SettingsGeneral", "Manual episode check button clicked")
             com.lagradost.cloudstream3.services.EpisodeCheckWorkManager.triggerManualCheck(context)
+            com.lagradost.cloudstream3.CommonActivity.showToast("Episode check started")
             true
         }
 

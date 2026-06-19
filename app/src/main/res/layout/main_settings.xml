@@ -105,7 +105,14 @@
                 android:id="@+id/settings_extensions"
                 style="@style/SettingsItem"
                 android:nextFocusUp="@id/settings_credits"
+                android:nextFocusDown="@id/settings_downloads"
                 android:text="@string/extensions" />
+
+            <TextView
+                android:id="@+id/settings_downloads"
+                style="@style/SettingsItem"
+                android:nextFocusUp="@id/settings_extensions"
+                android:text="@string/title_downloads" />
 
             <LinearLayout
                 android:id="@+id/app_version_info"

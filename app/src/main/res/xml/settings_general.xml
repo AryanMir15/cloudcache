@@ -140,13 +140,14 @@
             android:defaultValue="false" />
 
         <Preference
-            android:icon="@drawable/arrow_and_edge_24px"
+            android:icon="@drawable/ic_baseline_replay_24"
             android:key="subscription_dl_retry_count"
             android:title="@string/download_retry_count_title"
             android:summary="@string/download_retry_count_summary"
             android:dependency="auto_download_subscribed" />
 
         <ListPreference
+            android:icon="@drawable/ic_baseline_language_24"
             android:key="auto_download_network_pref"
             android:title="@string/auto_download_network_title"
             android:summary="@string/auto_download_network_summary"
@@ -156,9 +157,10 @@
             android:dependency="auto_download_subscribed" />
 
         <Preference
+            android:icon="@drawable/ic_baseline_system_update_24"
             android:key="manual_episode_check"
-            android:title="Manual Episode Check"
-            android:summary="Trigger episode check manually for testing"
+            android:title="Check for New Episodes"
+            android:summary="Immediately check all subscribed shows for new episodes"
             android:dependency="auto_download_subscribed" />
 
     </PreferenceCategory>
