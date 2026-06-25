@@ -3,11 +3,11 @@ package com.lagradost.cloudstream3.utils
 import com.lagradost.api.Log
 import com.lagradost.cloudstream3.ErrorLoadingException
 import com.lagradost.cloudstream3.app
+import dev.whyoleg.cryptography.CryptographyProvider
+import dev.whyoleg.cryptography.DelicateCryptographyApi
+import dev.whyoleg.cryptography.algorithms.AES
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
-import javax.crypto.Cipher
-import javax.crypto.spec.IvParameterSpec
-import javax.crypto.spec.SecretKeySpec
 import kotlin.math.pow
 
 /** backwards api surface */
@@ -40,6 +40,8 @@ class M3u8Helper {
 
 object M3u8Helper2 {
     private val TAG = "M3u8Helper"
+
+    private val aesCbc = CryptographyProvider.Default.get(AES.CBC)
 
     suspend fun generateM3u8(
         source: String,
@@ -77,7 +79,6 @@ object M3u8Helper2 {
         Regex("""#EXT-X-STREAM-INF:(?:(?:.*?(?:RESOLUTION=\d+x(\d+)).*?\s+(.*))|(?:.*?\s+(.*)))""")
     private val TS_EXTENSION_REGEX =
         Regex("""#EXTINF:(([0-9]*[.])?[0-9]+|).*\n(.+?\n)""") // fuck it we ball, who cares about the type anyways
-    //Regex("""(.*\.(ts|jpg|html).*)""") //.jpg here 'case vizcloud uses .jpg instead of .ts
 
     /**
      * Normalize HLS tag prefixes to uppercase to handle case-insensitive M3U8 files.
@@ -186,6 +187,7 @@ object M3u8Helper2 {
         return toBytes16Big(index + 1)
     }
 
+    @OptIn(DelicateCryptographyApi::class)
     fun getDecrypted(
         secretKey: ByteArray,
         data: ByteArray,
@@ -193,11 +195,8 @@ object M3u8Helper2 {
         index: Int,
     ): ByteArray {
         val ivKey = if (iv.isEmpty()) defaultIv(index) else iv
-        val c = Cipher.getInstance("AES/CBC/PKCS5Padding")
-        val skSpec = SecretKeySpec(secretKey, "AES")
-        val ivSpec = IvParameterSpec(ivKey)
-        c.init(Cipher.DECRYPT_MODE, skSpec, ivSpec)
-        return c.doFinal(data)
+        val aesKey = aesCbc.keyDecoder().decodeFromByteArrayBlocking(AES.Key.Format.RAW, secretKey)
+        return aesKey.cipher(padding = true).decryptWithIvBlocking(ivKey, data)
     }
 
     private fun getParentLink(url: String): String {
@@ -218,10 +217,7 @@ object M3u8Helper2 {
         val list = mutableListOf<M3u8Helper.M3u8Stream>()
         val response = app.get(m3u8.streamUrl, headers = m3u8.headers, verify = false).text
         val normalizedResponse = normalizeHlsTagPrefixes(response)
-        val parsed = HlsPlaylistParser.parse(
-            m3u8.streamUrl,
-            normalizedResponse,
-        )
+        val parsed = HlsPlaylistParser.parse(m3u8.streamUrl, normalizedResponse)
 
         var anyFound = false
         if (parsed != null) {
@@ -247,8 +243,8 @@ object M3u8Helper2 {
 
         // If it is not a "Master Playlist", or if it does not contain any playable "Media Playlist" or if it should return itself
         if (parsed == null || !anyFound || returnThis) {
-            // Only include it if is a "Media Playlist" (any #EXTINF tags are found), or if it is a "Master Playlist" (parsing is non null)
-            if (parsed != null || response.contains("#EXTINF")) {
+            // Only include it if is a "Media Playlist" (any TS files are found), or if it is a "Master Playlist" (parsing is non null)
+            if (parsed != null || TS_EXTENSION_REGEX.containsMatchIn(normalizedResponse)) {
                 list += m3u8
             } else {
                 Log.i(TAG, "M3u8 Playlist is not a \"Master Playlist\" nor a \"Media Playlist\". Removing this link as it is invalid and will not open in player: ${m3u8.streamUrl}")
@@ -327,10 +323,6 @@ object M3u8Helper2 {
             body.close()
             if (tsData.isEmpty()) throw ErrorLoadingException("no data")
 
-            // Some sources respond with "error 404" or similar, this checks for small responses that
-            // looks like ASCII
-            if (tsData.size < 128 && tsData.all { it >= 0 }) throw ErrorLoadingException("ASCII found instead of data")
-
             return if (isEncrypted) {
                 getDecrypted(encryptionData, tsData, encryptionIv, index)
             } else {
@@ -341,41 +333,6 @@ object M3u8Helper2 {
 
     @Throws
     suspend fun hslLazy(
-        playlistStream: M3u8Helper.M3u8Stream,
-        selectBest: Boolean = true,
-        requireAudio: Boolean,
-        depth: Int = 3,
-    ): LazyHlsDownloadData {
-        // Retry logic to handle timing/race conditions in parsing
-        var attempts = 0
-        val maxAttempts = 5
-        var lastException: Exception? = null
-        
-        println("M3u8Helper2.hslLazy - Starting with $maxAttempts max attempts")
-        
-        while (attempts < maxAttempts) {
-            try {
-                println("M3u8Helper2.hslLazy - Attempt ${attempts + 1}")
-                val result = hslLazyInternal(playlistStream, selectBest, requireAudio, depth)
-                println("M3u8Helper2.hslLazy - Attempt ${attempts + 1} succeeded")
-                return result
-            } catch (e: Exception) {
-                lastException = e
-                attempts++
-                println("M3u8Helper2.hslLazy - Attempt $attempts failed: ${e.message}")
-                if (attempts < maxAttempts) {
-                    println("M3u8Helper2.hslLazy - Waiting ${500L * attempts}ms before retry")
-                    delay(500L * attempts) // Exponential backoff: 500ms, 1000ms, 1500ms, 2000ms
-                }
-            }
-        }
-        
-        println("M3u8Helper2.hslLazy - All $maxAttempts attempts failed")
-        throw lastException ?: IllegalStateException("Failed to parse M3U8 after $maxAttempts attempts")
-    }
-    
-    @Throws
-    private suspend fun hslLazyInternal(
         playlistStream: M3u8Helper.M3u8Stream,
         selectBest: Boolean = true,
         requireAudio: Boolean,
@@ -396,46 +353,21 @@ object M3u8Helper2 {
                 verify = false
             ).text
 
-        if (playlistResponse.contains("<html", ignoreCase = true) || 
-            playlistResponse.contains("<!DOCTYPE html", ignoreCase = true)) {
-            Log.e(TAG, "M3U8 request returned HTML instead of a playlist. This likely means a Cloudflare block or a redirect to a login/error page.")
-            Log.e(TAG, "URL: ${playlistStream.streamUrl}")
-            Log.e(TAG, "Content snippet: ${playlistResponse.take(500)}")
-            throw ErrorLoadingException("Cloudflare or Server Block: M3U8 request returned HTML")
-        }
-
-        println("M3u8Helper2 DEBUG: URL: ${playlistStream.streamUrl}")
-        println("M3u8Helper2 DEBUG: Content Length: ${playlistResponse.length}")
-        println("M3u8Helper2 DEBUG: Content Header: ${playlistResponse.take(200)}")
-
         val normalizedPlaylistResponse = normalizeHlsTagPrefixes(playlistResponse)
         val parsed = HlsPlaylistParser.parse(playlistStream.streamUrl, normalizedPlaylistResponse)
-        
         if (parsed != null) {
-            println("M3u8Helper2 DEBUG: Detected as MASTER playlist with ${parsed.variants.size} variants")
             // find first with no audio group if audio is required, as otherwise muxing is required
             // as m3u8 files can include separate tracks for dubs/subs
-            val standaloneVariants = if (requireAudio) {
+            val variants = if (requireAudio) {
                 parsed.variants.filter { it.isPlayableStandalone(parsed) }
             } else {
                 parsed.variants.filter { !it.isTrickPlay() }
             }
 
-            // When requireAudio filters out all variants (e.g., higher qualities have separate
-            // audio tracks), fall back to all non-trickplay variants to pick the highest quality
-            val variants = if (standaloneVariants.isEmpty()) {
-                parsed.variants.filter { !it.isTrickPlay() }
-            } else {
-                standaloneVariants
-            }
-
             if (variants.isEmpty()) {
                 throw IllegalStateException(
-                    if (requireAudio) {
-                        "M3u8 contains no video with audio"
-                    } else {
-                        "M3u8 contains no video"
-                    }
+                    if (requireAudio) "M3u8 contains no video with audio"
+                    else "M3u8 contains no video"
                 )
             }
 
@@ -462,6 +394,7 @@ object M3u8Helper2 {
                 depth = depth - 1
             )
         }
+
         // This is already a "Media Segments" file
 
         // Encryption, this is because crunchy uses it
@@ -479,7 +412,7 @@ object M3u8Helper2 {
                 encryptionUrl = "${getParentLink(playlistStream.streamUrl)}/$encryptionUrl"
             }
 
-            encryptionIv = match[3].toByteArray()
+            encryptionIv = match[3].encodeToByteArray()
             val encryptionKeyResponse =
                 app.get(encryptionUrl, headers = playlistStream.headers, verify = false)
             val body = encryptionKeyResponse.body
@@ -492,26 +425,7 @@ object M3u8Helper2 {
         val relativeUrl = getParentLink(playlistStream.streamUrl)
         val allTsList = extractMediaSegmentLinks(normalizedPlaylistResponse, playlistStream.streamUrl)
 
-        if (allTsList.isEmpty()) {
-            // Log the actual M3U8 content for debugging
-            Log.e(TAG, "M3U8 parsing failed for URL: ${playlistStream.streamUrl}")
-            Log.e(TAG, "M3U8 content (first 1000 chars): ${playlistResponse.take(1000)}")
-            Log.e(TAG, "M3U8 content length: ${playlistResponse.length} chars")
-
-            // Check if this might be a master playlist that wasn't detected
-            if (playlistResponse.contains("#EXT-X-STREAM-INF") ||
-                playlistResponse.contains("#EXT-X-I-FRAME-STREAM-INF")) {
-                Log.e(TAG, "Playlist contains #EXT-X-STREAM-INF but was not detected as master playlist")
-                throw IllegalStateException("M3U8 master playlist was not properly resolved to media playlist")
-            }
-            
-            if (playlistResponse.contains("<html", ignoreCase = true) || 
-                playlistResponse.contains("<!DOCTYPE html", ignoreCase = true)) {
-                 throw ErrorLoadingException("Cloudflare or Server Block: M3U8 request returned HTML")
-            }
-
-            throw IllegalStateException("M3U8 contains no media segments (TS, m4s, or other supported formats)")
-        }
+        if (allTsList.isEmpty()) throw IllegalStateException("M3u8 must contains TS files")
 
         return LazyHlsDownloadData(
             encryptionData = encryptionData,
