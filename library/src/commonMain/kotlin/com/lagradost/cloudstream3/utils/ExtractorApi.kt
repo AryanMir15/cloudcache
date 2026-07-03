@@ -80,8 +80,10 @@ import com.lagradost.cloudstream3.extractors.FileMoonIn
 import com.lagradost.cloudstream3.extractors.FileMoonSx
 import com.lagradost.cloudstream3.extractors.FilemoonV2
 import com.lagradost.cloudstream3.extractors.Filesim
+import com.lagradost.cloudstream3.extractors.Firestream
 import com.lagradost.cloudstream3.extractors.Multimoviesshg
 import com.lagradost.cloudstream3.extractors.FlaswishCom
+import com.lagradost.cloudstream3.extractors.Flyfile
 import com.lagradost.cloudstream3.extractors.FourCX
 import com.lagradost.cloudstream3.extractors.FourPichive
 import com.lagradost.cloudstream3.extractors.FourPlayRu
@@ -110,6 +112,7 @@ import com.lagradost.cloudstream3.extractors.HDPlayerSystem
 import com.lagradost.cloudstream3.extractors.HDStreamAble
 import com.lagradost.cloudstream3.extractors.Habetar
 import com.lagradost.cloudstream3.extractors.Haxloppd
+import com.lagradost.cloudstream3.extractors.Hgcloudto
 import com.lagradost.cloudstream3.extractors.HglinkTo
 import com.lagradost.cloudstream3.extractors.HgplayCDN
 import com.lagradost.cloudstream3.extractors.Hotlinger
@@ -318,7 +321,6 @@ import io.ktor.http.decodeURLPart
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
-import me.xdrop.fuzzywuzzy.FuzzySearch
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -940,7 +942,7 @@ suspend fun loadExtractor(
     // this is to match mirror domains - like example.com, example.net
     for (index in extractorApis.lastIndex downTo 0) {
         val extractor = extractorApis[index]
-        if (FuzzySearch.partialRatio(
+        if (Levenshtein.partialRatio(
                 extractor.mainUrl,
                 currentUrl
             ) > 80
@@ -1253,6 +1255,7 @@ val extractorApis: AtomicMutableList<ExtractorApi> = atomicListOf(
     MetaGnathTuggers(),
     Geodailymotion(),
     Mwish(),
+    Hgcloudto(),
     Dwish(),
     Ewish(),
     Kswplayer(),
@@ -1299,6 +1302,8 @@ val extractorApis: AtomicMutableList<ExtractorApi> = atomicListOf(
     GUpload(),
     HlsWish(),
     ByseQekaho(),
+    Flyfile(),
+    Firestream(),
 )
 
 
