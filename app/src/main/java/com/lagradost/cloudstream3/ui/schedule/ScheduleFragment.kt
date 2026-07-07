@@ -10,9 +10,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
-import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.navigationrail.NavigationRailView
@@ -67,7 +65,7 @@ class ScheduleFragment : Fragment() {
         dayPillMap.forEach { (day, pill) ->
             pill.setOnClickListener {
                 selectedDay = day
-                cardAdapter?.updateDay(day)
+                cardAdapter?.setDay(day)
                 updateEmptyState(day)
                 highlightDayPill(day)
             }
@@ -79,13 +77,12 @@ class ScheduleFragment : Fragment() {
         binding.scheduleRecycler.apply {
             layoutManager = LinearLayoutManager(requireContext())
             adapter = cardAdapter
-            setHasFixedSize(true)
         }
 
         viewModel.scheduleItems.observe(viewLifecycleOwner) { items ->
             autoSelectDay(items)
             cardAdapter?.currentDay = selectedDay
-            cardAdapter?.submitList(items)
+            cardAdapter?.submitData(items)
             updateEmptyState(selectedDay)
             highlightDayPill(selectedDay)
         }
@@ -195,18 +192,30 @@ class ScheduleFragment : Fragment() {
     }
 }
 
-// --- Card Adapter with tag-based image dedup for flicker-free day switching ---
+// --- Plain RecyclerView.Adapter ---
+// Holds ALL 7 days of items. Non-matching days are hidden with View.GONE
+// (never removed), so ViewHolders are never recycled across different
+// entries -> no banner "bleeding". notifyDataSetChanged() is safe here
+// because this is a plain adapter, not a ListAdapter.
 
 class ScheduleCardAdapter(
     private val onItemClick: (WeeklyScheduleItem) -> Unit
-) : ListAdapter<WeeklyScheduleItem, ScheduleCardAdapter.CardViewHolder>(ScheduleDiffCallback()) {
+) : RecyclerView.Adapter<ScheduleCardAdapter.CardViewHolder>() {
 
+    private var items: List<WeeklyScheduleItem> = emptyList()
     var currentDay: DayOfWeek = LocalDate.now().dayOfWeek
 
-    fun updateDay(day: DayOfWeek) {
+    fun submitData(newItems: List<WeeklyScheduleItem>) {
+        items = newItems
+        notifyDataSetChanged()
+    }
+
+    fun setDay(day: DayOfWeek) {
         currentDay = day
         notifyDataSetChanged()
     }
+
+    override fun getItemCount(): Int = items.size
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CardViewHolder {
         val binding = ItemScheduleCardBinding.inflate(LayoutInflater.from(parent.context), parent, false)
@@ -214,7 +223,7 @@ class ScheduleCardAdapter(
     }
 
     override fun onBindViewHolder(holder: CardViewHolder, position: Int) {
-        holder.bind(getItem(position))
+        holder.bind(items[position])
     }
 
     inner class CardViewHolder(
@@ -281,16 +290,6 @@ class ScheduleCardAdapter(
             binding.scheduleCard.setOnClickListener {
                 onItemClick(item)
             }
-        }
-    }
-
-    private class ScheduleDiffCallback : DiffUtil.ItemCallback<WeeklyScheduleItem>() {
-        override fun areItemsTheSame(oldItem: WeeklyScheduleItem, newItem: WeeklyScheduleItem): Boolean {
-            return oldItem.scheduleId == newItem.scheduleId
-        }
-
-        override fun areContentsTheSame(oldItem: WeeklyScheduleItem, newItem: WeeklyScheduleItem): Boolean {
-            return oldItem == newItem
         }
     }
 }
