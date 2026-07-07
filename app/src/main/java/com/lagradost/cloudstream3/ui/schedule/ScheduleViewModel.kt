@@ -7,6 +7,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
 import com.lagradost.cloudstream3.mvvm.launchSafe
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
 
 class ScheduleViewModel(application: Application) : AndroidViewModel(application) {
@@ -17,45 +18,59 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
     private val _isLoading = MutableLiveData<Boolean>(false)
     val isLoading: LiveData<Boolean> = _isLoading
 
-    private var allItems: List<WeeklyScheduleItem> = emptyList()
-    private var currentFilter: ScheduleType? = null
+    private val _errorMessage = MutableLiveData<String?>()
+    val errorMessage: LiveData<String?> = _errorMessage
 
-    fun loadSchedule() = viewModelScope.launchSafe {
-        val cached = withContext(Dispatchers.IO) {
-            WeeklyScheduleManager.getCachedOrEmpty()
-        }
-        if (cached.isNotEmpty()) {
-            allItems = cached
-            applyFilter()
-        }
+    private val _statusMessage = MutableLiveData<String?>()
+    val statusMessage: LiveData<String?> = _statusMessage
 
-        _isLoading.postValue(true)
-        val fresh = withContext(Dispatchers.IO) {
-            WeeklyScheduleManager.fetchFreshSchedule()
-        }
-        _isLoading.postValue(false)
+    private var loadJob: Job? = null
 
-        allItems = fresh
-        applyFilter()
-    }
+    fun loadSchedule() {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launchSafe {
+            _errorMessage.postValue(null)
+            _statusMessage.postValue(null)
 
-    fun setFilter(type: ScheduleType?) {
-        currentFilter = type
-        applyFilter()
-    }
+            // Phase 1: Always load cached items immediately → display them
+            val cached = withContext(Dispatchers.IO) {
+                WeeklyScheduleManager.loadFromCache()
+            }
 
-    private fun applyFilter() {
-        val filtered = when (currentFilter) {
-            ScheduleType.ANIME -> allItems.filter { it.scheduleType == ScheduleType.ANIME }
-            ScheduleType.TV -> allItems.filter { it.scheduleType == ScheduleType.TV }
-            null -> allItems
+            if (cached.isNotEmpty()) {
+                _scheduleItems.postValue(cached)
+                _isLoading.postValue(false)
+            } else {
+                _isLoading.postValue(true)
+            }
+
+            // Phase 2: Check if cache is stale → fetch in background
+            val cacheValid = withContext(Dispatchers.IO) {
+                WeeklyScheduleManager.isCacheValid()
+            }
+
+            if (cacheValid && cached.isNotEmpty()) {
+                _isLoading.postValue(false)
+                return@launchSafe
+            }
+
+            // Background fetch: Anilist → TMDB enrichment → cache update
+            val fresh = withContext(Dispatchers.IO) {
+                try {
+                    WeeklyScheduleManager.fetchFreshSchedule()
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            _isLoading.postValue(false)
+
+            if (fresh != null && fresh.isNotEmpty() && fresh != cached) {
+                // Merge: only emit if something actually changed
+                _scheduleItems.postValue(fresh)
+            } else if (cached.isEmpty() && fresh.isNullOrEmpty()) {
+                _errorMessage.postValue("Could not load schedule")
+            }
         }
-        val nullNames = filtered.filter { it.scheduleName.isBlank() || it.scheduleName == "null" }
-        if (nullNames.isNotEmpty()) {
-            android.util.Log.w("SCHEDULE_VM", "Found ${nullNames.size} items with blank/null names:")
-            nullNames.forEach { android.util.Log.w("SCHEDULE_VM", "  id=${it.scheduleId} name=[${it.scheduleName}] poster=[${it.posterUrl}]") }
-        }
-        android.util.Log.d("SCHEDULE_VM", "Posting ${filtered.size} items (${allItems.size} total)")
-        _scheduleItems.postValue(filtered)
     }
 }
