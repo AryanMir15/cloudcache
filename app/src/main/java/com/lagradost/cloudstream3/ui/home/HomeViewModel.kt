@@ -192,21 +192,32 @@ class HomeViewModel : ViewModel() {
 
     private fun loadSchedule() = viewModelScope.launchSafe {
         try {
-            // Show cached data instantly
             val cached = withContext(Dispatchers.IO) {
                 WeeklyScheduleManager.getCachedOrEmpty()
             }
-            if (cached.isNotEmpty()) {
-                _scheduleItems.postValue(cached)
+            val cacheValid = withContext(Dispatchers.IO) {
+                WeeklyScheduleManager.isCacheValid()
             }
 
-            // Fetch fresh data in background
+            if (cacheValid && cached.isNotEmpty()) {
+                _scheduleItems.postValue(cached)
+                return@launchSafe
+            }
+
+            if (cached.isEmpty()) {
+                _scheduleItems.postValue(emptyList())
+            }
+
             val fresh = withContext(Dispatchers.IO) {
                 WeeklyScheduleManager.fetchFreshSchedule()
             }
 
             android.util.Log.d("HomeViewModel", "loadSchedule() got ${fresh.size} items")
-            _scheduleItems.postValue(fresh)
+            if (fresh.isNotEmpty() && fresh != cached) {
+                _scheduleItems.postValue(fresh)
+            } else if (cached.isEmpty()) {
+                _scheduleItems.postValue(emptyList())
+            }
         } catch (e: Exception) {
             android.util.Log.e("HomeViewModel", "loadSchedule() error", e)
         }

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Left half-circle shadow -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="160dp"
+                android:centerX="0"
+                android:centerY="0.5"
+                android:startColor="#CC000000"
+                android:endColor="#00000000" />
+        </shape>
+    </item>
+    <!-- Right half-circle shadow -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="160dp"
+                android:centerX="1"
+                android:centerY="0.5"
+                android:startColor="#CC000000"
+                android:endColor="#00000000" />
+        </shape>
+    </item>
+    <!-- Left-to-right text legibility gradient -->
+    <item>
+        <shape android:shape="rectangle">
+            <gradient
+                android:type="linear"
+                android:angle="0"
+                android:startColor="#99000000"
+                android:endColor="#00000000" />
+        </shape>
+    </item>
+</layer-list>

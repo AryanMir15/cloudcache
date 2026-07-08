@@ -15,28 +15,81 @@
         app:title="@string/weekly_schedule"
         app:titleTextColor="?attr/white" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/day_selector_recycler"
+    <!-- Day selector: centered, non-scrollable -->
+    <LinearLayout
+        android:id="@+id/day_selector_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:clipToPadding="false"
-        android:overScrollMode="never"
-        android:paddingHorizontal="8dp"
-        android:paddingVertical="8dp"
-        android:scrollbars="none" />
-
-    <TextView
-        android:id="@+id/schedule_day_title"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingHorizontal="16dp"
+        android:gravity="center"
+        android:orientation="horizontal"
         android:paddingTop="4dp"
-        android:paddingBottom="4dp"
-        android:textColor="?attr/white"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        tools:text="Airing Today" />
+        android:paddingBottom="8dp">
 
+        <TextView
+            android:id="@+id/day_mon"
+            style="@style/ScheduleDayPill"
+            android:text="M" />
+
+        <TextView
+            android:id="@+id/day_tue"
+            style="@style/ScheduleDayPill"
+            android:text="T" />
+
+        <TextView
+            android:id="@+id/day_wed"
+            style="@style/ScheduleDayPill"
+            android:text="W" />
+
+        <TextView
+            android:id="@+id/day_thu"
+            style="@style/ScheduleDayPill"
+            android:text="T" />
+
+        <TextView
+            android:id="@+id/day_fri"
+            style="@style/ScheduleDayPill"
+            android:text="F" />
+
+        <TextView
+            android:id="@+id/day_sat"
+            style="@style/ScheduleDayPill"
+            android:text="S" />
+
+        <TextView
+            android:id="@+id/day_sun"
+            style="@style/ScheduleDayPill"
+            android:text="S" />
+
+    </LinearLayout>
+
+    <!-- Separator line -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#22FFFFFF" />
+
+    <!-- Loading indicator -->
+    <ProgressBar
+        android:id="@+id/schedule_progress"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_marginTop="48dp"
+        android:visibility="gone" />
+
+    <!-- Error text -->
+    <TextView
+        android:id="@+id/schedule_error_text"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:paddingTop="48dp"
+        android:textColor="@android:color/darker_gray"
+        android:textSize="16sp"
+        android:visibility="gone"
+        tools:text="Could not load schedule" />
+
+    <!-- Empty text -->
     <TextView
         android:id="@+id/schedule_empty_text"
         android:layout_width="match_parent"
@@ -45,19 +98,35 @@
         android:paddingTop="48dp"
         android:text="@string/no_episodes_scheduled"
         android:textColor="@android:color/darker_gray"
-        android:textSize="15sp"
+        android:textSize="16sp"
         android:visibility="gone"
         tools:visibility="visible" />
 
-    <com.lagradost.cloudstream3.ui.AutofitRecyclerView
-        android:id="@+id/schedule_poster_recycler"
+    <!-- Schedule cards list -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/schedule_recycler"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
         android:clipToPadding="false"
-        android:paddingHorizontal="4dp"
-        android:paddingTop="4dp"
+        android:paddingTop="0dp"
         android:paddingBottom="4dp"
-        tools:listitem="@layout/item_schedule_poster" />
+        android:scrollbars="vertical"
+        tools:listitem="@layout/item_schedule_card" />
+
+    <!-- Status bar (loading / TMDB key missing) -->
+    <TextView
+        android:id="@+id/schedule_status_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1AFFFFFF"
+        android:gravity="center"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="10dp"
+        android:textColor="#99FFFFFF"
+        android:textSize="12sp"
+        android:visibility="gone"
+        tools:text="Fetching high quality banners from TMDB..."
+        tools:visibility="visible" />
 
 </LinearLayout>

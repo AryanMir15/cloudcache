@@ -20,9 +20,12 @@ data class WeeklyScheduleItem(
     val scheduleId: Int,
     val scheduleName: String,
     val schedulePosterUrl: String?,
+    val scheduleBannerUrl: String?,
+    val scheduleLogoUrl: String?,
     val episodeNumber: Int?,
     val airingAt: Long,
-    val scheduleType: ScheduleType
+    val scheduleType: ScheduleType,
+    val tmdbId: Int? = null
 ) : SearchResponse {
     override var id: Int? = scheduleId
     override val name: String = scheduleName

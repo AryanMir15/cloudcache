@@ -822,6 +822,7 @@
         <item name="android:paddingTop">0dp</item>
         <item name="android:paddingBottom">0dp</item>
         <item name="android:minWidth">0dp</item>
+        <item name="cornerRadius">4dp</item>
     </style>
 
     <style name="RoundedSelectableButtonIcon" parent="RoundedSelectableButton">
@@ -1144,5 +1145,17 @@
         <item name="android:layout_width">@dimen/download_header_progress_size</item>
         <item name="android:layout_height">@dimen/download_header_progress_size</item>
         <item name="android:background">@color/playIconBackground</item>
+    </style>
+
+    <style name="ScheduleDayPill">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">50dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center</item>
+        <item name="android:background">@drawable/schedule_pill_bg</item>
+        <item name="android:textColor">@android:color/white</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:layout_marginHorizontal">2dp</item>
     </style>
 </resources>

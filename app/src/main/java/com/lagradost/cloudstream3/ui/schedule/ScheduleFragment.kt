@@ -10,7 +10,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.navigationrail.NavigationRailView
@@ -64,10 +66,7 @@ class ScheduleFragment : Fragment() {
 
         dayPillMap.forEach { (day, pill) ->
             pill.setOnClickListener {
-                selectedDay = day
-                cardAdapter?.setDay(day)
-                updateEmptyState(day)
-                highlightDayPill(day)
+                onDaySelected(day)
             }
         }
 
@@ -81,10 +80,7 @@ class ScheduleFragment : Fragment() {
 
         viewModel.scheduleItems.observe(viewLifecycleOwner) { items ->
             autoSelectDay(items)
-            cardAdapter?.currentDay = selectedDay
-            cardAdapter?.submitData(items)
-            updateEmptyState(selectedDay)
-            highlightDayPill(selectedDay)
+            updateContent(selectedDay)
         }
 
         viewModel.isLoading.observe(viewLifecycleOwner) { loading ->
@@ -139,18 +135,39 @@ class ScheduleFragment : Fragment() {
         }
     }
 
-    private fun updateEmptyState(day: DayOfWeek) {
-        val allItems = viewModel.scheduleItems.value ?: return
-        val dayItems = allItems.filter { item ->
+    private fun dayItems(day: DayOfWeek): List<WeeklyScheduleItem> {
+        val allItems = viewModel.scheduleItems.value ?: return emptyList()
+        return allItems.filter { item ->
             Instant.ofEpochMilli(item.airingAt)
                 .atZone(ZoneId.systemDefault())
                 .toLocalDate()
                 .dayOfWeek == day
-        }
+        }.sortedBy { it.airingAt }
+    }
 
-        val hasItems = dayItems.isNotEmpty()
-        binding.scheduleEmptyText.isVisible = !hasItems && viewModel.errorMessage.value == null
-        binding.scheduleRecycler.isVisible = hasItems
+    private fun updateContent(day: DayOfWeek) {
+        val dayItems = dayItems(day)
+        binding.scheduleEmptyText.isVisible = dayItems.isEmpty() && viewModel.errorMessage.value == null
+        binding.scheduleRecycler.isVisible = dayItems.isNotEmpty()
+
+        cardAdapter?.submitList(dayItems)
+        highlightDayPill(day)
+    }
+
+    private fun onDaySelected(day: DayOfWeek) {
+        if (day == selectedDay) {
+            highlightDayPill(day)
+            return
+        }
+        selectedDay = day
+
+        val dayItems = dayItems(day)
+        binding.scheduleEmptyText.isVisible = dayItems.isEmpty() && viewModel.errorMessage.value == null
+        binding.scheduleRecycler.isVisible = dayItems.isNotEmpty()
+
+        cardAdapter?.submitList(dayItems)
+        binding.scheduleRecycler.scrollToPosition(0)
+        highlightDayPill(day)
     }
 
     private fun highlightDayPill(selected: DayOfWeek) {
@@ -192,30 +209,11 @@ class ScheduleFragment : Fragment() {
     }
 }
 
-// --- Plain RecyclerView.Adapter ---
-// Holds ALL 7 days of items. Non-matching days are hidden with View.GONE
-// (never removed), so ViewHolders are never recycled across different
-// entries -> no banner "bleeding". notifyDataSetChanged() is safe here
-// because this is a plain adapter, not a ListAdapter.
+// --- Card Adapter with DiffUtil for stable tab switching ---
 
 class ScheduleCardAdapter(
     private val onItemClick: (WeeklyScheduleItem) -> Unit
-) : RecyclerView.Adapter<ScheduleCardAdapter.CardViewHolder>() {
-
-    private var items: List<WeeklyScheduleItem> = emptyList()
-    var currentDay: DayOfWeek = LocalDate.now().dayOfWeek
-
-    fun submitData(newItems: List<WeeklyScheduleItem>) {
-        items = newItems
-        notifyDataSetChanged()
-    }
-
-    fun setDay(day: DayOfWeek) {
-        currentDay = day
-        notifyDataSetChanged()
-    }
-
-    override fun getItemCount(): Int = items.size
+) : ListAdapter<WeeklyScheduleItem, ScheduleCardAdapter.CardViewHolder>(ScheduleDiffCallback()) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CardViewHolder {
         val binding = ItemScheduleCardBinding.inflate(LayoutInflater.from(parent.context), parent, false)
@@ -223,7 +221,7 @@ class ScheduleCardAdapter(
     }
 
     override fun onBindViewHolder(holder: CardViewHolder, position: Int) {
-        holder.bind(items[position])
+        holder.bind(getItem(position))
     }
 
     inner class CardViewHolder(
@@ -233,17 +231,8 @@ class ScheduleCardAdapter(
         private val timeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
 
         fun bind(item: WeeklyScheduleItem) {
-            val itemDay = Instant.ofEpochMilli(item.airingAt)
-                .atZone(ZoneId.systemDefault())
-                .toLocalDate()
-                .dayOfWeek
-
-            if (itemDay != currentDay) {
-                binding.root.visibility = View.GONE
-                return
-            }
-
-            binding.root.visibility = View.VISIBLE
+            binding.schedulePosterBg.setImageDrawable(null)
+            binding.scheduleLogo.setImageDrawable(null)
 
             val airTime = Instant.ofEpochMilli(item.airingAt)
                 .atZone(ZoneId.systemDefault())
@@ -256,31 +245,40 @@ class ScheduleCardAdapter(
                 binding.scheduleEpisode.isVisible = false
             }
 
-            // Logo: tag-based dedup — skip load if URL hasn't changed
             val logoUrl = item.scheduleLogoUrl
             if (!logoUrl.isNullOrBlank() && logoUrl.startsWith("http")) {
-                if (binding.scheduleLogo.tag != logoUrl) {
-                    binding.scheduleLogo.tag = logoUrl
-                    binding.scheduleLogo.isVisible = true
-                    binding.scheduleName.isVisible = false
-                    binding.scheduleLogo.loadImage(logoUrl)
+                binding.scheduleLogo.isVisible = true
+                binding.scheduleName.isVisible = false
+                // Tag guard: only apply the logo if this viewholder is still bound to this item
+                binding.scheduleLogo.tag = logoUrl
+                binding.scheduleLogo.loadImage(logoUrl) {
+                    listener(
+                        onSuccess = { _, _ ->
+                            if (binding.scheduleLogo.tag != logoUrl) {
+                                binding.scheduleLogo.setImageDrawable(null)
+                            }
+                        }
+                    )
                 }
             } else {
-                binding.scheduleLogo.tag = null
                 binding.scheduleLogo.isVisible = false
                 binding.scheduleName.isVisible = true
                 binding.scheduleName.text = item.scheduleName
             }
 
-            // Banner: tag-based dedup — skip load if URL hasn't changed
             val imageUrl = item.scheduleBannerUrl ?: item.schedulePosterUrl
             if (!imageUrl.isNullOrBlank() && imageUrl.startsWith("http")) {
-                if (binding.schedulePosterBg.tag != imageUrl) {
-                    binding.schedulePosterBg.tag = imageUrl
-                    binding.schedulePosterBg.loadImage(imageUrl)
+                // Tag guard: prevents a recycled viewholder from showing a stale banner
+                binding.schedulePosterBg.tag = imageUrl
+                binding.schedulePosterBg.loadImage(imageUrl) {
+                    listener(
+                        onSuccess = { _, _ ->
+                            if (binding.schedulePosterBg.tag != imageUrl) {
+                                binding.schedulePosterBg.setImageDrawable(null)
+                            }
+                        }
+                    )
                 }
-            } else {
-                binding.schedulePosterBg.tag = null
             }
 
             binding.scheduleWatchBtn.setOnClickListener {
@@ -290,6 +288,16 @@ class ScheduleCardAdapter(
             binding.scheduleCard.setOnClickListener {
                 onItemClick(item)
             }
+        }
+    }
+
+    private class ScheduleDiffCallback : DiffUtil.ItemCallback<WeeklyScheduleItem>() {
+        override fun areItemsTheSame(oldItem: WeeklyScheduleItem, newItem: WeeklyScheduleItem): Boolean {
+            return oldItem.scheduleId == newItem.scheduleId
+        }
+
+        override fun areContentsTheSame(oldItem: WeeklyScheduleItem, newItem: WeeklyScheduleItem): Boolean {
+            return oldItem == newItem
         }
     }
 }

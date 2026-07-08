@@ -867,5 +867,6 @@
     <string name="schedule_ep_format">Ep %d</string>
     <string name="schedule_anime">Anime</string>
     <string name="schedule_tv_shows">TV Shows</string>
+    <string name="schedule_watch">Watch</string>
 
 </resources>

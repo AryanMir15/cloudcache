@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginHorizontal="12dp"
+    android:layout_marginVertical="5dp">
+
+    <androidx.cardview.widget.CardView
+        android:id="@+id/schedule_card"
+        android:layout_width="match_parent"
+        android:layout_height="170dp"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="6dp">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:id="@+id/schedule_poster_bg"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                tools:src="@drawable/example_poster" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/schedule_card_vintage_shadow" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="bottom"
+                android:orientation="horizontal"
+                android:padding="16dp">
+
+                <!-- Left: Title/Logo + Episode -->
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <!-- Logo (replaces title when available) -->
+                    <ImageView
+                        android:id="@+id/schedule_logo"
+                        android:layout_width="180dp"
+                        android:layout_height="wrap_content"
+                        android:adjustViewBounds="true"
+                        android:scaleType="fitStart"
+                        android:visibility="gone"
+                        tools:src="@android:drawable/ic_menu_gallery"
+                        tools:visibility="visible" />
+
+                    <!-- Text title (hidden when logo exists) -->
+                    <TextView
+                        android:id="@+id/schedule_name"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="3"
+                        android:shadowColor="#CC000000"
+                        android:shadowDx="1"
+                        android:shadowDy="1"
+                        android:shadowRadius="6"
+                        android:textColor="@android:color/white"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        tools:text="The Duke's Son Claims He Won't Love Me Yet Showers Me with Adoration" />
+
+                    <TextView
+                        android:id="@+id/schedule_episode"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="3dp"
+                        android:shadowColor="#CC000000"
+                        android:shadowDx="1"
+                        android:shadowDy="1"
+                        android:shadowRadius="4"
+                        android:textColor="#CCFFFFFF"
+                        android:textSize="14sp"
+                        android:visibility="gone"
+                        tools:text="Episode 12" />
+
+                </LinearLayout>
+
+                <!-- Right: Time + Watch Button -->
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:gravity="end"
+                    android:orientation="vertical">
+
+                    <!-- Time: above watch button -->
+                    <TextView
+                        android:id="@+id/schedule_time"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="end"
+                        android:shadowColor="#CC000000"
+                        android:shadowDx="1"
+                        android:shadowDy="1"
+                        android:shadowRadius="4"
+                        android:textColor="#EEFFFFFF"
+                        android:textSize="36sp"
+                        android:textStyle="bold"
+                        tools:text="8:00 PM" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/schedule_watch_btn"
+                        style="@style/SmallWhiteButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:layout_marginTop="8dp"
+                        android:minWidth="80dp"
+                        android:paddingHorizontal="16dp"
+                        android:text="@string/schedule_watch"
+                        android:textAllCaps="false"
+                        android:textSize="13sp"
+                        app:icon="@drawable/ic_baseline_play_arrow_24"
+                        app:iconGravity="textStart"
+                        app:iconPadding="4dp"
+                        app:iconSize="16dp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </FrameLayout>
+
+    </androidx.cardview.widget.CardView>
+
+</FrameLayout>
