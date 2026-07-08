@@ -70,12 +70,12 @@ object WeeklyScheduleManager {
     private const val KEY_SCHEDULE_JSON = "schedule_json"
     private const val KEY_CACHE_TIMESTAMP = "cache_timestamp"
     private const val CACHE_TTL_MS = 6 * 60 * 60 * 1000L // 6 hours
-    private const val SCHEDULE_CACHE_VERSION = 2 // Bump to clear old cached items
+    private const val SCHEDULE_CACHE_VERSION = 3 // Bump to clear old cached items
     private const val KEY_SCHEDULE_CACHE_VERSION = "schedule_cache_version"
 
     // --- Backdrop cache (permanent, AniList ID → TMDB backdrop URL) ---
     private const val BACKDROP_CACHE_PREFS = "anilist_tmdb_backdrop_cache"
-    private const val BACKDROP_CACHE_VERSION = 4 // Bump to clear old w1280 cache
+    private const val BACKDROP_CACHE_VERSION = 5 // Bump to clear old w1280 cache
     private const val KEY_CACHE_VERSION = "cache_version"
     private const val NOT_FOUND_MARKER = "NOT_FOUND"
 
@@ -130,6 +130,22 @@ object WeeklyScheduleManager {
     private fun getPrefs(): SharedPreferences? {
         val ctx = context ?: return null
         return ctx.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE)
+    }
+
+    /**
+     * Wipe ALL schedule-related caches (schedule list, backdrops, logos) so the next
+     * fetch pulls everything fresh from AniList/TMDB. Version keys are reset so the
+     * cleared state isn't immediately re-cleared.
+     */
+    fun clearAllCaches() {
+        val ctx = context ?: return
+        android.util.Log.d("SCHEDULE_BACKDROP", "clearAllCaches() — wiping schedule, backdrop and logo caches")
+        ctx.getSharedPreferences(CACHE_PREFS, Context.MODE_PRIVATE).edit()
+            .clear().putInt(KEY_SCHEDULE_CACHE_VERSION, SCHEDULE_CACHE_VERSION).apply()
+        ctx.getSharedPreferences(BACKDROP_CACHE_PREFS, Context.MODE_PRIVATE).edit()
+            .clear().putInt(KEY_CACHE_VERSION, BACKDROP_CACHE_VERSION).apply()
+        ctx.getSharedPreferences(LOGO_CACHE_PREFS, Context.MODE_PRIVATE).edit()
+            .clear().apply()
     }
 
     private fun saveToCache(items: List<WeeklyScheduleItem>) {
@@ -285,10 +301,13 @@ object WeeklyScheduleManager {
                                     romaji
                                     native
                                 }
+                                synonyms
                                 bannerImage
                                 externalLinks {
                                     site
                                     id
+                                    url
+                                    type
                                 }
                                 coverImage {
                                     extraLarge
@@ -372,6 +391,7 @@ object WeeklyScheduleManager {
                     }
 
                     // Extract TMDB ID from AniList externalLinks (site == "tmdb")
+                    // Prefer the URL (e.g. https://themoviedb.org/tv/12345) and fall back to the id field
                     val tmdbId = run {
                         val links = media.optJSONArray("externalLinks")
                         var found: Int? = null
@@ -379,6 +399,11 @@ object WeeklyScheduleManager {
                             for (l in 0 until links.length()) {
                                 val link = links.getJSONObject(l)
                                 if (link.optString("site", "").equals("tmdb", ignoreCase = true)) {
+                                    val fromUrl = link.optString("url", "")
+                                        .substringAfterLast("/")
+                                        .takeIf { it.isNotBlank() }
+                                        ?.toIntOrNull()
+                                    if (fromUrl != null && fromUrl > 0) { found = fromUrl; break }
                                     val id = link.optInt("id", 0)
                                     if (id > 0) { found = id; break }
                                 }
@@ -391,6 +416,18 @@ object WeeklyScheduleManager {
                     val cachedBackdrop = getCachedBackdropUrl(mediaId)
                     val banner = cachedBackdrop ?: anilistBanner
 
+                    // Collect alternative titles (romaji, native, synonyms) for TMDB fuzzy matching
+                    val altTitles = buildList {
+                        titleObj?.optString("english")?.trim()?.let { if (it.isNotBlank() && !it.equals("null", true)) add(it) }
+                        titleObj?.optString("romaji")?.trim()?.let { if (it.isNotBlank() && !it.equals("null", true)) add(it) }
+                        titleObj?.optString("native")?.trim()?.let { if (it.isNotBlank() && !it.equals("null", true)) add(it) }
+                        media.optJSONArray("synonyms")?.let { syn ->
+                            for (s in 0 until syn.length()) {
+                                syn.optString(s)?.trim()?.let { if (it.isNotBlank()) add(it) }
+                            }
+                        }
+                    }.distinct()
+
                     items.add(
                         WeeklyScheduleItem(
                             scheduleId = mediaId,
@@ -402,7 +439,7 @@ object WeeklyScheduleManager {
                             airingAt = airingAt * 1000,
                             scheduleType = ScheduleType.ANIME,
                             tmdbId = tmdbId
-                        )
+                        ).apply { this.altTitles = altTitles }
                     )
                 }
 
@@ -541,51 +578,115 @@ object WeeklyScheduleManager {
     }
 
     /**
+     * Normalize a title for fuzzy comparison: lowercase, strip punctuation, collapse spaces.
+     */
+    private fun normalizeTitle(s: String): String =
+        s.lowercase()
+            .replace(Regex("[^a-z0-9\\u3040-\\u30ff\\u4e00-\\u9faf ]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+    /**
+     * Normalized Levenshtein similarity in [0.0, 1.0]. 1.0 == identical.
+     */
+    private fun titleSimilarity(a: String, b: String): Double {
+        val s1 = normalizeTitle(a)
+        val s2 = normalizeTitle(b)
+        if (s1.isEmpty() || s2.isEmpty()) return 0.0
+        if (s1 == s2) return 1.0
+        val len1 = s1.length
+        val len2 = s2.length
+        val dp = IntArray(len2 + 1) { it }
+        for (i in 1..len1) {
+            var prev = dp[0]
+            dp[0] = i
+            for (j in 1..len2) {
+                val tmp = dp[j]
+                val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
+                dp[j] = minOf(dp[j] + 1, dp[j - 1] + 1, prev + cost)
+                prev = tmp
+            }
+        }
+        val dist = dp[len2]
+        return 1.0 - dist.toDouble() / maxOf(len1, len2)
+    }
+
+    /** Minimum similarity required to accept a TMDB text-search match. */
+    private const val MATCH_THRESHOLD = 0.55
+
+    /**
      * Fallback TMDB lookup via text search when no AniList→TMDB ID is available.
-     * Tries the full title, then a season-suffix-stripped title.
+     * Tries english, season-stripped, romaji and synonyms, then picks the single best
+     * result across all queries by title similarity (Levenshtein) to avoid wrong matches.
      */
     private suspend fun enrichByTextSearch(item: WeeklyScheduleItem, tmdbApiKey: String) {
-        val queries = mutableListOf(item.scheduleName)
-        val stripped = stripSeasonSuffix(item.scheduleName)
-        if (stripped != item.scheduleName && stripped.isNotBlank()) {
-            queries.add(stripped)
+        // Build query candidates, most specific first, de-duplicated
+        val queries = LinkedHashSet<String>()
+        queries.add(item.scheduleName)
+        stripSeasonSuffix(item.scheduleName).takeIf { it.isNotBlank() && it != item.scheduleName }?.let { queries.add(it) }
+        for (alt in item.altTitles) {
+            queries.add(alt)
+            stripSeasonSuffix(alt).takeIf { it.isNotBlank() && it != alt }?.let { queries.add(it) }
         }
+
+        // Known titles used to score candidate results
+        val knownTitles = (listOf(item.scheduleName) + item.altTitles).filter { it.isNotBlank() }
+
+        var bestResult: JSONObject? = null
+        var bestScore = 0.0
 
         for ((idx, query) in queries.withIndex()) {
             val encodedTitle = java.net.URLEncoder.encode(query, "UTF-8")
             val url = "$TMDB_BASE_URL/search/tv?api_key=$tmdbApiKey&query=$encodedTitle&language=en-US&page=1&append_to_response=images&include_image_language=en,ja,null"
-            android.util.Log.d("SCHEDULE_BACKDROP", "Searching TMDB for: $query (AniList ID=${item.scheduleId})${if (idx > 0) " [season-stripped]" else ""}")
-            val json = JSONObject(app.get(url, timeout = 5000).text)
-            val results = json.optJSONArray("results")
-            if (results != null && results.length() > 0) {
-                val firstResult = results.getJSONObject(0)
-                val backdropPath = firstResult.optString("backdrop_path", "")
-                val posterPath = firstResult.optString("poster_path", "")
-                val tmdbName = firstResult.optString("name", "")
-                val chosen = if (!backdropPath.isNullOrBlank() && backdropPath != "null") {
-                    backdropPath
-                } else if (!posterPath.isNullOrBlank() && posterPath != "null") {
-                    posterPath
-                } else null
+            android.util.Log.d("SCHEDULE_BACKDROP", "Searching TMDB for: $query (AniList ID=${item.scheduleId})${if (idx > 0) " [alt]" else ""}")
+            val json = try { JSONObject(app.get(url, timeout = 5000).text) } catch (e: Exception) { continue }
+            val results = json.optJSONArray("results") ?: continue
 
-                if (chosen != null) {
-                    val backdropUrl = "$TMDB_BACKDROP_BASE$chosen"
-                    cacheBackdropUrl(item.scheduleId, backdropUrl)
-                    android.util.Log.d("SCHEDULE_BACKDROP", "✓ Matched: ${item.scheduleName} → TMDB: $tmdbName → $backdropUrl")
-                } else {
-                    cacheBackdropUrl(item.scheduleId, null)
-                    android.util.Log.d("SCHEDULE_BACKDROP", "✗ No backdrop for: ${item.scheduleName} (TMDB matched: $tmdbName but no images)")
+            for (r in 0 until minOf(results.length(), 5)) {
+                val result = results.getJSONObject(r)
+                val tmdbName = result.optString("name", "")
+                val tmdbOriginal = result.optString("original_name", "")
+                val score = knownTitles.maxOf { known ->
+                    maxOf(titleSimilarity(known, tmdbName), titleSimilarity(known, tmdbOriginal))
                 }
-
-                if (getCachedLogoUrl(item.scheduleId) == null) {
-                    cacheLogosFromImagesJson(firstResult.optJSONObject("images"), item)
+                if (score > bestScore) {
+                    bestScore = score
+                    bestResult = result
                 }
-                return
             }
+
+            // Early exit on a near-perfect match
+            if (bestScore >= 0.95) break
         }
+
+        if (bestResult != null && bestScore >= MATCH_THRESHOLD) {
+            val backdropPath = bestResult.optString("backdrop_path", "")
+            val posterPath = bestResult.optString("poster_path", "")
+            val tmdbName = bestResult.optString("name", "")
+            val chosen = if (!backdropPath.isNullOrBlank() && backdropPath != "null") {
+                backdropPath
+            } else if (!posterPath.isNullOrBlank() && posterPath != "null") {
+                posterPath
+            } else null
+
+            if (chosen != null) {
+                val backdropUrl = "$TMDB_BACKDROP_BASE$chosen"
+                cacheBackdropUrl(item.scheduleId, backdropUrl)
+                android.util.Log.d("SCHEDULE_BACKDROP", "✓ Matched (score=${"%.2f".format(bestScore)}): ${item.scheduleName} → TMDB: $tmdbName → $backdropUrl")
+            } else {
+                cacheBackdropUrl(item.scheduleId, null)
+                android.util.Log.d("SCHEDULE_BACKDROP", "✗ No backdrop for: ${item.scheduleName} (matched $tmdbName, no images)")
+            }
+
+            if (getCachedLogoUrl(item.scheduleId) == null) {
+                cacheLogosFromImagesJson(bestResult.optJSONObject("images"), item)
+            }
+            return
+        }
+
         cacheBackdropUrl(item.scheduleId, null)
         cacheLogoUrl(item.scheduleId, null)
-        android.util.Log.d("SCHEDULE_BACKDROP", "✗ No TMDB results for: ${item.scheduleName}")
+        android.util.Log.d("SCHEDULE_BACKDROP", "✗ No confident TMDB match for: ${item.scheduleName} (best=${"%.2f".format(bestScore)}) — using AniList fallback")
     }
 
     /**
