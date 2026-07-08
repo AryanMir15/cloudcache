@@ -41,6 +41,9 @@ data class WeeklyScheduleItem(
     override var score: Score? = null
     override var tags: List<String>? = null
 
+    // Transient (not cached, not part of equals) — used only during TMDB enrichment
+    var altTitles: List<String> = emptyList()
+
     val airingDay: DayOfWeek
         get() = Instant.ofEpochMilli(airingAt)
             .atZone(ZoneId.systemDefault())
