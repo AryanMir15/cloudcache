@@ -406,6 +406,7 @@ class SyncViewModel : ViewModel() {
     fun publishUserData() = ioSafe {
         Log.i(TAG, "publishUserData")
         _isSyncing.postValue(true)
+        _userDataResponse.postValue(Resource.Loading())
         
         try {
             val user = userData.value
