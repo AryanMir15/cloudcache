@@ -861,6 +861,7 @@
     <!-- Weekly Schedule -->
     <string name="coming_this_week">Coming This Week</string>
     <string name="weekly_schedule">Weekly Schedule</string>
+    <string name="refresh">Refresh</string>
     <string name="no_episodes_scheduled">No episodes scheduled</string>
     <string name="schedule_today">Today</string>
     <string name="schedule_tomorrow">Tomorrow</string>
