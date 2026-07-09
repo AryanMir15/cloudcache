@@ -10,6 +10,7 @@ import com.lagradost.cloudstream3.syncproviders.SubtitleAPI
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.SubtitleHelper
+import java.util.concurrent.TimeUnit
 
 class SubSourceApi : SubtitleAPI() {
     override val name = "SubSource"
@@ -36,7 +37,9 @@ class SubSourceApi : SubtitleAPI() {
             url = "$APIURL/searchMovie",
             data = mapOf(
                 "query" to query.imdbId!!
-            )
+            ),
+            cacheTime = 120,
+            cacheUnit = TimeUnit.MINUTES,
         ).parsedSafe<ApiSearch>() ?: return null
 
         val postData = if (type == TvType.TvSeries) {
@@ -54,7 +57,9 @@ class SubSourceApi : SubtitleAPI() {
 
         val getMovieRes = app.post(
             url = "$APIURL/getMovie",
-            data = postData
+            data = postData,
+            cacheTime = 120,
+            cacheUnit = TimeUnit.MINUTES,
         ).parsedSafe<ApiResponse>().let {
             // api doesn't has episode number or lang filtering
             if (type == TvType.Movie) {
