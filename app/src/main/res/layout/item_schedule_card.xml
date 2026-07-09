@@ -37,7 +37,7 @@
                 android:orientation="horizontal"
                 android:padding="16dp">
 
-                <!-- Left: Title/Logo + Episode -->
+                <!-- Left: Title/Logo -->
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
@@ -50,6 +50,7 @@
                         android:layout_width="180dp"
                         android:layout_height="wrap_content"
                         android:adjustViewBounds="true"
+                        android:maxHeight="64dp"
                         android:scaleType="fitStart"
                         android:visibility="gone"
                         tools:src="@android:drawable/ic_menu_gallery"
@@ -61,33 +62,25 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:ellipsize="end"
+                        android:includeFontPadding="false"
+                        android:lineSpacingMultiplier="1.05"
                         android:maxLines="3"
                         android:shadowColor="#CC000000"
                         android:shadowDx="1"
                         android:shadowDy="1"
                         android:shadowRadius="6"
+                        android:paddingVertical="2dp"
+                        android:scaleY="1.18"
                         android:textColor="@android:color/white"
-                        android:textSize="20sp"
+                        android:textScaleX="1.05"
+                        android:textSize="22sp"
                         android:textStyle="bold"
+                        android:transformPivotY="0dp"
                         tools:text="The Duke's Son Claims He Won't Love Me Yet Showers Me with Adoration" />
-
-                    <TextView
-                        android:id="@+id/schedule_episode"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="3dp"
-                        android:shadowColor="#CC000000"
-                        android:shadowDx="1"
-                        android:shadowDy="1"
-                        android:shadowRadius="4"
-                        android:textColor="#CCFFFFFF"
-                        android:textSize="14sp"
-                        android:visibility="gone"
-                        tools:text="Episode 12" />
 
                 </LinearLayout>
 
-                <!-- Right: Time + Watch Button -->
+                <!-- Right: Time + Episode + Watch Button -->
                 <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -95,20 +88,44 @@
                     android:gravity="end"
                     android:orientation="vertical">
 
-                    <!-- Time: above watch button -->
+                    <!-- Time -->
                     <TextView
                         android:id="@+id/schedule_time"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="end"
+                        android:includeFontPadding="false"
                         android:shadowColor="#CC000000"
                         android:shadowDx="1"
                         android:shadowDy="1"
                         android:shadowRadius="4"
+                        android:paddingVertical="2dp"
+                        android:scaleY="1.12"
                         android:textColor="#EEFFFFFF"
-                        android:textSize="36sp"
+                        android:textSize="38sp"
                         android:textStyle="bold"
+                        android:transformPivotY="0dp"
                         tools:text="8:00 PM" />
+
+                    <!-- Episode (moved to right) -->
+                    <TextView
+                        android:id="@+id/schedule_episode"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="end"
+                        android:layout_marginTop="4dp"
+                        android:includeFontPadding="false"
+                        android:shadowColor="#CC000000"
+                        android:shadowDx="1"
+                        android:shadowDy="1"
+                        android:shadowRadius="4"
+                        android:paddingVertical="1dp"
+                        android:scaleY="1.15"
+                        android:textColor="#CCFFFFFF"
+                        android:textSize="15sp"
+                        android:transformPivotY="0dp"
+                        android:visibility="gone"
+                        tools:text="Episode 12" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/schedule_watch_btn"
