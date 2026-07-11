@@ -133,6 +133,17 @@ object WeeklyScheduleManager {
     }
 
     /**
+     * org.json's optString(name, null) returns the literal string "null" when the stored
+     * value is JSONObject.NULL. This helper returns a real Kotlin null in that case so the
+     * banner→poster fallback chain works correctly.
+     */
+    private fun JSONObject.optStringOrNull(name: String): String? {
+        if (isNull(name)) return null
+        val v = optString(name, "").trim()
+        return if (v.isBlank() || v.equals("null", ignoreCase = true)) null else v
+    }
+
+    /**
      * Wipe ALL schedule-related caches (schedule list, backdrops, logos) so the next
      * fetch pulls everything fresh from AniList/TMDB. Version keys are reset so the
      * cleared state isn't immediately re-cleared.
@@ -212,9 +223,9 @@ object WeeklyScheduleManager {
                     WeeklyScheduleItem(
                         scheduleId = obj.getInt("id"),
                         scheduleName = name,
-                        schedulePosterUrl = obj.optString("poster", null),
+                        schedulePosterUrl = obj.optStringOrNull("poster"),
                         scheduleBannerUrl = getCachedBackdropUrl(obj.getInt("id"))
-                            ?: obj.optString("banner", null),
+                            ?: obj.optStringOrNull("banner"),
                         scheduleLogoUrl = getCachedLogoUrl(obj.getInt("id")),
                         episodeNumber = if (obj.isNull("episode")) null else obj.getInt("episode"),
                         airingAt = obj.getLong("airingAt"),
@@ -555,6 +566,21 @@ object WeeklyScheduleManager {
             .trim()
     }
 
+    /**
+     * Fetch logos for a matched TMDB id. Uses the detail endpoint where append_to_response=images
+     * actually works (unlike /search). include_image_language=en,ja,null pulls EN/JP + untagged logos.
+     */
+    private suspend fun fetchLogosById(tmdbId: Int, item: WeeklyScheduleItem, tmdbApiKey: String) {
+        try {
+            val url = "$TMDB_BASE_URL/tv/$tmdbId?api_key=$tmdbApiKey&language=en-US&append_to_response=images&include_image_language=en,ja,null"
+            val json = JSONObject(app.get(url, timeout = 5000).text)
+            cacheLogosFromImagesJson(json.optJSONObject("images"), item)
+        } catch (e: Exception) {
+            android.util.Log.e("SCHEDULE_BACKDROP", "✗ Logo fetch failed for ${item.scheduleName} (TMDB $tmdbId): ${e.message}")
+            cacheLogoUrl(item.scheduleId, null)
+        }
+    }
+
     private fun cacheLogosFromImagesJson(imagesJson: JSONObject?, item: WeeklyScheduleItem) {
         if (imagesJson == null) { cacheLogoUrl(item.scheduleId, null); return }
         val logos = imagesJson.optJSONArray("logos")
@@ -562,6 +588,8 @@ object WeeklyScheduleManager {
         var bestLogo: JSONObject? = null
         for (i in 0 until logos.length()) {
             val logo = logos.getJSONObject(i)
+            // Coil can't decode SVG — skip vector logos so we fall back to raster or title text
+            if (logo.optString("file_path", "").endsWith(".svg", ignoreCase = true)) continue
             val lang = logo.optString("iso_639_1", "")
             if (lang == "en") { bestLogo = logo; break }
             if (lang == "ja" && bestLogo == null) bestLogo = logo
@@ -637,7 +665,7 @@ object WeeklyScheduleManager {
 
         for ((idx, query) in queries.withIndex()) {
             val encodedTitle = java.net.URLEncoder.encode(query, "UTF-8")
-            val url = "$TMDB_BASE_URL/search/tv?api_key=$tmdbApiKey&query=$encodedTitle&language=en-US&page=1&append_to_response=images&include_image_language=en,ja,null"
+            val url = "$TMDB_BASE_URL/search/tv?api_key=$tmdbApiKey&query=$encodedTitle&language=en-US&page=1"
             android.util.Log.d("SCHEDULE_BACKDROP", "Searching TMDB for: $query (AniList ID=${item.scheduleId})${if (idx > 0) " [alt]" else ""}")
             val json = try { JSONObject(app.get(url, timeout = 5000).text) } catch (e: Exception) { continue }
             val results = json.optJSONArray("results") ?: continue
@@ -678,8 +706,15 @@ object WeeklyScheduleManager {
                 android.util.Log.d("SCHEDULE_BACKDROP", "✗ No backdrop for: ${item.scheduleName} (matched $tmdbName, no images)")
             }
 
+            // Logos are NOT returned by /search — append_to_response=images only works on
+            // detail endpoints. Make one detail call by the matched TMDB id to fetch logos.
             if (getCachedLogoUrl(item.scheduleId) == null) {
-                cacheLogosFromImagesJson(bestResult.optJSONObject("images"), item)
+                val matchedTmdbId = bestResult.optInt("id", 0)
+                if (matchedTmdbId > 0) {
+                    fetchLogosById(matchedTmdbId, item, tmdbApiKey)
+                } else {
+                    cacheLogoUrl(item.scheduleId, null)
+                }
             }
             return
         }
