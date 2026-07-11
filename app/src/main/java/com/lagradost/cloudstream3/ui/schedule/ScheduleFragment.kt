@@ -2,6 +2,7 @@ package com.lagradost.cloudstream3.ui.schedule
 
 import android.graphics.Typeface
 import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -70,6 +71,18 @@ class ScheduleFragment : Fragment() {
             }
         }
 
+        binding.scheduleToolbar.inflateMenu(R.menu.schedule_menu)
+        binding.scheduleToolbar.setOnMenuItemClickListener { menuItem ->
+            when (menuItem.itemId) {
+                R.id.action_refresh_schedule -> {
+                    Log.d(TAG, "──────── MANUAL REFRESH triggered → clearing caches + fresh fetch ────────")
+                    viewModel.forceRefresh()
+                    true
+                }
+                else -> false
+            }
+        }
+
         cardAdapter = ScheduleCardAdapter { item ->
             navigateToResult(item)
         }
@@ -79,20 +92,29 @@ class ScheduleFragment : Fragment() {
         }
 
         viewModel.scheduleItems.observe(viewLifecycleOwner) { items ->
+            Log.d(TAG, "════════ scheduleItems EMITTED: ${items.size} total items ════════")
+            items.forEachIndexed { i, it ->
+                Log.d(TAG, "  [$i] title=[${it.scheduleName}] type=${it.scheduleType} ep=${it.episodeNumber} " +
+                    "airing=${Instant.ofEpochMilli(it.airingAt).atZone(ZoneId.systemDefault()).toLocalDate().dayOfWeek} " +
+                    "banner=${shortUrl(it.scheduleBannerUrl)} poster=${shortUrl(it.schedulePosterUrl)} logo=${shortUrl(it.scheduleLogoUrl)}")
+            }
             autoSelectDay(items)
             updateContent(selectedDay)
         }
 
         viewModel.isLoading.observe(viewLifecycleOwner) { loading ->
+            Log.d(TAG, "isLoading = $loading")
             binding.scheduleProgress.isVisible = loading
         }
 
         viewModel.errorMessage.observe(viewLifecycleOwner) { error ->
+            if (error != null) Log.w(TAG, "errorMessage = [$error]")
             binding.scheduleErrorText.isVisible = error != null
             binding.scheduleErrorText.text = error ?: ""
         }
 
         viewModel.statusMessage.observe(viewLifecycleOwner) { msg ->
+            Log.d(TAG, "statusMessage = [${msg ?: "(cleared)"}]")
             if (!msg.isNullOrBlank()) {
                 binding.scheduleStatusBar.isVisible = true
                 binding.scheduleStatusBar.text = msg
@@ -101,6 +123,7 @@ class ScheduleFragment : Fragment() {
             }
         }
 
+        Log.d(TAG, "onViewCreated done → calling loadSchedule()")
         viewModel.loadSchedule()
     }
 
@@ -115,6 +138,7 @@ class ScheduleFragment : Fragment() {
 
         if (todayItems.isNotEmpty()) {
             selectedDay = today
+            Log.d(TAG, "autoSelectDay → TODAY ($today) has ${todayItems.size} items")
             return
         }
 
@@ -130,9 +154,11 @@ class ScheduleFragment : Fragment() {
                         .dayOfWeek == day
                 }) {
                 selectedDay = day
+                Log.d(TAG, "autoSelectDay → first non-empty day = $day")
                 return
             }
         }
+        Log.d(TAG, "autoSelectDay → no items on any day, keeping selectedDay=$selectedDay")
     }
 
     private fun dayItems(day: DayOfWeek): List<WeeklyScheduleItem> {
@@ -147,6 +173,7 @@ class ScheduleFragment : Fragment() {
 
     private fun updateContent(day: DayOfWeek) {
         val dayItems = dayItems(day)
+        Log.d(TAG, "updateContent(day=$day) → ${dayItems.size} items to render: ${dayItems.map { it.scheduleName }}")
         binding.scheduleEmptyText.isVisible = dayItems.isEmpty() && viewModel.errorMessage.value == null
         binding.scheduleRecycler.isVisible = dayItems.isNotEmpty()
 
@@ -156,12 +183,15 @@ class ScheduleFragment : Fragment() {
 
     private fun onDaySelected(day: DayOfWeek) {
         if (day == selectedDay) {
+            Log.d(TAG, "TAB CHANGE ignored → tapped already-selected day $day")
             highlightDayPill(day)
             return
         }
+        Log.d(TAG, "──────── TAB CHANGE: $selectedDay → $day ────────")
         selectedDay = day
 
         val dayItems = dayItems(day)
+        Log.d(TAG, "TAB CHANGE → day=$day has ${dayItems.size} items: ${dayItems.map { it.scheduleName }}")
         binding.scheduleEmptyText.isVisible = dayItems.isEmpty() && viewModel.errorMessage.value == null
         binding.scheduleRecycler.isVisible = dayItems.isNotEmpty()
 
@@ -195,6 +225,7 @@ class ScheduleFragment : Fragment() {
     }
 
     private fun navigateToResult(item: WeeklyScheduleItem) {
+        Log.d(TAG, "navigateToResult → search for [${item.scheduleName}] (id=${item.scheduleId})")
         val name = item.scheduleName ?: return
         com.lagradost.cloudstream3.MainActivity.nextSearchQuery = name
         val bottomNav = activity?.findViewById<BottomNavigationView>(R.id.nav_view)
@@ -204,8 +235,18 @@ class ScheduleFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        Log.d(TAG, "onDestroyView")
         super.onDestroyView()
         _binding = null
+    }
+
+    companion object {
+        const val TAG = "SCHEDULE_LOGS"
+
+        fun shortUrl(url: String?): String {
+            if (url.isNullOrBlank()) return "∅"
+            return url.substringAfterLast('/').take(24)
+        }
     }
 }
 
@@ -221,7 +262,7 @@ class ScheduleCardAdapter(
     }
 
     override fun onBindViewHolder(holder: CardViewHolder, position: Int) {
-        holder.bind(getItem(position))
+        holder.bind(getItem(position), position)
     }
 
     inner class CardViewHolder(
@@ -230,7 +271,11 @@ class ScheduleCardAdapter(
 
         private val timeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
 
-        fun bind(item: WeeklyScheduleItem) {
+        fun bind(item: WeeklyScheduleItem, position: Int) {
+            Log.d(ScheduleFragment.TAG, "bind[pos=$position] CONTAINER=[${item.scheduleName}] ← " +
+                "banner=${ScheduleFragment.shortUrl(item.scheduleBannerUrl)} " +
+                "poster=${ScheduleFragment.shortUrl(item.schedulePosterUrl)} " +
+                "logo=${ScheduleFragment.shortUrl(item.scheduleLogoUrl)}")
             binding.schedulePosterBg.setImageDrawable(null)
             binding.scheduleLogo.setImageDrawable(null)
 
@@ -247,38 +292,36 @@ class ScheduleCardAdapter(
 
             val logoUrl = item.scheduleLogoUrl
             if (!logoUrl.isNullOrBlank() && logoUrl.startsWith("http")) {
+                Log.d(ScheduleFragment.TAG, "  → [${item.scheduleName}] showing LOGO (title text hidden): ${ScheduleFragment.shortUrl(logoUrl)}")
                 binding.scheduleLogo.isVisible = true
                 binding.scheduleName.isVisible = false
-                // Tag guard: only apply the logo if this viewholder is still bound to this item
-                binding.scheduleLogo.tag = logoUrl
+                // error(null) ensures a failed/404 load leaves no ghost of the previous image
                 binding.scheduleLogo.loadImage(logoUrl) {
-                    listener(
-                        onSuccess = { _, _ ->
-                            if (binding.scheduleLogo.tag != logoUrl) {
-                                binding.scheduleLogo.setImageDrawable(null)
-                            }
-                        }
-                    )
+                    placeholder(null)
+                    error(null)
                 }
             } else {
+                Log.d(ScheduleFragment.TAG, "  → [${item.scheduleName}] showing TITLE TEXT (no logo)")
                 binding.scheduleLogo.isVisible = false
                 binding.scheduleName.isVisible = true
                 binding.scheduleName.text = item.scheduleName
             }
 
             val imageUrl = item.scheduleBannerUrl ?: item.schedulePosterUrl
+            val bannerSource = when {
+                !item.scheduleBannerUrl.isNullOrBlank() -> "BANNER"
+                !item.schedulePosterUrl.isNullOrBlank() -> "POSTER(fallback)"
+                else -> "NONE"
+            }
             if (!imageUrl.isNullOrBlank() && imageUrl.startsWith("http")) {
-                // Tag guard: prevents a recycled viewholder from showing a stale banner
-                binding.schedulePosterBg.tag = imageUrl
+                Log.d(ScheduleFragment.TAG, "  → [${item.scheduleName}] background image=$bannerSource: ${ScheduleFragment.shortUrl(imageUrl)}")
+                // error(null) ensures a failed/404 load leaves no ghost of the previous image
                 binding.schedulePosterBg.loadImage(imageUrl) {
-                    listener(
-                        onSuccess = { _, _ ->
-                            if (binding.schedulePosterBg.tag != imageUrl) {
-                                binding.schedulePosterBg.setImageDrawable(null)
-                            }
-                        }
-                    )
+                    placeholder(null)
+                    error(null)
                 }
+            } else {
+                Log.w(ScheduleFragment.TAG, "  → [${item.scheduleName}] NO background image (banner+poster both empty) → card will be blank")
             }
 
             binding.scheduleWatchBtn.setOnClickListener {
