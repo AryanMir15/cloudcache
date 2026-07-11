@@ -862,6 +862,8 @@
     <string name="coming_this_week">Coming This Week</string>
     <string name="weekly_schedule">Weekly Schedule</string>
     <string name="refresh">Refresh</string>
+    <string name="show_poster_title_settings">Show titles on posters</string>
+    <string name="show_poster_title_settings_des">Turn off to show only poster art (hides titles in search, filters and library)</string>
     <string name="no_episodes_scheduled">No episodes scheduled</string>
     <string name="schedule_today">Today</string>
     <string name="schedule_tomorrow">Tomorrow</string>

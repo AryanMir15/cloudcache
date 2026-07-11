@@ -58,6 +58,17 @@ class SettingsUI : BasePreferenceFragmentCompat() {
             true
         }
 
+        getPref(R.string.show_title_key)?.setOnPreferenceChangeListener { pref, newValue ->
+            settingsManager.edit {
+                putBoolean(pref.context.getString(R.string.show_title_key), newValue as? Boolean ?: true)
+            }
+            SearchResultBuilder.updateCache(pref.context)
+            HomeChildItemAdapter.sharedPool.clear()
+            ParentItemAdapter.sharedPool.clear()
+            SearchAdapter.sharedPool.clear()
+            true
+        }
+
         getPref(R.string.poster_size_key)?.setOnPreferenceChangeListener { _, newValue ->
             HomeChildItemAdapter.sharedPool.clear()
             ParentItemAdapter.sharedPool.clear()

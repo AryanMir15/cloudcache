@@ -69,6 +69,12 @@
             android:key="@string/poster_ui_key"
             android:title="@string/poster_ui_settings" />
         <SwitchPreference
+            android:defaultValue="true"
+            android:icon="@drawable/title_24px"
+            android:key="@string/show_title_key"
+            android:summary="@string/show_poster_title_settings_des"
+            android:title="@string/show_poster_title_settings" />
+        <SwitchPreference
             android:icon="@drawable/search_icon"
             android:summary="@string/advanced_search_des"
             android:title="@string/advanced_search"
