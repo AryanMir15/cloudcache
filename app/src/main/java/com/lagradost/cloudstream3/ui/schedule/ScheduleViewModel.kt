@@ -63,7 +63,7 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
             if (tmdbKey.isNullOrBlank()) {
                 _statusMessage.postValue("Configure TMDB API key in Settings for high quality banners")
             } else {
-                _statusMessage.postValue("Fetching high quality banners from TMDB...")
+                _statusMessage.postValue("Fetching high quality banners from TMDB (may take ~1 min, running in background)...")
             }
 
             val fresh = withContext(Dispatchers.IO) {
@@ -81,6 +81,50 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
                 allItems = fresh
                 applyFilter()
             } else if (cached.isEmpty() && fresh.isNullOrEmpty()) {
+                _errorMessage.postValue("Could not load schedule")
+            }
+        }
+    }
+
+    /**
+     * Manual trigger: wipe all caches and pull a completely fresh schedule + TMDB
+     * enrichment, bypassing the TTL / cache-valid short-circuit.
+     */
+    fun forceRefresh() {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launchSafe {
+            _errorMessage.postValue(null)
+            _isLoading.postValue(true)
+
+            withContext(Dispatchers.IO) {
+                WeeklyScheduleManager.clearAllCaches()
+            }
+            allItems = emptyList()
+
+            val ctx = getApplication<Application>()
+            val prefs = PreferenceManager.getDefaultSharedPreferences(ctx)
+            val tmdbKey = prefs.getString("tmdb_api_key", null)
+            if (tmdbKey.isNullOrBlank()) {
+                _statusMessage.postValue("Configure TMDB API key in Settings for high quality banners")
+            } else {
+                _statusMessage.postValue("Refreshing schedule + banners from TMDB (may take ~1 min)...")
+            }
+
+            val fresh = withContext(Dispatchers.IO) {
+                try {
+                    WeeklyScheduleManager.fetchFreshSchedule()
+                } catch (e: Exception) {
+                    null
+                }
+            }
+
+            _isLoading.postValue(false)
+            _statusMessage.postValue(null)
+
+            if (fresh != null && fresh.isNotEmpty()) {
+                allItems = fresh
+                applyFilter()
+            } else {
                 _errorMessage.postValue("Could not load schedule")
             }
         }
