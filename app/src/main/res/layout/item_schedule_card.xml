@@ -40,17 +40,22 @@
                 <!-- Left: Title/Logo -->
                 <LinearLayout
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="center_vertical"
                     android:layout_weight="1"
+                    android:gravity="center_vertical"
                     android:orientation="vertical">
 
-                    <!-- Logo (replaces title when available) -->
+                    <!-- Logo (replaces title when available).
+                         width=match_parent so it fills the left column on any screen size
+                         (shrinks on phones, grows on tablets) while maxHeight + adjustViewBounds
+                         + fitStart preserve aspect ratio and cap the size. -->
                     <ImageView
                         android:id="@+id/schedule_logo"
-                        android:layout_width="180dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:adjustViewBounds="true"
-                        android:maxHeight="64dp"
+                        android:maxHeight="84dp"
                         android:scaleType="fitStart"
                         android:visibility="gone"
                         tools:src="@android:drawable/ic_menu_gallery"
@@ -73,7 +78,7 @@
                         android:scaleY="1.18"
                         android:textColor="@android:color/white"
                         android:textScaleX="1.05"
-                        android:textSize="22sp"
+                        android:textSize="25sp"
                         android:textStyle="bold"
                         android:transformPivotY="0dp"
                         tools:text="The Duke's Son Claims He Won't Love Me Yet Showers Me with Adoration" />
