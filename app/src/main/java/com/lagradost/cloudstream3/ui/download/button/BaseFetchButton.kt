@@ -168,9 +168,11 @@ abstract class BaseFetchButton(context: Context, attributeSet: AttributeSet) :
         }
     }
 
-    /*fun downloadDeleteEvent(data: Int) {
-
-    }*/
+    fun downloadDeleteEvent(data: Int) {
+        if (data == persistentId) {
+            resetView()
+        }
+    }
 
     /*fun downloadEvent(data: Pair<Int, VideoDownloadManager.DownloadActionType>) {
         val (id, action) = data
@@ -189,7 +191,7 @@ abstract class BaseFetchButton(context: Context, attributeSet: AttributeSet) :
 
     override fun onAttachedToWindow() {
         VideoDownloadManager.downloadStatusEvent += ::downloadStatusEvent
-        // VideoDownloadManager.downloadDeleteEvent += ::downloadDeleteEvent
+        VideoDownloadManager.downloadDeleteEvent += ::downloadDeleteEvent
         // VideoDownloadManager.downloadEvent += ::downloadEvent
         VideoDownloadManager.downloadProgressEvent += ::downloadProgressEvent
 
@@ -204,7 +206,7 @@ abstract class BaseFetchButton(context: Context, attributeSet: AttributeSet) :
 
     override fun onDetachedFromWindow() {
         VideoDownloadManager.downloadStatusEvent -= ::downloadStatusEvent
-        // VideoDownloadManager.downloadDeleteEvent -= ::downloadDeleteEvent
+        VideoDownloadManager.downloadDeleteEvent -= ::downloadDeleteEvent
         // VideoDownloadManager.downloadEvent -= ::downloadEvent
         VideoDownloadManager.downloadProgressEvent -= ::downloadProgressEvent
 
