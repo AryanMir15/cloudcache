@@ -22,6 +22,7 @@ import com.lagradost.cloudstream3.databinding.FragmentScheduleBinding
 import com.lagradost.cloudstream3.databinding.ItemScheduleCardBinding
 import com.lagradost.cloudstream3.utils.ImageLoader.loadImage
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
+import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -54,6 +55,8 @@ class ScheduleFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         themeColor = requireContext().colorFromAttribute(R.attr.colorPrimary)
+
+        fixSystemBarsPadding(view)
 
         dayPillMap = mapOf(
             DayOfWeek.MONDAY to binding.dayMon,
