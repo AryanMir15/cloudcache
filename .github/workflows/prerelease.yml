@@ -5,7 +5,6 @@ on:
     branches: [ master ]
     paths-ignore:
       - '*.md'
-      - '*.json'
       - '**/wcokey.txt'
 
 concurrency:
@@ -19,15 +18,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - name: Generate access token
-      id: generate_token
-      uses: tibdex/github-app-token@v2
-      with:
-        app_id: ${{ secrets.GH_APP_ID }}
-        private_key: ${{ secrets.GH_APP_KEY }}
-        repository: "recloudstream/secrets"
-
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v4
 
     - name: Set up JDK 17
       uses: actions/setup-java@v5
@@ -38,40 +29,28 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
 
-    - name: Fetch keystore
-      id: fetch_keystore
+    - name: Decode keystore
+      env:
+        SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
       run: |
-        TMP_KEYSTORE_FILE_PATH="${RUNNER_TEMP}"/keystore
-        mkdir -p "${TMP_KEYSTORE_FILE_PATH}"
-        curl -H "Authorization: token ${{ steps.generate_token.outputs.token }}" -o "${TMP_KEYSTORE_FILE_PATH}/prerelease_keystore.keystore" "https://raw.githubusercontent.com/recloudstream/secrets/master/keystore.jks"
-        curl -H "Authorization: token ${{ steps.generate_token.outputs.token }}" -o "keystore_password.txt" "https://raw.githubusercontent.com/recloudstream/secrets/master/keystore_password.txt"
-        KEY_PWD="$(cat keystore_password.txt)"
-        echo "::add-mask::${KEY_PWD}"
-        echo "key_pwd=$KEY_PWD" >> $GITHUB_OUTPUT
+        echo "$SIGNING_KEY_BASE64" | base64 -d > $RUNNER_TEMP/keystore.jks
 
     - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v5
+      uses: gradle/actions/setup-gradle@v4
       with:
         cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
 
     - name: Run Gradle
-      run: ./gradlew assemblePrereleaseRelease androidSourcesJar makeJar
+      run: ./gradlew assemblePrereleaseRelease
       env:
-        SIGNING_KEY_ALIAS: "key0"
-        SIGNING_KEY_PASSWORD: ${{ steps.fetch_keystore.outputs.key_pwd }}
-        SIGNING_STORE_PASSWORD: ${{ steps.fetch_keystore.outputs.key_pwd }}
-        SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
-        SIMKL_CLIENT_SECRET: ${{ secrets.SIMKL_CLIENT_SECRET }}
-        MDL_API_KEY: ${{ secrets.MDL_API_KEY }}
+        SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
 
     - name: Create pre-release
-      uses: marvinpinto/action-automatic-releases@latest
+      uses: softprops/action-gh-release@v2
       with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: "pre-release"
+        tag_name: "pre-release"
+        name: "Pre-release Build"
         prerelease: true
-        title: "Pre-release Build"
-        files: |
-          app/build/outputs/apk/prerelease/release/*.apk
-          app/build/libs/app-sources.jar
-          app/build/classes.jar
+        files: app/build/outputs/apk/prerelease/release/*.apk
