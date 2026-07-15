@@ -10,7 +10,7 @@
     <androidx.cardview.widget.CardView
         android:id="@+id/schedule_card"
         android:layout_width="match_parent"
-        android:layout_height="170dp"
+        android:layout_height="112dp"
         app:cardCornerRadius="12dp"
         app:cardElevation="6dp">
 
@@ -35,7 +35,7 @@
                 android:layout_height="match_parent"
                 android:gravity="bottom"
                 android:orientation="horizontal"
-                android:padding="16dp">
+                android:padding="12dp">
 
                 <!-- Left: Title/Logo -->
                 <LinearLayout
@@ -55,7 +55,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:adjustViewBounds="true"
-                        android:maxHeight="84dp"
+                        android:maxHeight="46dp"
                         android:scaleType="fitStart"
                         android:visibility="gone"
                         tools:src="@android:drawable/ic_menu_gallery"
@@ -75,10 +75,8 @@
                         android:shadowDy="1"
                         android:shadowRadius="6"
                         android:paddingVertical="2dp"
-                        android:scaleY="1.18"
                         android:textColor="@android:color/white"
-                        android:textScaleX="1.05"
-                        android:textSize="25sp"
+                        android:textSize="13sp"
                         android:textStyle="bold"
                         android:transformPivotY="0dp"
                         tools:text="The Duke's Son Claims He Won't Love Me Yet Showers Me with Adoration" />
@@ -105,9 +103,8 @@
                         android:shadowDy="1"
                         android:shadowRadius="4"
                         android:paddingVertical="2dp"
-                        android:scaleY="1.12"
                         android:textColor="#EEFFFFFF"
-                        android:textSize="38sp"
+                        android:textSize="22sp"
                         android:textStyle="bold"
                         android:transformPivotY="0dp"
                         tools:text="8:00 PM" />
@@ -125,9 +122,8 @@
                         android:shadowDy="1"
                         android:shadowRadius="4"
                         android:paddingVertical="1dp"
-                        android:scaleY="1.15"
                         android:textColor="#CCFFFFFF"
-                        android:textSize="15sp"
+                        android:textSize="11sp"
                         android:transformPivotY="0dp"
                         android:visibility="gone"
                         tools:text="Episode 12" />
@@ -136,17 +132,18 @@
                         android:id="@+id/schedule_watch_btn"
                         style="@style/SmallWhiteButton"
                         android:layout_width="wrap_content"
-                        android:layout_height="36dp"
-                        android:layout_marginTop="8dp"
-                        android:minWidth="80dp"
-                        android:paddingHorizontal="16dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:minHeight="28dp"
+                        android:minWidth="44dp"
+                        android:paddingHorizontal="12dp"
                         android:text="@string/schedule_watch"
                         android:textAllCaps="false"
-                        android:textSize="13sp"
+                        android:textSize="11sp"
                         app:icon="@drawable/ic_baseline_play_arrow_24"
                         app:iconGravity="textStart"
                         app:iconPadding="4dp"
-                        app:iconSize="16dp" />
+                        app:iconSize="12dp" />
 
                 </LinearLayout>
 
