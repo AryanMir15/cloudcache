@@ -184,7 +184,7 @@ object InAppUpdater {
         if (updateCommitHash.isNullOrBlank()) {
             return Update(false, null, null, null, null)
         }
-        Log.d(LOG_TAG, "Fetched GitHub tag: $updateCommitHash")
+        Log.d(LOG_TAG, "Fetched GitHub tag: $updateCommitHash (installed: ${currentCommitHash()})")
 
         return Update(
             currentCommitHash() != updateCommitHash,
