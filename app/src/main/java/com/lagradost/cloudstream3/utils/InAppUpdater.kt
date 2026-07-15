@@ -39,33 +39,33 @@ object InAppUpdater {
     private const val GITHUB_USER_NAME = "AryanMir15"
     private const val GITHUB_REPO = "cloudcache"
 
-    private const val PRERELEASE_PACKAGE_NAME = "com.lagradost.cloudstream3.prerelease"
+    private const val PRERELEASE_PACKAGE_NAME = "com.lagradost.cloudcache.prerelease"
     private const val LOG_TAG = "InAppUpdater"
 
     private data class GithubAsset(
-        @JsonProperty("name") val name: String,
-        @JsonProperty("size") val size: Int, // Size in bytes
-        @JsonProperty("browser_download_url") val browserDownloadUrl: String,
-        @JsonProperty("content_type") val contentType: String, // application/vnd.android.package-archive
+        @JsonProperty("name") val name: String?,
+        @JsonProperty("size") val size: Int?,
+        @JsonProperty("browser_download_url") val browserDownloadUrl: String?,
+        @JsonProperty("content_type") val contentType: String?,
     )
 
     private data class GithubRelease(
-        @JsonProperty("tag_name") val tagName: String, // Version code
-        @JsonProperty("body") val body: String?, // Description
-        @JsonProperty("assets") val assets: List<GithubAsset>,
-        @JsonProperty("target_commitish") val targetCommitish: String, // Branch
-        @JsonProperty("prerelease") val prerelease: Boolean,
-        @JsonProperty("node_id") val nodeId: String,
+        @JsonProperty("tag_name") val tagName: String?,
+        @JsonProperty("body") val body: String?,
+        @JsonProperty("assets") val assets: List<GithubAsset>?,
+        @JsonProperty("target_commitish") val targetCommitish: String?,
+        @JsonProperty("prerelease") val prerelease: Boolean?,
+        @JsonProperty("node_id") val nodeId: String?,
     )
 
     private data class GithubObject(
-        @JsonProperty("sha") val sha: String, // SHA-256 hash
-        @JsonProperty("type") val type: String,
-        @JsonProperty("url") val url: String,
+        @JsonProperty("sha") val sha: String?,
+        @JsonProperty("type") val type: String?,
+        @JsonProperty("url") val url: String?,
     )
 
     private data class GithubTag(
-        @JsonProperty("object") val githubObject: GithubObject,
+        @JsonProperty("object") val githubObject: GithubObject?,
     )
 
     private data class Update(
@@ -93,16 +93,23 @@ object InAppUpdater {
     private suspend fun Activity.getReleaseUpdate(): Update {
         val url = "https://api.github.com/repos/$GITHUB_USER_NAME/$GITHUB_REPO/releases"
         val headers = mapOf("Accept" to "application/vnd.github.v3+json")
-        val response = parseJson<List<GithubRelease>>(
-            app.get(url, headers = headers).text
-        )
+        val responseText = app.get(url, headers = headers).text
+        val response = try {
+            parseJson<List<GithubRelease>>(responseText)
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Failed to parse releases JSON: ${e.message}")
+            null
+        }
+        if (response.isNullOrEmpty()) {
+            return Update(false, null, null, null, null)
+        }
 
         val versionRegex = Regex("""(.*?((\d+)\.(\d+)\.(\d+)).*\.apk)""")
         val versionRegexLocal = Regex("""(.*?((\d+)\.(\d+)\.(\d+)).*)""")
         val foundList = response.filter { rel ->
-            !rel.prerelease
+            rel.prerelease == true
         }.sortedWith(compareBy { release ->
-            release.assets.firstOrNull { it.contentType == "application/vnd.android.package-archive" }?.name?.let { it1 ->
+            release.assets?.firstOrNull { it.contentType == "application/vnd.android.package-archive" }?.name?.let { it1 ->
                 versionRegex.find(
                     it1
                 )?.groupValues?.let {
@@ -112,10 +119,10 @@ object InAppUpdater {
         }).toList()
 
         val found = foundList.lastOrNull()
-        val foundAsset = found?.assets?.getOrNull(0)
+        val foundAsset = found?.assets?.firstOrNull { it.contentType == "application/vnd.android.package-archive" }
         val foundVersion = foundAsset?.name?.let { versionRegex.find(it) }
 
-        if (foundVersion == null) {
+        if (foundVersion == null || foundAsset?.browserDownloadUrl.isNullOrBlank()) {
             return Update(false, null, null, null, null)
         }
 
@@ -123,22 +130,18 @@ object InAppUpdater {
             packageManager.getPackageInfo(it, 0)
         }
 
-        val shouldUpdate = if (foundAsset.browserDownloadUrl.isBlank()) {
-            false
-        } else {
-            currentVersion?.versionName?.let { versionName ->
-                versionRegexLocal.find(versionName)?.groupValues?.let {
-                    it[3].toInt() * 100_000_000 + it[4].toInt() * 10_000 + it[5].toInt()
-                }
-            }?.compareTo(
-                foundVersion.groupValues.let {
-                    it[3].toInt() * 100_000_000 + it[4].toInt() * 10_000 + it[5].toInt()
-                })!! < 0
-        }
+        val shouldUpdate = currentVersion?.versionName?.let { versionName ->
+            versionRegexLocal.find(versionName)?.groupValues?.let {
+                it[3].toInt() * 100_000_000 + it[4].toInt() * 10_000 + it[5].toInt()
+            }
+        }?.compareTo(
+            foundVersion.groupValues.let {
+                it[3].toInt() * 100_000_000 + it[4].toInt() * 10_000 + it[5].toInt()
+            })!! < 0
 
         return Update(
             shouldUpdate,
-            foundAsset.browserDownloadUrl,
+            foundAsset!!.browserDownloadUrl,
             foundVersion.groupValues[2],
             found.body,
             found.nodeId
@@ -150,24 +153,37 @@ object InAppUpdater {
             "https://api.github.com/repos/$GITHUB_USER_NAME/$GITHUB_REPO/git/ref/tags/pre-release"
         val releaseUrl = "https://api.github.com/repos/$GITHUB_USER_NAME/$GITHUB_REPO/releases"
         val headers = mapOf("Accept" to "application/vnd.github.v3+json")
-        val response = parseJson<List<GithubRelease>>(
-            app.get(releaseUrl, headers = headers).text
-        )
-
-        val found = response.lastOrNull { rel ->
-            rel.prerelease || rel.tagName == "pre-release"
+        val responseText = app.get(releaseUrl, headers = headers).text
+        val response = try {
+            parseJson<List<GithubRelease>>(responseText)
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Failed to parse releases JSON: ${e.message}")
+            null
         }
-
-        val foundAsset = found?.assets?.filter { it ->
-            it.contentType == "application/vnd.android.package-archive"
-        }?.getOrNull(0)
-
-        if (foundAsset == null) {
+        if (response.isNullOrEmpty()) {
             return Update(false, null, null, null, null)
         }
 
-        val tagResponse = parseJson<GithubTag>(app.get(tagUrl, headers = headers).text)
-        val updateCommitHash = tagResponse.githubObject.sha.trim().take(7)
+        val found = response.lastOrNull { rel ->
+            rel.prerelease == true || rel.tagName == "pre-release"
+        }
+
+        val foundAsset = found?.assets?.firstOrNull { it.contentType == "application/vnd.android.package-archive" }
+
+        if (foundAsset == null || foundAsset.browserDownloadUrl.isNullOrBlank()) {
+            return Update(false, null, null, null, null)
+        }
+
+        val tagResponse = try {
+            parseJson<GithubTag>(app.get(tagUrl, headers = headers).text)
+        } catch (e: Exception) {
+            Log.e(LOG_TAG, "Failed to parse tag JSON: ${e.message}")
+            null
+        }
+        val updateCommitHash = tagResponse?.githubObject?.sha?.trim()?.take(7)
+        if (updateCommitHash.isNullOrBlank()) {
+            return Update(false, null, null, null, null)
+        }
         Log.d(LOG_TAG, "Fetched GitHub tag: $updateCommitHash")
 
         return Update(
