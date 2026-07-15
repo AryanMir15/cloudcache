@@ -47,6 +47,17 @@ jobs:
         SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
 
+    - name: Force-update pre-release tag to current commit
+      run: |
+        git tag -f pre-release
+        git push -f origin pre-release
+
+    - name: Delete old pre-release if exists
+      continue-on-error: true
+      run: gh release delete pre-release --yes --cleanup-tag
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Create pre-release
       uses: softprops/action-gh-release@v2
       with:
