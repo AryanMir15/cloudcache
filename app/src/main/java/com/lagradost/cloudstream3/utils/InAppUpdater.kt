@@ -51,7 +51,7 @@ object InAppUpdater {
 
     private data class GithubRelease(
         @JsonProperty("tag_name") val tagName: String, // Version code
-        @JsonProperty("body") val body: String, // Description
+        @JsonProperty("body") val body: String?, // Description
         @JsonProperty("assets") val assets: List<GithubAsset>,
         @JsonProperty("target_commitish") val targetCommitish: String, // Branch
         @JsonProperty("prerelease") val prerelease: Boolean,
