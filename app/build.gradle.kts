@@ -107,8 +107,8 @@ android {
         applicationId = "com.lagradost.cloudcache"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 70
-        versionName = "4.9.0"
+        versionCode = 71
+        versionName = "4.10.0"
 
         manifestPlaceholders["target_sdk_version"] = libs.versions.targetSdk.get()
 
