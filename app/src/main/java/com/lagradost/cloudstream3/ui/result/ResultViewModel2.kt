@@ -4916,8 +4916,8 @@ class ResultViewModel2 : ViewModel() {
                     val episode =
                         autostart.id?.let { id -> all.firstOrNull { it.id == id } }
                             ?: autostart.episode?.let { ep ->
-                                currentEpisodes[currentIndex]?.firstOrNull { it.episode == ep && it.season == autostart.episode }
-                                    ?: all.firstOrNull { it.episode == ep && it.season == autostart.episode }
+                                currentEpisodes[currentIndex]?.firstOrNull { it.episode == ep && it.season == autostart.season }
+                                    ?: all.firstOrNull { it.episode == ep && it.season == autostart.season }
                             }
                             ?: return@launchSafe
                     handleAction(
