@@ -883,7 +883,7 @@ class ResultFragmentTv : BaseFragment<FragmentResultTvBinding>(
                         resultCastText.setText(d.actorsText)
                         resultNextAiring.setText(d.nextAiringEpisode)
                         resultNextAiringTime.setText(d.nextAiringDate)
-                        resultPoster.loadImage(d.posterImage)
+                        resultPoster.loadImage(d.posterImage, headers = d.posterHeaders)
 
                         var isExpanded = false
                         resultDescription.apply {
@@ -916,7 +916,7 @@ class ResultFragmentTv : BaseFragment<FragmentResultTvBinding>(
                             R.drawable.profile_bg_teal
                         ).random()
 
-                        backgroundPoster.loadImage(d.posterBackgroundImage) {
+                        backgroundPoster.loadImage(d.posterBackgroundImage, headers = d.posterHeaders) {
                             error { getImageFromDrawable(context ?: return@error null, error) }
                         }
 
