@@ -17,8 +17,6 @@ import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.plugins.PluginManager
 import com.lagradost.cloudstream3.utils.txt
 import com.lagradost.cloudstream3.utils.AppContextUtils.createNotificationChannel
-import com.lagradost.cloudstream3.utils.AppContextUtils.getApiDubstatusSettings
-import com.lagradost.cloudstream3.utils.Coroutines.ioWork
 import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
 import com.lagradost.cloudstream3.utils.downloader.DownloadQueueManager
@@ -27,14 +25,11 @@ import com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager
 import com.lagradost.cloudstream3.utils.downloader.DownloadUtils.getImageBitmapFromUrl
 import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
 import com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached
-import com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadEpisodeCached
 import com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE
 import com.lagradost.cloudstream3.utils.DOWNLOAD_EPISODE_CACHE
-import com.lagradost.cloudstream3.utils.RESULT_SUBSCRIBED_STATE_DATA
 import com.lagradost.cloudstream3.DubStatus
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
-import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.EpisodeResponse
 import com.lagradost.cloudstream3.ui.result.ResultEpisode
 import com.lagradost.cloudstream3.ui.result.VideoWatchState
@@ -42,7 +37,7 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.SubtitleFile
 import android.os.StatFs
 import android.net.ConnectivityManager
-import android.preference.PreferenceManager
+import androidx.preference.PreferenceManager
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.TimeUnit
 
@@ -57,9 +52,6 @@ const val EPISODE_CHECK_NOTIFICATION_ID = 938712898 // Random unique
 class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParameters) :
     CoroutineWorker(context, workerParams) {
     companion object {
-        const val KEY_RETRY_COUNT = "retry_count"
-        const val MAX_API_RETRY_COUNT = 3
-
         fun enqueuePeriodicWork(context: Context?, intervalHours: Int = 12) {
             if (context == null) return
 
@@ -100,26 +92,6 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         fun cancelWork(context: Context?) {
             if (context == null) return
             WorkManager.getInstance(context).cancelUniqueWork(EPISODE_CHECK_WORK_NAME)
-        }
-
-        fun buildRetryRequest(retryCount: Int): OneTimeWorkRequest {
-            val data = Data.Builder()
-                .putInt(KEY_RETRY_COUNT, retryCount)
-                .build()
-
-            return OneTimeWorkRequest.Builder(EpisodeCheckWorkManager::class.java)
-                .setInputData(data)
-                .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build()
-                )
-                .setBackoffCriteria(
-                    BackoffPolicy.EXPONENTIAL,
-                    WorkRequest.MIN_BACKOFF_MILLIS,
-                    TimeUnit.MILLISECONDS
-                )
-                .build()
         }
     }
 
@@ -162,8 +134,6 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_DISABLED] Episode checking is disabled, skipping")
             return Result.success()
         }
-
-        val retryCount = inputData.getInt(KEY_RETRY_COUNT, 0)
         
         try {
             android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_START] Episode check work started")
@@ -180,16 +150,11 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
                     FOREGROUND_SERVICE_TYPE_DATA_SYNC
                 ) else ForegroundInfo(EPISODE_CHECK_NOTIFICATION_ID, progressNotificationBuilder.build(),)
             setForeground(foregroundInfo)
-
-            // Get retry count from input
-            val currentRetry = inputData.getInt(KEY_RETRY_COUNT, 0)
-            if (currentRetry > 0) {
-                android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_RETRY] Retry attempt $currentRetry/$MAX_API_RETRY_COUNT")
-            }
             
             val subscriptions = DataStoreHelper.getAllSubscriptions()
             if (subscriptions.isEmpty()) {
-                android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_SKIP] No subscriptions found, cancelling work")
+                android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_SKIP] No subscriptions found, showing info notification")
+                showCompletionNotification(0, 0, 0)
                 return Result.success()
             }
             
@@ -203,41 +168,56 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             
             val max = subscriptions.size
             var progress = 0
+            var checked = 0
+            var apiFailures = 0
+            var newEpisodesFound = 0
             updateProgress(max, progress, true)
             
             subscriptions.amap { subscription ->
                 try {
-                    checkSingleSubscription(subscription)
+                    val result = checkSingleSubscription(subscription)
+                    when (result) {
+                        is CheckResult.NewEpisodes -> newEpisodesFound++
+                        is CheckResult.ApiFailure -> apiFailures++
+                        is CheckResult.NoChange -> { /* no-op */ }
+                    }
+                    checked++
                     updateProgress(max, ++progress, false)
                 } catch (t: Throwable) {
                     android.util.Log.e("EpisodeCheck", "[EPISODE_CHECK_ERROR] Failed checking: ${subscription.name}", t)
+                    apiFailures++
                     // Continue with other subscriptions, don't fail entire work
                 }
             }
             
-            android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_COMPLETE] Episode check work completed successfully")
+            android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_COMPLETE] Checked: $checked, Failures: $apiFailures, New episodes: $newEpisodesFound")
+            
+            // Show completion notification
+            showCompletionNotification(checked, apiFailures, newEpisodesFound)
+            
             return Result.success()
             
         } catch (t: Throwable) {
             android.util.Log.e("EpisodeCheck", "[EPISODE_CHECK_FATAL] Episode check failed", t)
             logError(t)
             
-            // Retry via WorkManager if under max retries
-            return if (retryCount < MAX_API_RETRY_COUNT) {
-                android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_RETRY] Scheduling retry ${retryCount + 1}/$MAX_API_RETRY_COUNT")
-                Result.retry()
-            } else {
-                android.util.Log.w("EpisodeCheck", "[EPISODE_CHECK_RETRY] Max retries exceeded, giving up")
-                Result.success() // Don't crash, just give up
-            }
+            // Use WorkManager's built-in exponential backoff for retries
+            // Result.retry() will be retried by WorkManager with increasing delays
+            return Result.retry()
         }
     }
 
-    private suspend fun checkSingleSubscription(subscription: SubscribedData) {
-        val id = subscription.id ?: return
+    private sealed class CheckResult {
+        data object NoChange : CheckResult()
+        data class NewEpisodes(val count: Int) : CheckResult()
+        data object ApiFailure : CheckResult()
+    }
+
+    private suspend fun checkSingleSubscription(subscription: SubscribedData): CheckResult {
+        val id = subscription.id ?: return CheckResult.ApiFailure
         val api = getApiFromNameNull(subscription.apiName) ?: run {
             android.util.Log.w("EpisodeCheck", "[EPISODE_CHECK_SKIP] API not found: ${subscription.apiName}")
-            return
+            return CheckResult.ApiFailure
         }
         
         android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_START] Checking: ${subscription.name}")
@@ -249,7 +229,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         
         if (response == null) {
             android.util.Log.w("EpisodeCheck", "[EPISODE_CHECK_SKIP] No response for: ${subscription.name}")
-            return
+            return CheckResult.ApiFailure
         }
         
         // Get latest episode counts per dub status
@@ -274,6 +254,8 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         // Update cache with fresh episode count (for offline mode support)
         updateCachedEpisodeCount(id, latestEpisodes)
         
+        if (newEpisodesByStatus.isEmpty()) return CheckResult.NoChange
+        
         // Notify or auto-download for each dub status with new episodes
         var allHandled = true
         newEpisodesByStatus.forEach { (status, latestEpisode) ->
@@ -282,11 +264,11 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         }
         
         // Only update subscription tracking if all episodes were handled successfully
-        // (or if there were no new episodes). This ensures failed auto-downloads
-        // will be retried on the next check.
-        if (allHandled || newEpisodesByStatus.isEmpty()) {
+        if (allHandled) {
             DataStoreHelper.updateSubscribedData(id, subscription, response)
         }
+        
+        return CheckResult.NewEpisodes(newEpisodesByStatus.values.sum())
     }
 
     private fun updateCachedEpisodeCount(id: Int, latestEpisodes: Map<DubStatus, Int?>) {
@@ -471,7 +453,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             android.util.Log.i("EpisodeCheck", "[AUTO_DOWNLOAD_QUEUED] Episode $episodeNumber of ${subscription.name} added to queue")
             
             // Show notification that download was queued
-            showAutoDownloadNotification(subscription, episodeNumber)
+            showAutoDownloadNotification(subscription, episodeNumber, dubStatus)
             return true // Successfully queued
             
         } catch (t: Throwable) {
@@ -568,6 +550,45 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         }
     }
 
+    private fun showCompletionNotification(checked: Int, failures: Int, newEpisodes: Int) {
+        try {
+            val title = if (newEpisodes > 0) {
+                "New episodes found"
+            } else if (failures > 0) {
+                "Episode check completed"
+            } else {
+                "Episode check completed"
+            }
+
+            val description = buildString {
+                append("$checked checked")
+                if (newEpisodes > 0) append(", $newEpisodes with new episodes")
+                if (failures > 0) append(", $failures failed")
+                if (checked == 0) append("No subscriptions found — subscribe to shows to track new episodes")
+            }
+
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+
+            val pendingIntent =
+                PendingIntentCompat.getActivity(context, 0, intent, 0, false)
+
+            val notification =
+                updateNotificationBuilder.setContentTitle(title)
+                    .setContentText(description)
+                    .setContentIntent(pendingIntent)
+                    .setSmallIcon(R.drawable.ic_refresh)
+                    .setAutoCancel(true)
+                    .build()
+
+            notificationManager.notify(EPISODE_CHECK_NOTIFICATION_ID + 1, notification)
+            android.util.Log.d("EpisodeCheck", "[COMPLETION_NOTIFICATION] $description")
+        } catch (t: Throwable) {
+            android.util.Log.e("EpisodeCheck", "[COMPLETION_NOTIFICATION_ERROR]", t)
+        }
+    }
+
     private fun hasEnoughStorage(): Boolean {
         return try {
             val downloadPath = PreferenceManager.getDefaultSharedPreferences(context)
@@ -576,6 +597,13 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             if (downloadPath.isNullOrBlank()) {
                 android.util.Log.d("EpisodeCheck", "[STORAGE_CHECK] Download path is null or blank")
                 return false
+            }
+            
+            // SAF content URIs cannot be checked via StatFs; assume enough space
+            // The actual download pipeline handles its own storage validation
+            if (downloadPath.startsWith("content://")) {
+                android.util.Log.d("EpisodeCheck", "[STORAGE_CHECK] SAF path, assuming storage OK")
+                return true
             }
             
             val stat = StatFs(downloadPath)
@@ -609,18 +637,34 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         return try {
             val networkPref = DataStoreHelper.autoDownloadNetworkPreference
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val activeNetwork = cm.activeNetworkInfo
-            val isWifi = activeNetwork?.type == ConnectivityManager.TYPE_WIFI
-            val isMobile = activeNetwork?.type == ConnectivityManager.TYPE_MOBILE
             
-            val allowed = when (networkPref) {
-                "wifi_only" -> isWifi
-                "data_only" -> isMobile
-                "both" -> isWifi || isMobile
-                else -> isWifi // Default fallback
+            val allowed = if (SDK_INT >= 23) {
+                val activeNetwork = cm.activeNetwork ?: return false
+                val capabilities = cm.getNetworkCapabilities(activeNetwork) ?: return false
+                val isWifi = capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+                val isMobile = capabilities.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR)
+                
+                when (networkPref) {
+                    "wifi_only" -> isWifi
+                    "data_only" -> isMobile
+                    "both" -> isWifi || isMobile
+                    else -> isWifi // Default fallback
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                val activeNetwork = cm.activeNetworkInfo
+                val isWifi = activeNetwork?.type == ConnectivityManager.TYPE_WIFI
+                val isMobile = activeNetwork?.type == ConnectivityManager.TYPE_MOBILE
+                
+                when (networkPref) {
+                    "wifi_only" -> isWifi
+                    "data_only" -> isMobile
+                    "both" -> isWifi || isMobile
+                    else -> isWifi
+                }
             }
             
-            android.util.Log.d("EpisodeCheck", "[NETWORK_CHECK] Pref: $networkPref, WiFi: $isWifi, Mobile: $isMobile, Allowed: $allowed")
+            android.util.Log.d("EpisodeCheck", "[NETWORK_CHECK] Pref: $networkPref, Allowed: $allowed")
             allowed
             
         } catch (t: Throwable) {
@@ -658,6 +702,12 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
                 .getString(context.getString(com.lagradost.cloudstream3.R.string.download_path_key), null)
             
             if (downloadPath.isNullOrBlank()) return false
+            
+            // SAF content URIs cannot be checked via StatFs; assume enough space
+            if (downloadPath.startsWith("content://")) {
+                android.util.Log.d("EpisodeCheck", "[STORAGE_CHECK_ESTIMATE] SAF path, assuming storage OK")
+                return true
+            }
             
             val stat = StatFs(downloadPath)
             val availableBytes = stat.availableBytes
