@@ -302,26 +302,14 @@ class SyncViewModel : ViewModel() {
                     )
                 }
                 else -> {
-                    // For other sync providers, try to use copy if available, or fallback to modifying
-                    try {
-                        // Try to use reflection for copy() method if it's a data class
-                        val copyMethod = currentUser?.javaClass?.getMethod("copy")
-                        if (copyMethod != null) {
-                            val copy = copyMethod.invoke(currentUser)
-                            val episodesField = copy?.javaClass?.getDeclaredField("watchedEpisodes")
-                            episodesField?.isAccessible = true
-                            episodesField?.set(copy, episodes)
-                            copy as SyncAPI.AbstractSyncStatus
-                        } else {
-                            // Fallback: modify and post same reference (forces UI update)
-                            currentUser.watchedEpisodes = episodes
-                            currentUser
-                        }
-                    } catch (e: Exception) {
-                        // Fallback: modify and post same reference
-                        currentUser.watchedEpisodes = episodes
-                        currentUser
-                    }
+                    // Create new SyncStatus to ensure LiveData detects the change
+                    SyncAPI.SyncStatus(
+                        status = currentUser?.status ?: SyncWatchType.NONE,
+                        score = currentUser?.score,
+                        watchedEpisodes = episodes,
+                        isFavorite = currentUser?.isFavorite,
+                        maxEpisodes = currentUser?.maxEpisodes
+                    )
                 }
             }
             _userDataResponse.postValue(Resource.Success(updatedUser))
@@ -362,26 +350,14 @@ class SyncViewModel : ViewModel() {
                     )
                 }
                 else -> {
-                    // For other sync providers, try to use copy if available, or fallback to modifying
-                    try {
-                        // Try to use reflection for copy() method if it's a data class
-                        val copyMethod = currentUser?.javaClass?.getMethod("copy")
-                        if (copyMethod != null) {
-                            val copy = copyMethod.invoke(currentUser)
-                            val scoreField = copy?.javaClass?.getDeclaredField("score")
-                            scoreField?.isAccessible = true
-                            scoreField?.set(copy, score)
-                            copy as SyncAPI.AbstractSyncStatus
-                        } else {
-                            // Fallback: modify and post same reference (forces UI update)
-                            currentUser.score = score
-                            currentUser
-                        }
-                    } catch (e: Exception) {
-                        // Fallback: modify and post same reference
-                        currentUser.score = score
-                        currentUser
-                    }
+                    // Create new SyncStatus to ensure LiveData detects the change
+                    SyncAPI.SyncStatus(
+                        status = currentUser?.status ?: SyncWatchType.NONE,
+                        score = score,
+                        watchedEpisodes = currentUser?.watchedEpisodes,
+                        isFavorite = currentUser?.isFavorite,
+                        maxEpisodes = currentUser?.maxEpisodes
+                    )
                 }
             }
             _userDataResponse.postValue(Resource.Success(updatedUser))
@@ -413,26 +389,14 @@ class SyncViewModel : ViewModel() {
                     )
                 }
                 else -> {
-                    // For other sync providers, try to use copy if available, or fallback to modifying
-                    try {
-                        // Try to use reflection for copy() method if it's a data class
-                        val copyMethod = currentUser?.javaClass?.getMethod("copy")
-                        if (copyMethod != null) {
-                            val copy = copyMethod.invoke(currentUser)
-                            val statusField = copy?.javaClass?.getDeclaredField("status")
-                            statusField?.isAccessible = true
-                            statusField?.set(copy, newStatus)
-                            copy as SyncAPI.AbstractSyncStatus
-                        } else {
-                            // Fallback: modify and post same reference (forces UI update)
-                            currentUser.status = newStatus
-                            currentUser
-                        }
-                    } catch (e: Exception) {
-                        // Fallback: modify and post same reference
-                        currentUser.status = newStatus
-                        currentUser
-                    }
+                    // Create new SyncStatus to ensure LiveData detects the change
+                    SyncAPI.SyncStatus(
+                        status = newStatus,
+                        score = currentUser?.score,
+                        watchedEpisodes = currentUser?.watchedEpisodes,
+                        isFavorite = currentUser?.isFavorite,
+                        maxEpisodes = currentUser?.maxEpisodes
+                    )
                 }
             }
             _userDataResponse.postValue(Resource.Success(updatedUser))
@@ -722,6 +686,8 @@ class SyncViewModel : ViewModel() {
             syncs.clear()
             _syncsFlow.value = emptyMap()
         }
+        // Reset fetch flag so in-flight requests don't block future calls
+        isFetchingUserData.set(false)
         _metaResponse.postValue(null)
         _currentSynced.postValue(getMissing())
         _userDataResponse.postValue(null)
@@ -731,6 +697,8 @@ class SyncViewModel : ViewModel() {
     fun clearBlocking() {
         syncs.clear()
         _syncsFlow.value = emptyMap()
+        // Reset fetch flag so in-flight requests don't block future calls
+        isFetchingUserData.set(false)
         _metaResponse.postValue(null)
         _currentSynced.postValue(getMissing())
         _userDataResponse.postValue(null)

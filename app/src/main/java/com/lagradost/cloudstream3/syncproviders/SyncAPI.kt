@@ -106,6 +106,15 @@ abstract class SyncAPI : AuthAPI() {
         override var watchedEpisodes: Int? = null
         override var isFavorite: Boolean? = null
         override var maxEpisodes: Int? = null
+
+        /** Reset to defaults to prevent state leaking between entries */
+        fun reset() {
+            status = SyncWatchType.NONE
+            score = null
+            watchedEpisodes = null
+            isFavorite = null
+            maxEpisodes = null
+        }
     }
 
     data class SyncResult(
