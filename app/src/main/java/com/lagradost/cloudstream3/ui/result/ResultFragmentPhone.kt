@@ -1973,6 +1973,16 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         resultOverlappingPanels.requestLayout()
                         resultOverlappingPanels.invalidate()
 
+                        // [PROVIDER_DEFAULT_FIX] Reset the provider selection to one synced for this show,
+                        // so the panel doesn't show stale or missing data from a previous entry
+                        val currentSelected = syncModel.selectedProvider.value
+                        val syncedPrefixes = syncModel.synced.value.orEmpty()
+                            .filter { it.hasAccount && it.isSynced }
+                            .map { it.idPrefix }
+                        if (syncedPrefixes.isNotEmpty() && (currentSelected == null || currentSelected !in syncedPrefixes)) {
+                            syncModel.setSelectedProvider(syncedPrefixes.first())
+                        }
+
                         android.util.Log.d("[MINI_SYNC_PANEL]", "Scheduling panel open via post()")
                         resultOverlappingPanels.post {
                             android.util.Log.d("[MINI_SYNC_PANEL]", "Executing panel open - current panel state before open: ${resultOverlappingPanels.getSelectedPanel()}")
@@ -2683,7 +2693,8 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
                 // Populate provider selector dropdown (no "All Providers" — just direct providers)
                 syncBinding?.resultSyncProviderSelector?.let { spinner ->
-                    val providersWithAccounts = list.filter { it.hasAccount }
+                    // Only list providers that have an account AND a sync entry for this show
+                    val providersWithAccounts = list.filter { it.hasAccount && it.isSynced }
                     val providerNames = providersWithAccounts.map { it.name }
                     val providerPrefixes = providersWithAccounts.map { it.idPrefix }
                     
@@ -2806,10 +2817,27 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                             
                             // Check if user is not logged in (EmptySyncStatus)
                             if (d is SyncAPI.EmptySyncStatus) {
-                                resultSyncHolder.isVisible = false
-                                closed = true
+                                // Show an informative empty state instead of hiding the panel
+                                resultSyncHolder.isVisible = true
+                                syncBinding?.resultSyncSubtitle?.let { sub ->
+                                    sub.text = getString(R.string.sync_login_required)
+                                    sub.isVisible = true
+                                }
+                                resultSyncCheck.isEnabled = false
+                                resultSyncRating.isEnabled = false
+                                resultSyncAddEpisode.isEnabled = false
+                                resultSyncSubEpisode.isEnabled = false
+                                resultSyncCurrentEpisodes.isEnabled = false
+                                resultSyncSetScore.isEnabled = false
+                                closed = false
                             } else {
                                 resultSyncHolder.isVisible = true
+                                resultSyncCheck.isEnabled = true
+                                resultSyncRating.isEnabled = true
+                                resultSyncAddEpisode.isEnabled = true
+                                resultSyncSubEpisode.isEnabled = true
+                                resultSyncCurrentEpisodes.isEnabled = true
+                                resultSyncSetScore.isEnabled = true
                                 
                                 // Update subtitle based on sync status
                                 val isNotSynced = d.status == SyncWatchType.NONE && d.watchedEpisodes == 0

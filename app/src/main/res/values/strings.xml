@@ -472,6 +472,7 @@
     <string name="search_tracker_action">Search</string>
     <string name="searching">Searching…</string>
     <string name="tracked_on_provider">Tracked on %s</string>
+    <string name="sync_login_required">Not logged in — add a tracker account to sync</string>
     <string name="public_score_format">avg %s</string>
     <string name="authenticated_user" formatted="true">%s authenticated</string>
     <string name="authenticated_user_fail" formatted="true">Could not log in at %s</string>
