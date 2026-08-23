@@ -131,6 +131,10 @@ android {
         debug {
             buildConfigField("long", "BUILD_DATE", "0L")
             isDebuggable = true
+            // Debug builds get their own package so they can be installed
+            // alongside release builds of the same flavor (different signatures
+            // on the same applicationId cause install conflicts otherwise)
+            applicationIdSuffix = ".debug"
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
