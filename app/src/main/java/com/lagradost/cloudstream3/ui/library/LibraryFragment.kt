@@ -135,6 +135,11 @@ class LibraryFragment : BaseFragment<FragmentLibraryBinding>(
         binding.sortFab.setOnClickListener(sortChangeClickListener)
         binding.librarySort.setOnClickListener(sortChangeClickListener)
 
+        binding.libraryRefresh.setOnClickListener {
+            libraryViewModel.refreshLibrary(requireContext())
+            com.lagradost.cloudstream3.CommonActivity.showToast("Episode check started")
+        }
+
         binding.libraryRoot.findViewById<TextView>(androidx.appcompat.R.id.search_src_text)
             ?.apply {
                 tag = "tv_no_focus_tag"

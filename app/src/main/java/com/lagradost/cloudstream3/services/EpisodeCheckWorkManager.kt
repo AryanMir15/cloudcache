@@ -11,6 +11,7 @@ import androidx.core.net.toUri
 import androidx.work.*
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
+import com.lagradost.cloudstream3.APIHolder.getApiFromUrlNull
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.mvvm.logError
@@ -45,6 +46,7 @@ typealias SubscribedData = com.lagradost.cloudstream3.utils.DataStoreHelper.Subs
 
 const val EPISODE_CHECK_CHANNEL_ID = "cloudstream3.episode_check"
 const val EPISODE_CHECK_WORK_NAME = "work_episode_check"
+const val EPISODE_CHECK_MANUAL_TAG = "work_episode_check_manual"
 const val EPISODE_CHECK_CHANNEL_NAME = "Episode Check"
 const val EPISODE_CHECK_CHANNEL_DESCRIPTION = "Notifications for new episodes in ongoing series"
 const val EPISODE_CHECK_NOTIFICATION_ID = 938712898 // Random unique
@@ -82,6 +84,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             val oneTimeWorkRequest =
                 OneTimeWorkRequest.Builder(EpisodeCheckWorkManager::class.java)
                     .addTag(EPISODE_CHECK_WORK_NAME)
+                    .addTag(EPISODE_CHECK_MANUAL_TAG)
                     .setConstraints(constraints)
                     .build()
 
@@ -171,6 +174,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             var checked = 0
             var apiFailures = 0
             var newEpisodesFound = 0
+            val failureReasons = mutableListOf<String>()
             updateProgress(max, progress, true)
             
             subscriptions.amap { subscription ->
@@ -178,7 +182,10 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
                     val result = checkSingleSubscription(subscription)
                     when (result) {
                         is CheckResult.NewEpisodes -> newEpisodesFound++
-                        is CheckResult.ApiFailure -> apiFailures++
+                        is CheckResult.ApiFailure -> {
+                            apiFailures++
+                            failureReasons += result.reason
+                        }
                         is CheckResult.NoChange -> { /* no-op */ }
                     }
                     checked++
@@ -186,38 +193,40 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
                 } catch (t: Throwable) {
                     android.util.Log.e("EpisodeCheck", "[EPISODE_CHECK_ERROR] Failed checking: ${subscription.name}", t)
                     apiFailures++
+                    failureReasons += t.message ?: "Unknown error"
                     // Continue with other subscriptions, don't fail entire work
                 }
             }
             
-            android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_COMPLETE] Checked: $checked, Failures: $apiFailures, New episodes: $newEpisodesFound")
+            android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_COMPLETE] Checked: $checked, Failures: $apiFailures, New episodes: $newEpisodesFound, Reasons: $failureReasons")
             
             // Show completion notification
-            showCompletionNotification(checked, apiFailures, newEpisodesFound)
+            showCompletionNotification(checked, apiFailures, newEpisodesFound, failureReasons)
             
             return Result.success()
             
         } catch (t: Throwable) {
             android.util.Log.e("EpisodeCheck", "[EPISODE_CHECK_FATAL] Episode check failed", t)
             logError(t)
-            
-            // Use WorkManager's built-in exponential backoff for retries
-            // Result.retry() will be retried by WorkManager with increasing delays
-            return Result.retry()
+
+            // Return success instead of retry: retrying with exponential backoff on a
+            // persistent error would stall all episode checks for hours. The next
+            // periodic run or manual trigger will try again.
+            return Result.success()
         }
     }
 
     private sealed class CheckResult {
         data object NoChange : CheckResult()
         data class NewEpisodes(val count: Int) : CheckResult()
-        data object ApiFailure : CheckResult()
+        data class ApiFailure(val reason: String) : CheckResult()
     }
 
     private suspend fun checkSingleSubscription(subscription: SubscribedData): CheckResult {
-        val id = subscription.id ?: return CheckResult.ApiFailure
-        val api = getApiFromNameNull(subscription.apiName) ?: run {
-            android.util.Log.w("EpisodeCheck", "[EPISODE_CHECK_SKIP] API not found: ${subscription.apiName}")
-            return CheckResult.ApiFailure
+        val id = subscription.id ?: return CheckResult.ApiFailure("No id stored")
+        val api = getApiFromNameNull(subscription.apiName) ?: getApiFromUrlNull(subscription.url) ?: run {
+            android.util.Log.w("EpisodeCheck", "[EPISODE_CHECK_SKIP] API not found: ${subscription.apiName} (url: ${subscription.url})")
+            return CheckResult.ApiFailure("Provider '${subscription.apiName}' not installed")
         }
         
         android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_START] Checking: ${subscription.name}")
@@ -229,7 +238,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         
         if (response == null) {
             android.util.Log.w("EpisodeCheck", "[EPISODE_CHECK_SKIP] No response for: ${subscription.name}")
-            return CheckResult.ApiFailure
+            return CheckResult.ApiFailure("No response from ${subscription.apiName}")
         }
         
         // Get latest episode counts per dub status
@@ -550,12 +559,12 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         }
     }
 
-    private fun showCompletionNotification(checked: Int, failures: Int, newEpisodes: Int) {
+    private fun showCompletionNotification(checked: Int, failures: Int, newEpisodes: Int, failureReasons: List<String> = emptyList()) {
         try {
             val title = if (newEpisodes > 0) {
                 "New episodes found"
             } else if (failures > 0) {
-                "Episode check completed"
+                "Episode check completed with failures"
             } else {
                 "Episode check completed"
             }
@@ -563,7 +572,12 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             val description = buildString {
                 append("$checked checked")
                 if (newEpisodes > 0) append(", $newEpisodes with new episodes")
-                if (failures > 0) append(", $failures failed")
+                if (failures > 0) {
+                    append(", $failures failed")
+                    failureReasons.take(2).forEach { reason ->
+                        append("\n- $reason")
+                    }
+                }
                 if (checked == 0) append("No subscriptions found — subscribe to shows to track new episodes")
             }
 

@@ -52,13 +52,14 @@ kotlin {
             }
         }
 
-        commonMain.dependencies {
+commonMain.dependencies {
             implementation(libs.nicehttp) // HTTP Lib
             implementation(libs.jackson.module.kotlin) // JSON Parser
             implementation(libs.kotlinx.coroutines.core)
-            implementation(libs.fuzzywuzzy) // Match Extractors
+            implementation(libs.annotation)
             implementation(libs.jsoup) // HTML Parser
             implementation(libs.rhino) // Run JavaScript
+            implementation(libs.fuzzywuzzy) // Used by ExtractorApi/SubtitleHelper
             implementation(libs.newpipeextractor)
             implementation(libs.tmdb.java) // TMDB API v3 Wrapper Made with RetroFit
         }

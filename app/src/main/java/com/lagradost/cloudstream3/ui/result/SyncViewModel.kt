@@ -78,6 +78,8 @@ class SyncViewModel : ViewModel() {
     // [RACE_CONDITION_FIX] Track in-flight requests to prevent overlapping calls
     private val isFetchingUserData = AtomicBoolean(false)
     private var lastRequestedSyncs: Map<String, String> = emptyMap()
+    // Queued refresh request: set when updateUserData is called while a fetch is in flight
+    private val pendingUserDataRefresh = AtomicBoolean(false)
 
     
     // StateFlow for reactive sync updates
@@ -266,6 +268,9 @@ class SyncViewModel : ViewModel() {
             )?.let { episode ->
                 setEpisodes(episode)
             }
+        } else {
+            Log.w(TAG, "setEpisodesDelta - skipped, user data not loaded (${user?.javaClass?.simpleName ?: "null"}), triggering refresh")
+            updateUserData()
         }
     }
 
@@ -313,6 +318,9 @@ class SyncViewModel : ViewModel() {
                 }
             }
             _userDataResponse.postValue(Resource.Success(updatedUser))
+        } else {
+            Log.w(TAG, "setEpisodes - skipped, user data not loaded (${user?.javaClass?.simpleName ?: "null"}), triggering refresh")
+            updateUserData()
         }
     }
 
@@ -362,6 +370,9 @@ class SyncViewModel : ViewModel() {
             }
             _userDataResponse.postValue(Resource.Success(updatedUser))
             return true
+        } else {
+            Log.w(TAG, "setScore - skipped, user data not loaded (${user?.javaClass?.simpleName ?: "null"}), triggering refresh")
+            updateUserData()
         }
         return false
     }
@@ -400,6 +411,9 @@ class SyncViewModel : ViewModel() {
                 }
             }
             _userDataResponse.postValue(Resource.Success(updatedUser))
+        } else {
+            Log.w(TAG, "setStatus - skipped, user data not loaded (${user?.javaClass?.simpleName ?: "null"}), triggering refresh")
+            updateUserData()
         }
     }
 
@@ -411,10 +425,11 @@ class SyncViewModel : ViewModel() {
         try {
             val user = userData.value
             val successfulProviders = mutableListOf<String>()
+            val failedProviders = mutableListOf<String>()
             val selected = selectedProvider.value
             
             if (user is Resource.Success) {
-                syncs.forEach { (prefix, id) ->
+                syncsMutex.withLock { syncs.toMap() }.forEach { (prefix, id) ->
                     // If a specific provider is selected, only sync to that one
                     if (selected != null && prefix != selected.lowercase()) {
                         Log.i(TAG, "Skipping $prefix - not selected (selected: $selected)")
@@ -427,20 +442,31 @@ class SyncViewModel : ViewModel() {
                             // Optimization: if specific provider is selected, skip status check and sync directly
                             if (selected != null) {
                                 // Specific provider selected - sync directly without status check
-                                repo.updateStatus(id, user.value)
-                                successfulProviders.add(prefix.uppercase())
-                                Log.i(TAG, "Synced to $prefix (direct sync, no status check)")
+                                val updateResult = repo.updateStatus(id, user.value)
+                                if (updateResult.isSuccess && updateResult.getOrNull() == true) {
+                                    successfulProviders.add(prefix.uppercase())
+                                    Log.i(TAG, "Synced to $prefix (direct sync, no status check)")
+                                } else {
+                                    failedProviders.add(prefix.uppercase())
+                                    Log.e(TAG, "Failed to sync to $prefix: ${updateResult.exceptionOrNull()?.message ?: "unknown error"}")
+                                }
                             } else {
                                 // All providers selected - check if provider has account before syncing
                                 val statusResult = repo.status(id)
                                 if (statusResult?.isSuccess == true && statusResult.getOrNull() != null) {
-                                    repo.updateStatus(id, user.value)
-                                    successfulProviders.add(prefix.uppercase())
+                                    val updateResult = repo.updateStatus(id, user.value)
+                                    if (updateResult.isSuccess && updateResult.getOrNull() == true) {
+                                        successfulProviders.add(prefix.uppercase())
+                                    } else {
+                                        failedProviders.add(prefix.uppercase())
+                                        Log.e(TAG, "Failed to sync to $prefix: ${updateResult.exceptionOrNull()?.message ?: "unknown error"}")
+                                    }
                                 } else {
                                     Log.i(TAG, "Skipping $prefix - no account or null status")
                                 }
                             }
                         } catch (e: Exception) {
+                            failedProviders.add(prefix.uppercase())
                             Log.e(TAG, "Failed to sync to $prefix", e)
                         }
                     }
@@ -453,6 +479,10 @@ class SyncViewModel : ViewModel() {
                 val animeName = (metadata.value as? Resource.Success)?.value?.title ?: "anime"
                 val syncProviders = successfulProviders.joinToString(", ")
                 _successMessage.postValue("Synced to $syncProviders for $animeName")
+            } else if (failedProviders.isNotEmpty()) {
+                val animeName = (metadata.value as? Resource.Success)?.value?.title ?: "anime"
+                val syncProviders = failedProviders.joinToString(", ")
+                _successMessage.postValue("Failed to sync to $syncProviders for $animeName")
             }
         } finally {
             _isSyncing.postValue(false)
@@ -521,7 +551,7 @@ class SyncViewModel : ViewModel() {
     /// modifies the current sync data, return null if you don't want to change it
     private fun modifyData(update: ((SyncAPI.AbstractSyncStatus) -> (SyncAPI.AbstractSyncStatus?))) =
         ioSafe {
-            syncs.amap { (prefix, id) ->
+            syncsMutex.withLock { syncs.toMap() }.amap { (prefix, id) ->
                 repos.firstOrNull { it.idPrefix == prefix }?.let { repo ->
                     val result =
                         update(repo.status(id).getOrNull() ?: return@let null) ?: return@let null
@@ -536,17 +566,17 @@ class SyncViewModel : ViewModel() {
         
         // [RACE_CONDITION_FIX] Prevent overlapping calls
         val currentSyncs = syncs.toMap()
-        if (isFetchingUserData.get()) {
-            // If same data is being fetched, skip entirely
-            if (currentSyncs == lastRequestedSyncs) {
-                Log.i(TAG, "updateUserData - SKIPPED: identical request already in progress")
-                return
-            }
-        }
         
         // Try to acquire the flag - if already true, another call is in progress
         if (!isFetchingUserData.compareAndSet(false, true)) {
-            Log.i(TAG, "updateUserData - SKIPPED: another request is in progress")
+            // If same data is being fetched, skip entirely
+            if (currentSyncs == lastRequestedSyncs) {
+                Log.i(TAG, "updateUserData - SKIPPED: identical request already in progress")
+            } else {
+                // Different data was requested: queue it so it runs after the in-flight request
+                pendingUserDataRefresh.set(true)
+                Log.i(TAG, "updateUserData - QUEUED: refresh will run after current request completes")
+            }
             return
         }
         
@@ -562,6 +592,11 @@ class SyncViewModel : ViewModel() {
             val providersWithValidStatus = mutableSetOf<String>()
             
             currentSyncs.forEach { (prefix, id) ->
+                // If a specific provider is selected, only fetch that provider's status
+                val selected = selectedProvider.value
+                if (selected != null && prefix != selected.lowercase()) {
+                    return@forEach
+                }
                 triedApis++
                 Log.i(TAG, "updateUserData - trying $prefix with id $id")
                 val repo = repos.firstOrNull { it.idPrefix == prefix }
@@ -606,6 +641,11 @@ class SyncViewModel : ViewModel() {
                 // [RACE_CONDITION_FIX] Always release the flag
                 isFetchingUserData.set(false)
                 Log.i(TAG, "updateUserData - request completed, flag released")
+                // Run a queued refresh if one was requested while this fetch was in flight
+                if (pendingUserDataRefresh.compareAndSet(true, false)) {
+                    Log.i(TAG, "updateUserData - running queued refresh")
+                    updateUserData()
+                }
             }
         }
     }

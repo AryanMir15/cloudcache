@@ -262,6 +262,9 @@ dependencies {
     implementation(libs.torrentserver)
     implementation(libs.work.runtime.ktx)
     implementation(libs.nicehttp)
+    // Ktor HTTP classes must stay on the app classpath: plugins are compiled against
+    // the CloudStream ABI which exposes io.ktor.http.* (e.g. io.ktor.http.Url).
+    implementation(libs.ktor.http)
 
     implementation(project(":library"))
 }

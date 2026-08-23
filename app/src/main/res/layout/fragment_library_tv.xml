@@ -56,8 +56,23 @@
                 android:contentDescription="@string/change_providers_img_des"
                 android:focusable="true"
                 android:nextFocusLeft="@id/provider_selector"
-                android:nextFocusRight="@id/list_selector"
+                android:nextFocusRight="@id/library_refresh"
                 android:src="@drawable/ic_baseline_sort_24"
+                android:tag="@string/tv_no_focus_tag"
+                app:tint="?attr/textColor" />
+
+            <ImageView
+                android:id="@+id/library_refresh"
+                android:layout_width="25dp"
+                android:layout_height="25dp"
+                android:layout_gravity="end|center_vertical"
+                android:layout_marginStart="10dp"
+                android:background="?selectableItemBackgroundBorderless"
+                android:contentDescription="@string/refresh"
+                android:focusable="true"
+                android:nextFocusLeft="@id/library_sort"
+                android:nextFocusRight="@id/list_selector"
+                android:src="@drawable/ic_refresh"
                 android:tag="@string/tv_no_focus_tag"
                 app:tint="?attr/textColor" />
 

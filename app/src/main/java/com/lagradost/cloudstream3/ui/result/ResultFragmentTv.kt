@@ -85,7 +85,7 @@ class ResultFragmentTv : BaseFragment<FragmentResultTvBinding>(
     ): View? {
         viewModel =
             ViewModelProvider(this)[ResultViewModel2::class.java]
-        viewModel.EPISODE_RANGE_SIZE = 50
+        viewModel.EPISODE_RANGE_SIZE = 20
         updateUIEvent += ::updateUI
 
         return super.onCreateView(inflater, container, savedInstanceState)

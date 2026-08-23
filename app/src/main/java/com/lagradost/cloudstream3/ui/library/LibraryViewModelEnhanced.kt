@@ -16,6 +16,8 @@ import com.lagradost.cloudstream3.mvvm.throwAbleToResource
 import com.lagradost.cloudstream3.syncproviders.AccountManager
 import com.lagradost.cloudstream3.syncproviders.SyncAPI
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
+import com.lagradost.cloudstream3.services.EPISODE_CHECK_MANUAL_TAG
+import com.lagradost.cloudstream3.services.EpisodeCheckWorkManager
 import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.DataStoreHelper.currentAccount
 import com.lagradost.cloudstream3.utils.LocalLibraryCacheSimple
@@ -231,6 +233,29 @@ class LibraryViewModelEnhanced : ViewModel() {
     // Helper function to extract episode from tags
     fun extractEpisodeFromTags(tags: List<String>?): Int? {
         return tags?.find { it.startsWith("episode:") }?.substringAfter("episode:")?.toIntOrNull()
+    }
+
+    fun refreshLibrary(context: android.content.Context) {
+        android.util.Log.d("LibraryRefresh", "refreshLibrary - triggering episode check and library reload")
+        EpisodeCheckWorkManager.triggerManualCheck(context)
+        reloadPages(true)
+
+        // Reload the library again once the manual episode check finishes
+        val workManager = androidx.work.WorkManager.getInstance(context)
+        val workInfos = workManager.getWorkInfosByTagLiveData(EPISODE_CHECK_MANUAL_TAG)
+        val observer = object : androidx.lifecycle.Observer<List<androidx.work.WorkInfo>> {
+            override fun onChanged(infos: List<androidx.work.WorkInfo>) {
+                if (infos.none {
+                        it.state == androidx.work.WorkInfo.State.RUNNING ||
+                            it.state == androidx.work.WorkInfo.State.ENQUEUED
+                    }
+                ) {
+                    workInfos.removeObserver(this)
+                    reloadPages(true)
+                }
+            }
+        }
+        workInfos.observeForever(observer)
     }
 
     fun reloadPages(forceReload: Boolean) {

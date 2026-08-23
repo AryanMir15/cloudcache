@@ -1005,7 +1005,7 @@ class ResultViewModel2 : ViewModel() {
         context: Context?,
         statusChangedCallback: ((newStatus: Boolean?) -> Unit)? = null
     ) {
-        val isSubscribed = _subscribeStatus.value ?: return
+        val isSubscribed = _subscribeStatus.value ?: false
         val response = currentResponse ?: return
         val currentId = currentId ?: return
 
@@ -4736,6 +4736,44 @@ class ResultViewModel2 : ViewModel() {
             currentDubStatus = dubStatusList
             currentSeasons = seasonsSelection.toList()
             currentId = parentId
+
+            // Build an offline load response so subscribing works for cached entries
+            try {
+                val episodesByDub = newEpisodes.entries
+                    .groupBy({ it.key.dubStatus }, { it.value })
+                    .mapValues { (_, lists) ->
+                        lists.flatten().map { ep ->
+                            @Suppress("DEPRECATION_ERROR")
+                            val builder = Episode(data = ep.data)
+                            builder.name = ep.name
+                            builder.season = ep.season
+                            builder.episode = ep.episode
+                            builder.posterUrl = ep.poster
+                            builder.score = ep.score
+                            builder.description = ep.description
+                            builder.date = ep.airDate
+                            builder
+                        }
+                    }
+                val offlineResponse = api.newAnimeLoadResponse(
+                    name = cachedHeader.name ?: "Unknown",
+                    url = validUrl,
+                    type = cachedHeader.type ?: TvType.Anime,
+                    comingSoonIfNone = false
+                ) {
+                    posterUrl = cachedHeader.poster
+                    year = cachedHeader.year
+                    plot = cachedHeader.plot
+                    score = cachedHeader.score?.let { Score.from(it, 10) }
+                    tags = cachedHeader.tags
+                    syncData = cachedHeader.syncData?.toMutableMap() ?: mutableMapOf()
+                    this.episodes = episodesByDub.toMutableMap()
+                }
+                currentResponse = offlineResponse
+                postSubscription(offlineResponse)
+            } catch (t: Throwable) {
+                android.util.Log.e("CacheFlow", "loadOfflineEpisodes - failed to set up subscription data", t)
+            }
             
             android.util.Log.d("SeasonMetadata", "[SELECTOR INIT] Selector initialized - seasons: ${seasonsSelection.size}, dubs: ${dubStatusList.size}")
             // Log detailed selector metadata
@@ -4784,7 +4822,6 @@ class ResultViewModel2 : ViewModel() {
             
             // Calculate ranges from selectorMetadata (all episodes) instead of limited cached episodes
             val rangesFromMetadata = selectorMetadata?.let { metadata ->
-                val EPISODE_RANGE_SIZE = 50
                 val groupedByKey = metadata.groupBy { ep ->
                     val dubStatusEnum = try {
                         com.lagradost.cloudstream3.DubStatus.valueOf(ep.dubStatus ?: "None")

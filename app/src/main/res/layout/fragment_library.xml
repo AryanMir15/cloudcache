@@ -55,6 +55,18 @@
                 app:tint="?attr/textColor"
                 tools:visibility="visible" />
 
+            <ImageView
+                android:id="@+id/library_refresh"
+                android:layout_width="45dp"
+                android:layout_height="45dp"
+                android:layout_gravity="end|center_vertical"
+                android:layout_marginStart="10dp"
+                android:background="?selectableItemBackgroundBorderless"
+                android:contentDescription="@string/refresh"
+                android:padding="5dp"
+                android:src="@drawable/ic_refresh"
+                app:tint="?attr/textColor" />
+
             <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="40dp"
