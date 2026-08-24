@@ -92,11 +92,6 @@
             app:showSeekBarValue="true" />
 
         <Preference
-            android:icon="@drawable/baseline_help_outline_24"
-            android:key="scan_downloads_info_key"
-            android:title="Scan for Downloads Info" />
-
-        <Preference
             android:icon="@drawable/ic_baseline_folder_open_24"
             android:key="scan_downloads_key"
             android:title="Scan for Downloads" />
@@ -154,13 +149,6 @@
             android:defaultValue="wifi_only"
             android:entries="@array/auto_download_network_entries"
             android:entryValues="@array/auto_download_network_values"
-            android:dependency="auto_download_subscribed" />
-
-        <Preference
-            android:icon="@drawable/ic_baseline_system_update_24"
-            android:key="manual_episode_check"
-            android:title="Check for New Episodes"
-            android:summary="Immediately check all subscribed shows for new episodes"
             android:dependency="auto_download_subscribed" />
 
     </PreferenceCategory>

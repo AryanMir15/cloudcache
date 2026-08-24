@@ -390,30 +390,6 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
             return@setOnPreferenceClickListener true
         }
 
-        // Scan for Downloads Info
-        findPreference<androidx.preference.Preference>("scan_downloads_info_key")?.setOnPreferenceClickListener {
-            val builder: AlertDialog.Builder =
-                AlertDialog.Builder(it.context, R.style.AlertDialogCustom)
-            builder.setTitle("Scan for Downloads - How it works")
-            builder.setMessage(
-                "This feature scans your download directory to match existing library entries with downloaded video files.\n\n" +
-                "Requirements:\n" +
-                "• The folder name must match the library entry name exactly\n" +
-                "• Episode files must be in video formats (mp4, mkv, avi, mov, webm, flv, m4v)\n" +
-                "• Episode numbers must be detectable from the filename\n" +
-                "• The library entry must already exist in your library\n" +
-                "• Download path must be configured in settings\n\n" +
-                "The scanner will:\n" +
-                "• Look for folders matching library entry names\n" +
-                "• Try direct paths, then Anime/ subfolder, then fuzzy matching\n" +
-                "• Scan subfolders recursively\n" +
-                "• Only update episodes that are already in your library"
-            )
-            builder.setPositiveButton("Got it") { _, _ -> }
-            builder.show()
-            return@setOnPreferenceClickListener true
-        }
-
         // Scan for Downloads
         findPreference<androidx.preference.Preference>("scan_downloads_key")?.setOnPreferenceClickListener {
             val downloadPath = settingsManager.getString(getString(R.string.download_path_key), null)
@@ -565,14 +541,6 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
                 "both" -> "Download on any network"
                 else -> "Wi-Fi only"
             }
-        }
-
-        // Manual Episode Check Trigger
-        findPreference<androidx.preference.Preference>("manual_episode_check")?.setOnPreferenceClickListener {
-            android.util.Log.d("SettingsGeneral", "Manual episode check button clicked")
-            com.lagradost.cloudstream3.services.EpisodeCheckWorkManager.triggerManualCheck(context)
-            com.lagradost.cloudstream3.CommonActivity.showToast("Episode check started")
-            true
         }
 
         // Spoiler Prevention Mode
