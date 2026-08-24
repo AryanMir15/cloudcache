@@ -3,6 +3,7 @@ package com.lagradost.cloudstream3.utils
 import android.content.Context
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.APIHolder.unixTimeMS
+import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.CloudStreamApp.Companion.context
 import com.lagradost.cloudstream3.CloudStreamApp.Companion.getKey
 import com.lagradost.cloudstream3.CloudStreamApp.Companion.getKeyClass
@@ -19,6 +20,7 @@ import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchQuality
 import com.lagradost.cloudstream3.SearchResponse
+import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.syncproviders.AccountManager
 import com.lagradost.cloudstream3.syncproviders.SyncAPI
@@ -666,7 +668,7 @@ object DataStoreHelper {
         android.util.Log.d("[SUBSCRIBE_DEBUG]", "DataStoreHelper - updateSubscribedData - id: $id, updating with latest episodes")
         val newData = data.copy(
             latestUpdatedTime = unixTimeMS,
-            lastSeenEpisodeCount = episodeResponse.getLatestEpisodes()
+            lastSeenEpisodeCount = episodeResponse.getAiredLatestEpisodes()
         )
         setKey("$currentAccount/$RESULT_SUBSCRIBED_STATE_DATA", id.toString(), newData)
         android.util.Log.d("[SUBSCRIBE_DEBUG]", "DataStoreHelper - updateSubscribedData - data updated for id: $id")
@@ -872,4 +874,48 @@ object DataStoreHelper {
         get() = getKey(USER_PINNED_PROVIDERS) ?: emptyArray<String>()
         set(value) = setKey(USER_PINNED_PROVIDERS, value)
 
+}
+
+/**
+ * Like [EpisodeResponse.getLatestEpisodes], but only counts episodes that have
+ * already aired (date is null or in the past). Providers backed by TMDB-style
+ * databases include planned/unaired episodes in their responses, which made
+ * episode checks report future episode numbers and poison the "last seen"
+ * tracking. Falls back to the raw max if no aired episodes exist for a status.
+ */
+fun EpisodeResponse.getAiredLatestEpisodes(): Map<DubStatus, Int?> {
+    val now = System.currentTimeMillis()
+    return when (this) {
+        is AnimeLoadResponse -> {
+            this.episodes.map { (status, episodes) ->
+                val aired = episodes.filter { ep ->
+                    val d = ep.date
+                    d == null || d <= now
+                }
+                val considered = if (aired.isEmpty()) episodes else aired
+                val maxSeason = considered.maxOfOrNull { it.season ?: Int.MIN_VALUE }
+                    .takeUnless { it == Int.MIN_VALUE }
+                status to considered
+                    .filter { it.season == maxSeason }
+                    .maxOfOrNull { it.episode ?: Int.MIN_VALUE }
+                    .takeUnless { it == Int.MIN_VALUE }
+            }.toMap()
+        }
+        is TvSeriesLoadResponse -> {
+            val aired = this.episodes.filter { ep ->
+                val d = ep.date
+                d == null || d <= now
+            }
+            val considered = if (aired.isEmpty()) this.episodes else aired
+            val maxSeason = considered.maxOfOrNull { it.season ?: Int.MIN_VALUE }
+                .takeUnless { it == Int.MIN_VALUE }
+            mapOf(
+                DubStatus.None to considered
+                    .filter { it.season == maxSeason }
+                    .maxOfOrNull { it.episode ?: Int.MIN_VALUE }
+                    .takeUnless { it == Int.MIN_VALUE }
+            )
+        }
+        else -> emptyMap()
+    }
 }

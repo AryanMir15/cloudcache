@@ -19,6 +19,7 @@ import com.lagradost.cloudstream3.plugins.PluginManager
 import com.lagradost.cloudstream3.utils.txt
 import com.lagradost.cloudstream3.utils.AppContextUtils.createNotificationChannel
 import com.lagradost.cloudstream3.utils.DataStoreHelper
+import com.lagradost.cloudstream3.utils.getAiredLatestEpisodes
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
 import com.lagradost.cloudstream3.utils.downloader.DownloadQueueManager
 import com.lagradost.cloudstream3.utils.downloader.DownloadPreferences
@@ -241,8 +242,8 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             return CheckResult.ApiFailure("No response from ${subscription.apiName}")
         }
         
-        // Get latest episode counts per dub status
-        val latestEpisodes = response.getLatestEpisodes()
+        // Get latest episode counts per dub status, ignoring unaired/planned episodes
+        val latestEpisodes = response.getAiredLatestEpisodes()
         val lastSeen = subscription.lastSeenEpisodeCount
         
         android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_DATA] Latest episodes: $latestEpisodes, Last seen: $lastSeen")
@@ -365,11 +366,19 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
                 }
             }
             
-            // Find the specific episode
-            val targetEpisode = episodes.find { it.episode == episodeNumber } ?: run {
-                android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Episode $episodeNumber not found in response")
-                return false // Could not handle, will retry on next check
-            }
+            // Find the specific episode. Some providers number episodes per-season,
+            // so fall back to matching the total episode index across seasons.
+            val targetEpisode = episodes.find { it.episode == episodeNumber }
+                ?: episodes.firstOrNull { ep ->
+                    val season = ep.season
+                    val episode = ep.episode
+                    season != null && episode != null &&
+                        (response as? EpisodeResponse)?.getTotalEpisodeIndex(episode, season) == episodeNumber
+                }
+                ?: run {
+                    android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Episode $episodeNumber not found in response")
+                    return false // Could not handle, will retry on next check
+                }
             
             android.util.Log.d("EpisodeCheck", "[AUTO_DOWNLOAD_EPISODE] Found episode: ${targetEpisode.name}")
             
