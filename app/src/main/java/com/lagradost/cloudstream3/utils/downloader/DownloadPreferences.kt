@@ -95,11 +95,10 @@ object DownloadPreferences {
 
     /**
      * Filters and sorts links based on user download preferences.
-     * Implements fallback chain:
-     *   1. Preferred quality + preferred audio
-     *   2. Any quality + preferred audio
-     *   3. Preferred quality + any audio
-     *   4. Any quality + any audio (all links)
+     * Quality preference is treated as a CAP: the highest quality at or below
+     * the preferred value is chosen. If nothing is at or below the cap,
+     * the best available link is used instead (rather than downloading
+     * something far worse than requested).
      */
     fun selectBestLinks(
         context: Context,
@@ -112,33 +111,35 @@ object DownloadPreferences {
         val preferredQuality = prefs.preferredQuality
         val preferredAudio = prefs.preferredAudio
 
-        // If no preferences set, return all links sorted by quality (highest first)
-        if (preferredQuality == null && preferredAudio == AudioPref.ANY) {
-            return allLinks.sortedByDescending { it.quality }
+        // Best-effort audio filtering: prefer links matching the audio pref,
+        // but never drop everything if the heuristic misses
+        val audioMatched = if (preferredAudio == AudioPref.ANY) {
+            allLinks
+        } else {
+            val matched = allLinks.filter {
+                matchesAudioPreference(it, preferredAudio, episodeDubStatus)
+            }
+            if (matched.isEmpty()) allLinks else matched
         }
 
-        // Try each level of the fallback chain
-        // Level 1: preferred quality + preferred audio
-        val level1 = allLinks.filter { link ->
-            val qualityMatch = preferredQuality == null || link.quality == preferredQuality
-            val audioMatch = matchesAudioPreference(link, preferredAudio, episodeDubStatus)
-            qualityMatch && audioMatch
-        }
-        if (level1.isNotEmpty()) return level1
-
-        // Level 2: any quality + preferred audio
-        val level2 = allLinks.filter { link ->
-            matchesAudioPreference(link, preferredAudio, episodeDubStatus)
-        }
-        if (level2.isNotEmpty()) return level2
-
-        // Level 3: preferred quality + any audio
-        if (preferredQuality != null) {
-            val level3 = allLinks.filter { it.quality == preferredQuality }
-            if (level3.isNotEmpty()) return level3
+        // No quality preference: best available wins
+        if (preferredQuality == null) {
+            return audioMatched.sortedByDescending { it.quality }
         }
 
-        // Level 4: everything
-        return allLinks
+        // Cap semantics: highest quality at or below the preferred value
+        val capped = audioMatched.filter { it.quality > 0 && it.quality <= preferredQuality }
+        if (capped.isNotEmpty()) {
+            return capped.sortedByDescending { it.quality }
+        }
+
+        // Nothing at or below the cap: use the closest available (best), so the
+        // user still gets a working download instead of a silent mismatch
+        val known = audioMatched.filter { it.quality > 0 }
+        if (known.isNotEmpty()) {
+            return known.sortedByDescending { it.quality }
+        }
+
+        return audioMatched
     }
 }
