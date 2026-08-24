@@ -5265,11 +5265,13 @@ class ResultViewModel2 : ViewModel() {
 
                     val response = if (autoMetadataEnabled) {
                         // Check if metadata is missing
-                        val needsMetadata = loadResponse.plot.isNullOrBlank() ||
-                                loadResponse.actors.isNullOrEmpty() ||
-                                loadResponse.score == null ||
-                                (loadResponse is AnimeLoadResponse && loadResponse.showStatus == null) ||
-                                (loadResponse is TvSeriesLoadResponse && loadResponse.showStatus == null)
+                        val missingFields = buildSet {
+                            if (loadResponse.plot.isNullOrBlank()) add(MetadataField.PLOT)
+                            if (loadResponse.actors.isNullOrEmpty()) add(MetadataField.ACTORS)
+                            if (loadResponse.score == null) add(MetadataField.SCORE)
+                            if ((loadResponse as? EpisodeResponse)?.showStatus == null) add(MetadataField.STATUS)
+                        }
+                        val needsMetadata = missingFields.isNotEmpty()
 
                         if (needsMetadata) {
                             // Only fetch metadata if name is not empty
@@ -5300,7 +5302,11 @@ class ResultViewModel2 : ViewModel() {
                                 }
                                 if (metadata != null) {
                                     Log.i(TAG, "Successfully fetched metadata - actors: ${metadata.actors?.size}, plot: ${metadata.plot?.take(30)}, score: ${metadata.score}")
-                                    val mergedResponse = mergeMetadataFromLoadResponse(loadResponse, metadata)
+                                    // Only merge the fields that were actually missing,
+                                    // so valid provider data is never overwritten
+                                    val mergedResponse = mergeMetadataFromLoadResponse(
+                                        loadResponse, metadata, missingFields
+                                    )
                                     Log.i(TAG, "After merge - actors: ${mergedResponse.actors?.size}, plot: ${mergedResponse.plot?.take(30)}, score: ${mergedResponse.score}")
                                     mergedResponse
                                 } else {

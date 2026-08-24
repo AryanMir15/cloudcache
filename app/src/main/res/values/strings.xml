@@ -423,7 +423,7 @@
     <string name="preferred_media_settings">Preferred media</string>
     <string name="enable_nsfw_on_providers">Enable NSFW on supported Extensions</string>
     <string name="auto_metadata_fetch">Automatic metadata fetching</string>
-    <string name="auto_metadata_fetch_summary">Automatically fetch missing metadata from AniList sync when loading shows</string>
+    <string name="auto_metadata_fetch_summary">Automatically fill in missing plot, cast and ratings from other providers when loading shows</string>
     <string name="metadata_provider">Metadata provider</string>
     <string name="refresh_metadata">Refresh metadata</string>
     <string name="reset_metadata">Reset swapped metadata</string>
