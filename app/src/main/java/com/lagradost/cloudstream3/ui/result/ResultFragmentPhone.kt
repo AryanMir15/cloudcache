@@ -135,7 +135,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     private fun formatSyncDate(epochMillis: Long): String {
         return try {
             java.text.SimpleDateFormat(
-                "MMM d, yyyy", java.util.Locale.getDefault()
+                "M/d/yy", java.util.Locale.getDefault()
             ).format(java.util.Date(epochMillis))
         } catch (e: Exception) {
             ""
@@ -2793,7 +2793,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                             val end = d.endDate
                             val text = when {
                                 start != null && end != null ->
-                                    "${formatSyncDate(start)} – ${formatSyncDate(end)}"
+                                    "${formatSyncDate(start)} to ${formatSyncDate(end)}"
                                 start != null -> getString(R.string.sync_started_on, formatSyncDate(start))
                                 else -> null
                             }
