@@ -1276,21 +1276,34 @@ class SimklApi : SyncAPI() {
         val simklId = id.toIntOrNull() ?: return null
         return try {
             rateLimiter.acquire()
-            val summary = app.get(
-                "https://api.simkl.com/summary/$simklId",
-                params = mapOf("client_id" to CLIENT_ID, "extended" to "full")
-            ).parsedSafe<SimklSummary>() ?: return null
+            // Detail endpoints are /tv/{id} and /anime/{id}; the sync ID alone
+            // doesn't encode the media type, so try TV first, then anime.
+            val summary = run {
+                val tv = app.get(
+                    "https://api.simkl.com/tv/$simklId",
+                    params = mapOf("client_id" to CLIENT_ID)
+                ).parsedSafe<SimklSummary>()
+                if (tv != null && tv.title != null) {
+                    tv
+                } else {
+                    rateLimiter.acquire()
+                    app.get(
+                        "https://api.simkl.com/anime/$simklId",
+                        params = mapOf("client_id" to CLIENT_ID)
+                    ).parsedSafe<SimklSummary>()
+                }
+            } ?: return null
 
             SyncResult(
                 id = id,
                 title = summary.title,
-                publicScore = summary.rating?.let { Score.from(it, 10) },
+                publicScore = summary.ratings?.simkl?.rating?.let { Score.from(it, 10) },
                 genres = summary.genres,
                 totalEpisodes = summary.totalEpisodes,
                 synopsis = summary.overview,
                 airStatus = when (summary.status?.lowercase()) {
-                    "returning series", "in production" -> ShowStatus.Ongoing
-                    "ended", "canceled" -> ShowStatus.Completed
+                    "airing" -> ShowStatus.Ongoing
+                    "ended" -> ShowStatus.Completed
                     else -> null
                 },
                 posterUrl = summary.poster?.let { getPosterUrl(it) },
@@ -1313,15 +1326,22 @@ class SimklApi : SyncAPI() {
     data class SimklSummary(
         @JsonProperty("title") val title: String? = null,
         @JsonProperty("poster") val poster: String? = null,
-        @JsonProperty("year") val year: Int? = null,
-        @JsonProperty("rating") val rating: Float? = null,
         @JsonProperty("genres") val genres: List<String>? = null,
         @JsonProperty("overview") val overview: String? = null,
         @JsonProperty("status") val status: String? = null,
         @JsonProperty("total_episodes") val totalEpisodes: Int? = null,
         @JsonProperty("first_aired") val firstAired: String? = null,
         @JsonProperty("last_aired") val lastAired: String? = null,
-    )
+        @JsonProperty("ratings") val ratings: SimklRatings? = null,
+    ) {
+        data class SimklRatings(
+            @JsonProperty("simkl") val simkl: SimklRating? = null,
+        )
+
+        data class SimklRating(
+            @JsonProperty("rating") val rating: Float? = null,
+        )
+    }
 
     private suspend fun getSyncListSince(auth: AuthData, since: Long?): AllItemsResponse? {
         val params = getDateTime(since)?.let {
