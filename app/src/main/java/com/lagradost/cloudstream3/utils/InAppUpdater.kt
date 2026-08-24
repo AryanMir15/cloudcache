@@ -1,6 +1,7 @@
 package com.lagradost.cloudstream3.utils
 
 import android.app.Activity
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager.NameNotFoundException
@@ -8,6 +9,8 @@ import android.net.Uri
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.app.NotificationCompat
+import androidx.core.app.PendingIntentCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.content.edit
@@ -21,6 +24,11 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.services.PackageInstallerService
+import com.lagradost.cloudstream3.services.PackageInstallerService.Companion.UPDATE_CHANNEL_DESCRIPTION
+import com.lagradost.cloudstream3.services.PackageInstallerService.Companion.UPDATE_CHANNEL_ID
+import com.lagradost.cloudstream3.services.PackageInstallerService.Companion.UPDATE_CHANNEL_NAME
+import com.lagradost.cloudstream3.services.PackageInstallerService.Companion.UPDATE_NOTIFICATION_ID
+import com.lagradost.cloudstream3.utils.AppContextUtils.createNotificationChannel
 import com.lagradost.cloudstream3.utils.AppContextUtils.setDefaultFocus
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
@@ -197,6 +205,33 @@ object InAppUpdater {
 
     private val updateLock = Mutex()
 
+    /**
+     * Posts a notification on the app-updates channel. Toasts vanish when the
+     * app goes to the background, but the update flow keeps running there, so
+     * this makes update progress visible regardless.
+     */
+    private fun showUpdateNotification(context: Context, title: String, text: String) {
+        try {
+            context.createNotificationChannel(
+                UPDATE_CHANNEL_ID, UPDATE_CHANNEL_NAME, UPDATE_CHANNEL_DESCRIPTION
+            )
+            val intent = Intent(context, com.lagradost.cloudstream3.MainActivity::class.java)
+            val pendingIntent = PendingIntentCompat.getActivity(context, 0, intent, 0, false)
+            val notification = NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_cloudstream_monochrome_big)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .build()
+            val manager =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(UPDATE_NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            logError(e)
+        }
+    }
+
     private suspend fun Activity.downloadUpdate(url: String): Boolean {
         try {
             Log.d(LOG_TAG, "Downloading update: $url")
@@ -314,6 +349,11 @@ object InAppUpdater {
                         // the new download.
                         if (ApkInstaller.delayedInstaller?.startInstallation() == true) {
                             showToast(R.string.update_started, Toast.LENGTH_LONG)
+                            showUpdateNotification(
+                                this@runAutoUpdate,
+                                getString(R.string.update_notification_installing),
+                                getString(R.string.update_started)
+                            )
                             return@setPositiveButton
                         }
 

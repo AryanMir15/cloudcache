@@ -1,6 +1,7 @@
 package com.lagradost.cloudstream3.utils
 
 import android.annotation.SuppressLint
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -11,10 +12,17 @@ import android.content.pm.PackageInstaller
 import android.os.Build
 import android.util.Log
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
+import androidx.core.app.PendingIntentCompat
 import com.lagradost.cloudstream3.CloudStreamApp.Companion.context
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.services.PackageInstallerService
+import com.lagradost.cloudstream3.services.PackageInstallerService.Companion.UPDATE_CHANNEL_DESCRIPTION
+import com.lagradost.cloudstream3.services.PackageInstallerService.Companion.UPDATE_CHANNEL_ID
+import com.lagradost.cloudstream3.services.PackageInstallerService.Companion.UPDATE_CHANNEL_NAME
+import com.lagradost.cloudstream3.services.PackageInstallerService.Companion.UPDATE_NOTIFICATION_ID
+import com.lagradost.cloudstream3.utils.AppContextUtils.createNotificationChannel
 import com.lagradost.cloudstream3.utils.Coroutines.main
 import java.io.InputStream
 
@@ -138,6 +146,8 @@ class ApkInstaller(private val service: PackageInstallerService) {
                     Toast.makeText(context, R.string.delayed_update_notice, Toast.LENGTH_LONG)
                         .show()
                 }
+                // Also post a notification so the pending install is visible if the app exits
+                showDelayedInstallNotification(context)
             } else {
                 installProgressStatus.invoke(InstallProgressStatus.Installing)
                 session.commit(intentSender)
@@ -157,6 +167,33 @@ class ApkInstaller(private val service: PackageInstallerService) {
     init {
         // Might be dangerous
         registerInstallActionReceiver()
+    }
+
+    private fun showDelayedInstallNotification(context: Context) {
+        try {
+            context.createNotificationChannel(
+                UPDATE_CHANNEL_ID, UPDATE_CHANNEL_NAME, UPDATE_CHANNEL_DESCRIPTION
+            )
+            val intent = Intent(context, com.lagradost.cloudstream3.MainActivity::class.java)
+            val pendingIntent =
+                PendingIntentCompat.getActivity(context, 0, intent, 0, false)
+            val notification = NotificationCompat.Builder(context, UPDATE_CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_cloudstream_monochrome_big)
+                .setContentTitle(
+                    context.getString(com.lagradost.cloudstream3.R.string.update_notification_installing)
+                )
+                .setContentText(
+                    context.getString(com.lagradost.cloudstream3.R.string.delayed_update_notice)
+                )
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .build()
+            val manager =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            manager.notify(UPDATE_NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            logError(e)
+        }
     }
 
     private fun registerInstallActionReceiver() {
