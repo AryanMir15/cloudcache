@@ -542,34 +542,67 @@ class ResultViewModel2 : ViewModel() {
     fun loadMoreEpisodes() {
         val indexer = currentIndex ?: return
         val currentEpisodesForIndexer = currentEpisodes[indexer] ?: return
-        
+
         // Don't load if already fetching
         if (_apiFetchInProgress.value == true) return
-        
+
         // Calculate next range based on current episodes
         val maxEpisode = currentEpisodesForIndexer.maxOfOrNull { it.episode } ?: return
         val nextStart = maxEpisode + 1
         val nextEnd = nextStart + 19 // Load 20 more episodes
-        
+
         android.util.Log.d("ApiLoadOnDemand", "loadMoreEpisodes - Loading more episodes for indexer $indexer, range $nextStart-$nextEnd")
-        
+
         val nextRange = EpisodeRange(
             startIndex = currentEpisodesForIndexer.size,
             length = 20,
             startEpisode = nextStart,
             endEpisode = nextEnd
         )
-        
+
+        // If we already have episodes covering this range (e.g. the full list was
+        // loaded upfront), just advance the displayed range without any network call
+        if (maxEpisode >= nextRange.startEpisode) {
+            android.util.Log.d("ApiLoadOnDemand", "loadMoreEpisodes - episodes already available, advancing display")
+            advanceToNextRange(indexer)
+            return
+        }
+
         viewModelScope.launchSafe {
             _apiFetchInProgress.postValue(true)
             val success = fetchEpisodesFromApiForRange(indexer, nextRange)
             _apiFetchInProgress.postValue(false)
-            
+
             if (success) {
                 android.util.Log.d("ApiLoadOnDemand", "loadMoreEpisodes - Successfully loaded more episodes, updating UI")
-                // Update UI with combined episodes
-                postEpisodeRange(indexer, currentRange, currentSorting)
+                // Recompute ranges so the newly loaded episodes belong to a range,
+                // then display the range containing them
+                currentRanges = getRanges(currentEpisodes, EPISODE_RANGE_SIZE)
+                val containingRange = currentRanges[indexer]
+                    ?.lastOrNull { it.startEpisode <= nextRange.startEpisode }
+                    ?: currentRanges[indexer]?.lastOrNull()
+                if (containingRange != null) {
+                    postEpisodeRange(indexer, containingRange, currentSorting)
+                } else {
+                    postEpisodeRange(indexer, currentRange, currentSorting)
+                }
+            } else {
+                // Nothing more to fetch — advance to the next already-known range
+                advanceToNextRange(indexer)
             }
+        }
+    }
+
+    /**
+     * Advances the displayed episode range to the next one for this indexer, if any.
+     */
+    private fun advanceToNextRange(indexer: EpisodeIndexer) {
+        val next = currentRanges[indexer]?.lastOrNull {
+            it.startEpisode > (currentRange?.startEpisode ?: 0)
+        }
+        if (next != null) {
+            android.util.Log.d("ApiLoadOnDemand", "advanceToNextRange - advancing to $next")
+            postEpisodeRange(indexer, next, currentSorting)
         }
     }
     // FIX: Made currentId internal to allow access from ResultFragmentPhone for cache updates
@@ -3344,7 +3377,8 @@ class ResultViewModel2 : ViewModel() {
                             postEpisodeRange(indexer, range, sorting)
                         } else {
                             android.util.Log.e("ApiLoadOnDemand", "postEpisodeRange - API fetch failed, showing error")
-                            _episodes.postValue(Resource.Failure(false, "Failed to load episodes"))
+                            // Don't leave the list stuck on Loading — show what we have
+                            _episodes.postValue(Resource.Success(getSortedEpisodes(getEpisodes(indexer, range), sorting)))
                         }
                     }
                     return
@@ -3377,8 +3411,8 @@ class ResultViewModel2 : ViewModel() {
                                 postEpisodeRange(indexer, range, sorting)
                             } else {
                                 android.util.Log.e("ApiLoadOnDemand", "postEpisodeRange - API fetch failed, showing available episodes instead")
-                                // Show available episodes as fallback
-                                // Continue with current logic below
+                                // Don't leave the list stuck on Loading — show what we have
+                                _episodes.postValue(Resource.Success(getSortedEpisodes(getEpisodes(indexer, range), sorting)))
                             }
                         }
                         return
@@ -4414,12 +4448,13 @@ class ResultViewModel2 : ViewModel() {
 
                                 val posDur = getViewPos(id)
                                 val watchState = getVideoWatchState(id) ?: VideoWatchState.None
+                                val episodeNumber = episode.episode ?: (index + 1)
 
                                 ResultEpisode(
                                     headerName = loadResponse.name,
                                     name = episode.name,
                                     poster = episode.posterUrl,
-                                    episode = episode.episode ?: (index + 1),
+                                    episode = episodeNumber,
                                     seasonIndex = episode.season?.let { it - 1 },
                                     season = episode.season,
                                     data = episode.data,
@@ -4430,11 +4465,13 @@ class ResultViewModel2 : ViewModel() {
                                     duration = posDur?.duration ?: 0,
                                     score = episode.score,
                                     description = episode.description,
-                                    isFiller = null,
+                                    isFiller = fillers.contains(episodeNumber),
                                     tvType = loadResponse.type,
                                     parentId = parentId,
                                     videoWatchState = watchState,
-                                    totalEpisodeIndex = episode.episode,
+                                    totalEpisodeIndex = episode.season?.let {
+                                        (loadResponse as? EpisodeResponse)?.getTotalEpisodeIndex(episodeNumber, it)
+                                    },
                                     airDate = episode.date,
                                     showPoster = loadResponse.posterUrl,
                                     showBanner = loadResponse.backgroundPosterUrl,
@@ -4451,12 +4488,15 @@ class ResultViewModel2 : ViewModel() {
                                     episode = episode.episode,
                                     season = episode.season,
                                     parentId = parentId,
-                                    score = null,
+                                    score = episode.score,
                                     description = episode.description,
                                     date = episode.airDate,
                                     cacheTime = System.currentTimeMillis(),
                                     dubStatus = indexer.dubStatus.name,
                                     data = episode.data,
+                                    totalEpisodeIndex = episode.totalEpisodeIndex,
+                                    runTime = episode.runTime,
+                                    isFiller = episode.isFiller,
                                     id = episode.id
                                 )
                                 setKey(DOWNLOAD_EPISODE_CACHE, episode.id.toString(), cachedEpisode)
