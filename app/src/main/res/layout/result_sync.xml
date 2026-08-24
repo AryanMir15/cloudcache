@@ -54,6 +54,15 @@
                             android:textColor="?attr/grayTextColor"
                             android:textSize="12sp"
                             android:visibility="gone" />
+
+                        <TextView
+                            android:id="@+id/result_sync_dates"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:textColor="?attr/grayTextColor"
+                            android:textSize="12sp"
+                            android:visibility="gone" />
                     </LinearLayout>
 
                     <TextView

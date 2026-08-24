@@ -132,6 +132,16 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         binding?.resultUndoMetadataFab?.visibility = android.view.View.GONE
     }
 
+    private fun formatSyncDate(epochMillis: Long): String {
+        return try {
+            java.text.SimpleDateFormat(
+                "MMM d, yyyy", java.util.Locale.getDefault()
+            ).format(java.util.Date(epochMillis))
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     // [PANEL_FIX] Reusable PanelStateListener to prevent accumulation of listeners
     private var panelStateListener: OverlappingPanelsLayout.PanelStateListener? = null
     // [PANEL_FIX] Counter to track listener invocations
@@ -2774,6 +2784,24 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                 scoreView.isVisible = true
                             } else {
                                 scoreView.isVisible = false
+                            }
+                        }
+
+                        // Show the airing date range from the tracker metadata
+                        syncBinding?.resultSyncDates?.let { datesView ->
+                            val start = d.startDate
+                            val end = d.endDate
+                            val text = when {
+                                start != null && end != null ->
+                                    "${formatSyncDate(start)} – ${formatSyncDate(end)}"
+                                start != null -> getString(R.string.sync_started_on, formatSyncDate(start))
+                                else -> null
+                            }
+                            if (text != null) {
+                                datesView.text = text
+                                datesView.isVisible = true
+                            } else {
+                                datesView.isVisible = false
                             }
                         }
 

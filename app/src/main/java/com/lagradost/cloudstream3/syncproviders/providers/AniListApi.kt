@@ -112,6 +112,8 @@ class AniListApi : SyncAPI() {
             title = season.title?.userPreferred,
             synonyms = season.synonyms,
             isAdult = season.isAdult,
+            startDate = season.startDate?.toEpochMillis(),
+            endDate = season.endDate?.toEpochMillis(),
             totalEpisodes = season.episodes,
             synopsis = season.description,
             actors = season.characters?.edges?.mapNotNull { edge ->
@@ -222,6 +224,7 @@ class AniListApi : SyncAPI() {
                             idMal
                             seasonYear
                             startDate { year month day }
+                            endDate { year month day }
                             title {
                                 romaji
                             }
@@ -383,9 +386,11 @@ class AniListApi : SyncAPI() {
                        episodes
                        genres
                        synonyms
-                       averageScore
-                       isAdult
-                       description(asHtml: false)
+averageScore
+                        isAdult
+                        startDate { year month day }
+                        endDate { year month day }
+                        description(asHtml: false)
                        characters(sort: ROLE page: 1 perPage: 20) {
                            edges {
                                role
@@ -873,6 +878,8 @@ class AniListApi : SyncAPI() {
         @JsonProperty("synonyms") val synonyms: List<String>?,
         @JsonProperty("averageScore") val averageScore: Int?,
         @JsonProperty("isAdult") val isAdult: Boolean?,
+        @JsonProperty("startDate") val startDate: StartedAt? = null,
+        @JsonProperty("endDate") val endDate: StartedAt? = null,
         @JsonProperty("trailer") val trailer: MediaTrailer?,
         @JsonProperty("description") val description: String?,
         @JsonProperty("characters") val characters: CharacterConnection?,
@@ -1132,6 +1139,7 @@ class AniListApi : SyncAPI() {
         @JsonProperty("seasonYear") val seasonYear: Int,
         @JsonProperty("title") val title: GetSearchTitle,
         @JsonProperty("startDate") val startDate: StartedAt,
+        @JsonProperty("endDate") val endDate: StartedAt? = null,
         @JsonProperty("averageScore") val averageScore: Int?,
         @JsonProperty("meanScore") val meanScore: Int?,
         @JsonProperty("bannerImage") val bannerImage: String?,
@@ -1368,4 +1376,17 @@ class AniListApi : SyncAPI() {
         @JsonProperty("title") val title: MediaTitle?,
         @JsonProperty("coverImage") val coverImage: CoverImage?
     )
+}
+private fun AniListApi.StartedAt.toEpochMillis(): Long? {
+    val year = year?.toIntOrNull() ?: return null
+    val month = month?.toIntOrNull() ?: 1
+    val day = day?.toIntOrNull() ?: 1
+    return try {
+        java.util.Calendar.getInstance().apply {
+            clear()
+            set(year, month - 1, day, 0, 0, 0)
+        }.timeInMillis
+    } catch (e: Exception) {
+        null
+    }
 }

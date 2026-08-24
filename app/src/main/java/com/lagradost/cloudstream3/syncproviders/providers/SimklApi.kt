@@ -13,6 +13,7 @@ import com.lagradost.cloudstream3.CloudStreamApp.Companion.setKey
 import com.lagradost.cloudstream3.LoadResponse.Companion.readIdFromString
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.Score
+import com.lagradost.cloudstream3.ShowStatus
 import com.lagradost.cloudstream3.SimklSyncServices
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.app
@@ -1269,7 +1270,56 @@ class SimklApi : SyncAPI() {
         )
     }
 
-    override suspend fun load(auth: AuthData?, id: String): SyncResult? = null
+    override suspend fun load(auth: AuthData?, id: String): SyncResult? {
+        val simklId = id.toIntOrNull() ?: return null
+        return try {
+            rateLimiter.acquire()
+            val summary = app.get(
+                "https://api.simkl.com/summary/$simklId",
+                params = mapOf("client_id" to CLIENT_ID, "extended" to "full")
+            ).parsedSafe<SimklSummary>() ?: return null
+
+            SyncResult(
+                id = id,
+                title = summary.title,
+                publicScore = summary.rating?.let { Score.from(it, 10) },
+                genres = summary.genres,
+                totalEpisodes = summary.totalEpisodes,
+                synopsis = summary.overview,
+                airStatus = when (summary.status?.lowercase()) {
+                    "returning series", "in production" -> ShowStatus.Ongoing
+                    "ended", "canceled" -> ShowStatus.Completed
+                    else -> null
+                },
+                posterUrl = summary.poster?.let { getPosterUrl(it) },
+                startDate = parseSimklDate(summary.firstAired),
+                endDate = parseSimklDate(summary.lastAired),
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("[SIMKL_API]", "load failed: ${e.message}", e)
+            null
+        }
+    }
+
+    private fun parseSimklDate(date: String?): Long? = try {
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT)
+            .parse(date ?: return null)?.time
+    } catch (e: Exception) {
+        null
+    }
+
+    data class SimklSummary(
+        @JsonProperty("title") val title: String? = null,
+        @JsonProperty("poster") val poster: String? = null,
+        @JsonProperty("year") val year: Int? = null,
+        @JsonProperty("rating") val rating: Float? = null,
+        @JsonProperty("genres") val genres: List<String>? = null,
+        @JsonProperty("overview") val overview: String? = null,
+        @JsonProperty("status") val status: String? = null,
+        @JsonProperty("total_episodes") val totalEpisodes: Int? = null,
+        @JsonProperty("first_aired") val firstAired: String? = null,
+        @JsonProperty("last_aired") val lastAired: String? = null,
+    )
 
     private suspend fun getSyncListSince(auth: AuthData, since: Long?): AllItemsResponse? {
         val params = getDateTime(since)?.let {

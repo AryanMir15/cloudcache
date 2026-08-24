@@ -2835,6 +2835,12 @@ class ResultViewModel2 : ViewModel() {
                 posterUrl = posterUrl ?: meta.posterUrl ?: meta.backgroundPosterUrl
                 backgroundPosterUrl = backgroundPosterUrl ?: meta.backgroundPosterUrl
                 actors = actors ?: meta.actors
+                // Fill a missing year from the tracker's start date
+                year = year ?: meta.startDate?.let { startMillis ->
+                    java.util.Calendar.getInstance().apply {
+                        timeInMillis = startMillis
+                    }.get(java.util.Calendar.YEAR)
+                }
 
                 if (this is EpisodeResponse) {
                     nextAiring = nextAiring ?: meta.nextAiring
