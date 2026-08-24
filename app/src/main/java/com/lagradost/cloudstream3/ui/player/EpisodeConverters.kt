@@ -59,7 +59,8 @@ fun ExtractorUri.toResultEpisode(
         tvType = tvType ?: cachedHeader?.type ?: TvType.Anime,
         parentId = parentId ?: cachedEpisode?.parentId ?: 0,
         videoWatchState = getVideoWatchState(id ?: 0) ?: VideoWatchState.None,
-        totalEpisodeIndex = episode
+        totalEpisodeIndex = cachedEpisode?.totalEpisodeIndex ?: episode,
+        runTime = cachedEpisode?.runTime
     )
 }
 

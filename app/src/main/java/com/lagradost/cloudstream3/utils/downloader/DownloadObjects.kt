@@ -74,6 +74,10 @@ object DownloadObjects {
         @JsonProperty("cacheTime") val cacheTime: Long,
         @JsonProperty("dubStatus") val dubStatus: String? = null,
         @JsonProperty("data") val data: String? = null,
+        @JsonProperty("totalEpisodeIndex") val totalEpisodeIndex: Int? = null,
+        @JsonProperty("displaySeason") val displaySeason: Int? = null,
+        @JsonProperty("runTime") val runTime: Int? = null,
+        @JsonProperty("isFiller") val isFiller: Boolean? = null,
         override val id: Int,
     ) : DownloadCached(id) {
         @JsonProperty("rating", access = JsonProperty.Access.WRITE_ONLY)
@@ -126,6 +130,11 @@ object DownloadObjects {
         @JsonProperty("originalShowStatus") val originalShowStatus: String? = null,
         @JsonProperty("totalSeasons") val totalSeasons: Int? = null,
         @JsonProperty("seasonMetadata") val seasonMetadata: Map<Int, SeasonMetadata>? = null,
+        @JsonProperty("duration") val duration: Int? = null,
+        @JsonProperty("posterHeaders") val posterHeaders: Map<String, String>? = null,
+        @JsonProperty("contentRating") val contentRating: String? = null,
+        @JsonProperty("comingSoon") val comingSoon: Boolean? = null,
+        @JsonProperty("trailers") val trailers: List<CachedTrailerData>? = null,
         // Cache recommendations for offline display
         @JsonProperty("recommendations") val recommendations: List<CachedSearchResponse>? = null,
         override val id: Int,
@@ -133,7 +142,17 @@ object DownloadObjects {
 
     data class SeasonMetadata(
         @JsonProperty("episodeCount") val episodeCount: Int,
-        @JsonProperty("episodes") val episodes: List<Int> = emptyList()
+        @JsonProperty("episodes") val episodes: List<Int> = emptyList(),
+        @JsonProperty("name") val name: String? = null,
+        @JsonProperty("displaySeason") val displaySeason: Int? = null
+    )
+
+    /** Simplified TrailerData for caching trailers offline */
+    data class CachedTrailerData(
+        @JsonProperty("extractorUrl") val extractorUrl: String,
+        @JsonProperty("referer") val referer: String? = null,
+        @JsonProperty("raw") val raw: Boolean = false,
+        @JsonProperty("headers") val headers: Map<String, String> = mapOf()
     )
 
     /** Simplified SearchResponse for caching recommendations */

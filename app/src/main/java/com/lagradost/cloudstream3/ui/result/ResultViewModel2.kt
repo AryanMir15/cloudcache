@@ -3841,8 +3841,12 @@ class ResultViewModel2 : ViewModel() {
                 android.util.Log.d("CacheFlow", "[CACHE_LOOP] Processing episode $episode season $season id $id dubStatus $dubStatus")
                 try {
                     val existingCachedEpisode = getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, id.toString())
-                    if (existingCachedEpisode == null) {
-                        android.util.Log.d("CacheFlow", "[CACHE_LOOP] Episode not cached, will cache now")
+                    // Refresh policy: write if missing, older than 24h, or from the pre-enrichment format
+                    val needsRefresh = existingCachedEpisode == null ||
+                        existingCachedEpisode.cacheTime < System.currentTimeMillis() - (24 * 60 * 60 * 1000L) ||
+                        existingCachedEpisode.totalEpisodeIndex == null
+                    if (needsRefresh) {
+                        android.util.Log.d("CacheFlow", "[CACHE_LOOP] Episode $episode needs ${if (existingCachedEpisode == null) "caching" else "refreshing"}")
                         // Find the original episode data from loadResponse
                         val episodeData = when (loadResponse) {
                             is AnimeLoadResponse -> {
@@ -3862,6 +3866,8 @@ class ResultViewModel2 : ViewModel() {
                         android.util.Log.d("CacheFlow", "[METADATA_ONLY] Caching episode $episode season $season with dubStatus: $dubStatus")
                         
                         episodeData?.let { data ->
+                            val episodeResponse = loadResponse as? EpisodeResponse
+                            val seasonData = episodeResponse?.seasonNames?.getSeason(season)
                             val episodeCached = DownloadObjects.DownloadEpisodeCached(
                                 name = data.name,
                                 poster = data.posterUrl,
@@ -3874,7 +3880,13 @@ class ResultViewModel2 : ViewModel() {
                                 date = data.date,
                                 cacheTime = System.currentTimeMillis(),
                                 dubStatus = dubStatus,
-                                data = data.data
+                                data = data.data,
+                                totalEpisodeIndex = season?.let {
+                                    episodeResponse?.getTotalEpisodeIndex(episode, it)
+                                },
+                                displaySeason = seasonData?.displaySeason ?: season,
+                                runTime = data.runTime,
+                                isFiller = fillers.contains(episode)
                             )
                             CloudStreamApp.setKey(
                                 DOWNLOAD_EPISODE_CACHE,
@@ -3885,7 +3897,7 @@ class ResultViewModel2 : ViewModel() {
                             updateParentIndex(mainId, id.toString())
                         } ?: android.util.Log.e("CacheFlow", "[CACHE_LOOP] episodeData is null for episode $episode season $season")
                     } else {
-                        android.util.Log.d("CacheFlow", "[CACHE_LOOP] Episode already cached, skipping")
+                        android.util.Log.d("CacheFlow", "[CACHE_LOOP] Episode already cached and fresh, skipping")
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("CacheFlow", "[CACHE_LOOP] Error caching episode: ${e.message}", e)
@@ -3900,13 +3912,19 @@ class ResultViewModel2 : ViewModel() {
         }
         
         android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Episode caching completed - updating header to metadataOnlyMode=false")
-        // Update header to mark as fully cached
-        val cachedHeader = getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, mainId.toString())
-        if (cachedHeader != null && cachedHeader.metadataOnlyMode) {
-            android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Updating header metadataOnlyMode from true to false - id: $mainId")
-            val updatedHeader = cachedHeader.copy(metadataOnlyMode = false)
-            CloudStreamApp.setKey(DOWNLOAD_HEADER_CACHE, mainId.toString(), updatedHeader)
-            android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Header updated successfully - metadataOnlyMode: false")
+        // Update header to mark as fully cached.
+        // The header may be stored under a URL key or an ID key, so find it by id.
+        val headerKey = CloudStreamApp.getKeys(DOWNLOAD_HEADER_CACHE)?.firstOrNull { key ->
+            getKey<DownloadObjects.DownloadHeaderCached>(key)?.id == mainId
+        }
+        if (headerKey != null) {
+            val cachedHeader = getKey<DownloadObjects.DownloadHeaderCached>(headerKey)
+            if (cachedHeader != null && cachedHeader.metadataOnlyMode) {
+                android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Updating header metadataOnlyMode from true to false - id: $mainId")
+                val updatedHeader = cachedHeader.copy(metadataOnlyMode = false)
+                CloudStreamApp.setKey(DOWNLOAD_HEADER_CACHE, headerKey, updatedHeader)
+                android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Header updated successfully - metadataOnlyMode: false")
+            }
         }
     }
 
@@ -4069,17 +4087,24 @@ class ResultViewModel2 : ViewModel() {
             plot = cachedHeader.plot,
             score = cachedHeader.score?.let { if (it >= 0 && it <= 10) Score.from10(it) else null },
             tags = cachedHeader.tags,
-            duration = null,
-            trailers = mutableListOf(),
+            duration = cachedHeader.duration,
+            trailers = cachedHeader.trailers?.map { trailer ->
+                TrailerData(
+                    extractorUrl = trailer.extractorUrl,
+                    referer = trailer.referer,
+                    raw = trailer.raw,
+                    headers = trailer.headers
+                )
+            }?.toMutableList() ?: mutableListOf(),
             recommendations = null,
             actors = actors,
-            comingSoon = false,
+            comingSoon = cachedHeader.comingSoon ?: false,
             // FIX: Restore syncData from cached header
             syncData = cachedHeader.syncData?.toMutableMap() ?: mutableMapOf(),
-            posterHeaders = null,
+            posterHeaders = cachedHeader.posterHeaders,
             backgroundPosterUrl = cachedHeader.backgroundPosterUrl,
             logoUrl = cachedHeader.logoUrl,
-            contentRating = null,
+            contentRating = cachedHeader.contentRating,
             uniqueUrl = url,
             id = cachedHeader.id,
             showStatus = cachedHeader.showStatus?.let { try { ShowStatus.valueOf(it) } catch (e: Exception) { null } }
@@ -4121,15 +4146,16 @@ class ResultViewModel2 : ViewModel() {
                 duration = posDur?.duration ?: 0,
                 score = cached.score,
                 description = cached.description,
-                isFiller = null,
+                isFiller = cached.isFiller,
                 tvType = cachedHeader.type ?: TvType.Anime,
                 parentId = parentId,
                 videoWatchState = getVideoWatchState(cached.id) ?: VideoWatchState.None,
-                totalEpisodeIndex = cached.episode,
+                totalEpisodeIndex = cached.totalEpisodeIndex ?: cached.episode,
                 airDate = cached.date,
+                runTime = cached.runTime,
                 showPoster = cachedHeader.poster,
-                showBanner = null,
-                showLogo = null,
+                showBanner = cachedHeader.backgroundPosterUrl,
+                showLogo = cachedHeader.logoUrl,
                 dubStatus = parsedDubStatus,
             )
         }
@@ -4194,6 +4220,8 @@ class ResultViewModel2 : ViewModel() {
                                         episodesToCache.add(EpisodeCacheInfo(id, episodeNumber, episode.season, dubStatus.name))
                                         
                                         // Cache episode immediately with full data
+                                        val episodeResponse = loadResponse as? EpisodeResponse
+                                        val seasonData = episodeResponse?.seasonNames?.getSeason(episode.season)
                                         val episodeCached = DownloadObjects.DownloadEpisodeCached(
                                             name = episode.name,
                                             poster = episode.posterUrl,
@@ -4206,7 +4234,13 @@ class ResultViewModel2 : ViewModel() {
                                             date = episode.date,
                                             cacheTime = System.currentTimeMillis(),
                                             dubStatus = dubStatus.name,
-                                            data = episode.data
+                                            data = episode.data,
+                                            totalEpisodeIndex = episode.season?.let {
+                                                episodeResponse?.getTotalEpisodeIndex(episodeNumber, it)
+                                            },
+                                            displaySeason = seasonData?.displaySeason ?: episode.season,
+                                            runTime = episode.runTime,
+                                            isFiller = fillers.contains(episodeNumber)
                                         )
                                         CloudStreamApp.setKey(
                                             DOWNLOAD_EPISODE_CACHE,
@@ -4223,6 +4257,7 @@ class ResultViewModel2 : ViewModel() {
                                     episodesToCache.add(EpisodeCacheInfo(id, episode.episode ?: (index + 1), episode.season, "None"))
                                     
                                     // Cache episode immediately with full data
+                                    val seasonData = loadResponse.seasonNames?.getSeason(episode.season)
                                     val episodeCached = DownloadObjects.DownloadEpisodeCached(
                                         name = episode.name,
                                         poster = episode.posterUrl,
@@ -4235,7 +4270,13 @@ class ResultViewModel2 : ViewModel() {
                                         date = episode.date,
                                         cacheTime = System.currentTimeMillis(),
                                         dubStatus = "None",
-                                        data = episode.data
+                                        data = episode.data,
+                                        totalEpisodeIndex = episode.season?.let {
+                                            loadResponse.getTotalEpisodeIndex(episode.episode ?: (index + 1), it)
+                                        },
+                                        displaySeason = seasonData?.displaySeason ?: episode.season,
+                                        runTime = episode.runTime,
+                                        isFiller = fillers.contains(episode.episode ?: (index + 1))
                                     )
                                     CloudStreamApp.setKey(
                                         DOWNLOAD_EPISODE_CACHE,
@@ -4653,15 +4694,16 @@ class ResultViewModel2 : ViewModel() {
                     duration = posDur?.duration ?: 0,
                     score = cached.score,
                     description = cached.description,
-                    isFiller = null,
+                    isFiller = cached.isFiller,
                     tvType = cachedHeader.type ?: TvType.Anime,
                     parentId = parentId,
                     videoWatchState = getVideoWatchState(cached.id) ?: VideoWatchState.None,
-                    totalEpisodeIndex = cached.episode,
+                    totalEpisodeIndex = cached.totalEpisodeIndex ?: cached.episode,
                     airDate = cached.date,
+                    runTime = cached.runTime,
                     showPoster = cachedHeader.poster,
-                    showBanner = null, // Not cached in header
-                    showLogo = null, // Not cached in header
+                    showBanner = cachedHeader.backgroundPosterUrl,
+                    showLogo = cachedHeader.logoUrl,
                     dubStatus = parsedDubStatus,
                 )
             }
@@ -4796,7 +4838,8 @@ class ResultViewModel2 : ViewModel() {
             // Post dub/season selections
             _dubSubSelections.postValue(dubStatusList.map { txt(it) to it })
             _seasonSelections.postValue(seasonsSelection.map { seasonNumber ->
-                txt(R.string.season_format, txt(R.string.season), seasonNumber, "") to seasonNumber
+                val seasonName = cachedHeader.seasonMetadata?.get(seasonNumber)?.name ?: ""
+                txt(R.string.season_format, txt(R.string.season), seasonNumber, seasonName) to seasonNumber
             })
             
             // Load recommendations from cache
@@ -5242,6 +5285,10 @@ class ResultViewModel2 : ViewModel() {
                     // Use the same cache key logic as when storing swapped metadata
                     val cacheKeyForSwap = currentResponse?.url ?: validUrl
                     val swappedCache = getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, cacheKeyForSwap)
+                        // Fallback: the header may be stored under a different key (id or original URL)
+                        ?: getKeys(DOWNLOAD_HEADER_CACHE)?.mapNotNull {
+                            getKey<DownloadObjects.DownloadHeaderCached>(it)
+                        }?.firstOrNull { it.id == mainId || it.url == cacheKeyForSwap }
                     // Use originalUrl from cache if available for consistent cache key
                     val actualCacheKey = swappedCache?.originalUrl ?: swappedCache?.url ?: cacheKeyForSwap
                     val finalResponse = if (swappedCache?.hasSwappedMetadata == true && swappedCache.swappedFields.isNotEmpty()) {
@@ -5310,7 +5357,7 @@ class ResultViewModel2 : ViewModel() {
                             existingCachedHeader.actors
                         } else {
                             loadResponse.actors?.map { actorData ->
-                                "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
+                                "${actorData.actor.name ?: ""}|${actorData.actor.image ?: ""}|${actorData.role?.name ?: ""}|${actorData.roleString ?: ""}|${actorData.voiceActor?.name ?: ""}|${actorData.voiceActor?.image ?: ""}"
                             } ?: existingCachedHeader?.actors
                         }
                         val preservedScore = if (existingCachedHeader?.hasSwappedMetadata == true && "SCORE" in existingCachedHeader.swappedFields) {
@@ -5350,7 +5397,9 @@ class ResultViewModel2 : ViewModel() {
                                             .mapNotNull { it.episode }
                                         seasonMetadata[seasonData.season] = DownloadObjects.SeasonMetadata(
                                             episodeCount = episodes.size,
-                                            episodes = episodes
+                                            episodes = episodes,
+                                            name = seasonData.name,
+                                            displaySeason = seasonData.displaySeason ?: seasonData.season
                                         )
                                     }
                                 } else {
@@ -5364,7 +5413,8 @@ class ResultViewModel2 : ViewModel() {
                                     episodesBySeason.forEach { (season, episodes) ->
                                         seasonMetadata[season] = DownloadObjects.SeasonMetadata(
                                             episodeCount = episodes.size,
-                                            episodes = episodes.mapNotNull { it.episode }
+                                            episodes = episodes.mapNotNull { it.episode },
+                                            displaySeason = season
                                         )
                                     }
                                 }
@@ -5389,7 +5439,9 @@ class ResultViewModel2 : ViewModel() {
                                             .mapNotNull { it.episode }
                                         seasonMetadata[seasonData.season] = DownloadObjects.SeasonMetadata(
                                             episodeCount = episodes.size,
-                                            episodes = episodes
+                                            episodes = episodes,
+                                            name = seasonData.name,
+                                            displaySeason = seasonData.displaySeason ?: seasonData.season
                                         )
                                     }
                                 } else {
@@ -5399,7 +5451,8 @@ class ResultViewModel2 : ViewModel() {
                                     episodesBySeason.forEach { (season, episodes) ->
                                         seasonMetadata[season] = DownloadObjects.SeasonMetadata(
                                             episodeCount = episodes.size,
-                                            episodes = episodes.mapNotNull { it.episode }
+                                            episodes = episodes.mapNotNull { it.episode },
+                                            displaySeason = season
                                         )
                                     }
                                 }
@@ -5454,6 +5507,18 @@ class ResultViewModel2 : ViewModel() {
                                 originalShowStatus = existingCachedHeader?.originalShowStatus,
                                 totalSeasons = totalSeasons,
                                 seasonMetadata = seasonMetadata,
+                                duration = loadResponse.duration,
+                                posterHeaders = loadResponse.posterHeaders,
+                                contentRating = loadResponse.contentRating,
+                                comingSoon = loadResponse.comingSoon,
+                                trailers = loadResponse.trailers?.map { trailer ->
+                                    DownloadObjects.CachedTrailerData(
+                                        extractorUrl = trailer.extractorUrl,
+                                        referer = trailer.referer,
+                                        raw = trailer.raw,
+                                        headers = trailer.headers
+                                    )
+                                },
                                 recommendations = existingCachedHeader?.recommendations ?: loadResponse.recommendations?.map { rec ->
                                     DownloadObjects.CachedSearchResponse(
                                         name = rec.name,
