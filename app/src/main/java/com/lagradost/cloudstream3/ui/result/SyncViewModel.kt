@@ -302,6 +302,8 @@ class SyncViewModel : ViewModel() {
                         episodeConstructor = currentUser.episodeConstructor,
                         isFavorite = currentUser.isFavorite,
                         maxEpisodes = currentUser.maxEpisodes,
+                        startDate = currentUser.startDate,
+                        endDate = currentUser.endDate,
                         oldEpisodes = currentUser.oldEpisodes,
                         oldStatus = currentUser.oldStatus
                     )
@@ -313,7 +315,9 @@ class SyncViewModel : ViewModel() {
                         score = currentUser?.score,
                         watchedEpisodes = episodes,
                         isFavorite = currentUser?.isFavorite,
-                        maxEpisodes = currentUser?.maxEpisodes
+                        maxEpisodes = currentUser?.maxEpisodes,
+                        startDate = currentUser?.startDate,
+                        endDate = currentUser?.endDate
                     )
                 }
             }
@@ -393,6 +397,8 @@ class SyncViewModel : ViewModel() {
                         episodeConstructor = currentUser.episodeConstructor,
                         isFavorite = currentUser.isFavorite,
                         maxEpisodes = currentUser.maxEpisodes,
+                        startDate = currentUser.startDate,
+                        endDate = currentUser.endDate,
                         oldEpisodes = currentUser.oldEpisodes,
                         oldStatus = currentUser.oldStatus
                     )
@@ -404,7 +410,9 @@ class SyncViewModel : ViewModel() {
                         score = score,
                         watchedEpisodes = currentUser?.watchedEpisodes,
                         isFavorite = currentUser?.isFavorite,
-                        maxEpisodes = currentUser?.maxEpisodes
+                        maxEpisodes = currentUser?.maxEpisodes,
+                        startDate = currentUser?.startDate,
+                        endDate = currentUser?.endDate
                     )
                 }
             }
@@ -435,6 +443,8 @@ class SyncViewModel : ViewModel() {
                         episodeConstructor = currentUser.episodeConstructor,
                         isFavorite = currentUser.isFavorite,
                         maxEpisodes = currentUser.maxEpisodes,
+                        startDate = currentUser.startDate,
+                        endDate = currentUser.endDate,
                         oldEpisodes = currentUser.oldEpisodes,
                         oldStatus = currentUser.oldStatus
                     )
@@ -446,7 +456,9 @@ class SyncViewModel : ViewModel() {
                         score = currentUser?.score,
                         watchedEpisodes = currentUser?.watchedEpisodes,
                         isFavorite = currentUser?.isFavorite,
-                        maxEpisodes = currentUser?.maxEpisodes
+                        maxEpisodes = currentUser?.maxEpisodes,
+                        startDate = currentUser?.startDate,
+                        endDate = currentUser?.endDate
                     )
                 }
             }

@@ -2861,8 +2861,13 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         is Resource.Failure -> {
                             resultSyncLoadingShimmer.stopShimmer()
                             resultSyncLoadingShimmer.isVisible = false
-                            resultSyncHolder.isVisible = false
-                            closed = true
+                            // Keep the panel open with an error state instead of silently closing
+                            resultSyncHolder.isVisible = true
+                            syncBinding?.resultSyncSubtitle?.let { sub ->
+                                sub.text = getString(R.string.sync_load_failed)
+                                sub.isVisible = true
+                            }
+                            closed = false
                         }
 
                         is Resource.Loading -> {

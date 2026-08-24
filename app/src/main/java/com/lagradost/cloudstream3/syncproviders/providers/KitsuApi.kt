@@ -228,7 +228,7 @@ class KitsuApi: SyncAPI() {
         val accessToken = auth?.token?.accessToken ?: return null
         val userId = auth.user.id
 
-        val selectedFields = arrayOf("status","ratingTwenty", "progress", "startDate", "endDate")
+        val selectedFields = arrayOf("status","ratingTwenty", "progress", "startedAt", "finishedAt")
 
         val url =
             "$apiUrl/library-entries?filter[userId]=$userId&filter[animeId]=$id&fields[libraryEntries]=${selectedFields.joinToString(",")}"
@@ -254,13 +254,14 @@ class KitsuApi: SyncAPI() {
             status = SyncWatchType.fromInternalId(kitsuStatusAsString.indexOf(anime.status)),
             isFavorite = null,
             watchedEpisodes = anime.progress,
-            startDate = anime.startDate?.let { parseKitsuDate(it) },
-            endDate = anime.endDate?.let { parseKitsuDate(it) },
+            startDate = anime.startedAt?.let { parseKitsuDateTime(it) },
+            endDate = anime.finishedAt?.let { parseKitsuDateTime(it) },
         )
     }
 
-    private fun parseKitsuDate(date: String?): Long? = try {
-        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT)
+    private fun parseKitsuDateTime(date: String?): Long? = try {
+        java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.ROOT)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
             .parse(date ?: return null)?.time
     } catch (e: Exception) {
         null
@@ -297,7 +298,9 @@ class KitsuApi: SyncAPI() {
     }
 
     private fun Long.toKitsuIsoDate(): String =
-        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(java.util.Date(this))
+        java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.ROOT)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+            .format(java.util.Date(this))
 
     private suspend fun setScoreRequest(
         auth : AuthData,
@@ -349,8 +352,8 @@ class KitsuApi: SyncAPI() {
                     "ratingTwenty" to score,
                     "progress" to numWatchedEpisodes,
                     "status" to if (status == null) null else kitsuStatusAsString[maxOf(0, status.value)],
-                    "startDate" to startDate?.toKitsuIsoDate(),
-                    "endDate" to endDate?.toKitsuIsoDate()
+                    "startedAt" to startDate?.toKitsuIsoDate(),
+                    "finishedAt" to endDate?.toKitsuIsoDate()
                 ),
                 "relationships" to mapOf(
                     "anime" to mapOf(
@@ -401,8 +404,8 @@ class KitsuApi: SyncAPI() {
                     "ratingTwenty" to score,
                     "progress" to numWatchedEpisodes,
                     "status" to status,
-                    "startDate" to startDate?.toKitsuIsoDate(),
-                    "endDate" to endDate?.toKitsuIsoDate()
+                    "startedAt" to startDate?.toKitsuIsoDate(),
+                    "finishedAt" to endDate?.toKitsuIsoDate()
                 )
             )
         )
@@ -610,6 +613,9 @@ class KitsuApi: SyncAPI() {
         @JsonProperty("ratingTwenty") val ratingTwenty: Float?,
         @JsonProperty("updatedAt") val updatedAt: String?,
         @JsonProperty("status") val status: String?,
+        /* When the user started/finished consuming the entry */
+        @JsonProperty("startedAt") val startedAt: String? = null,
+        @JsonProperty("finishedAt") val finishedAt: String? = null,
     )
 
     data class KitsuRelationships(
