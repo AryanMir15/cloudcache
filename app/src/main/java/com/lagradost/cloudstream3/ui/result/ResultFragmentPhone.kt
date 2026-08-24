@@ -128,6 +128,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     private var lastSyncButtonClick = 0L
     private val SYNC_CLICK_DEBOUNCE_MS = 500L
 
+    private val undoFabAutoHide = Runnable {
+        binding?.resultUndoMetadataFab?.visibility = android.view.View.GONE
+    }
+
     // [PANEL_FIX] Reusable PanelStateListener to prevent accumulation of listeners
     private var panelStateListener: OverlappingPanelsLayout.PanelStateListener? = null
     // [PANEL_FIX] Counter to track listener invocations
@@ -474,6 +478,19 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         )
         binding?.resultSwapMetadataFab?.setOnClickListener {
             android.util.Log.d("MetadataSwap", "Swap metadata FAB clicked")
+            // Re-show the undo FAB (it auto-hides) and reset its timer
+            val undoFab = binding?.resultUndoMetadataFab
+            if (undoFab?.visibility != android.view.View.VISIBLE &&
+                getStoredData()?.let { stored ->
+                    com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
+                        com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE, stored.url
+                    )?.hasSwappedMetadata == true
+                } == true
+            ) {
+                undoFab?.removeCallbacks(undoFabAutoHide)
+                undoFab?.visibility = android.view.View.VISIBLE
+                undoFab?.postDelayed(undoFabAutoHide, 6000)
+            }
             val currentResponse = viewModel.currentResponse
             val originalResponse = viewModel.originalResponse
             if (currentResponse != null && originalResponse != null) {
@@ -529,8 +546,14 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     "MetadataSwap",
                     "Checking cache for reset button - url: ${storedData.url}, hasSwappedMetadata: ${cachedHeader?.hasSwappedMetadata}"
                 )
-                binding?.resultUndoMetadataFab?.visibility =
-                    if (cachedHeader?.hasSwappedMetadata == true) android.view.View.VISIBLE else android.view.View.GONE
+                val undoFab = binding?.resultUndoMetadataFab
+                val hasSwapped = cachedHeader?.hasSwappedMetadata == true
+                undoFab?.visibility = if (hasSwapped) android.view.View.VISIBLE else android.view.View.GONE
+                if (hasSwapped) {
+                    // Auto-hide the undo FAB after a few seconds so it doesn't sit on screen
+                    undoFab?.removeCallbacks(undoFabAutoHide)
+                    undoFab?.postDelayed(undoFabAutoHide, 6000)
+                }
             }
         }
     }

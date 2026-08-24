@@ -267,13 +267,17 @@
                     style="@style/ExtendedFloatingActionButton"
                     tools:ignore="ContentDescription" />
 
-            <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+            <com.google.android.material.floatingactionbutton.FloatingActionButton
                     android:visibility="gone"
                     tools:visibility="visible"
                     android:id="@+id/result_undo_metadata_fab"
-                    android:text="Undo Swap"
-                    app:icon="@drawable/ic_baseline_arrow_back_24"
-                    style="@style/ExtendedFloatingActionButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="20dp"
+                    android:contentDescription="@string/reset_metadata"
+                    android:src="@drawable/ic_baseline_arrow_back_24"
+                    app:fabSize="mini"
+                    app:tint="?attr/colorOnPrimary"
                     tools:ignore="ContentDescription" />
 
             <fragment

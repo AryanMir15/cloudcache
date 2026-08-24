@@ -426,6 +426,7 @@
     <string name="auto_metadata_fetch_summary">Automatically fetch missing metadata from AniList sync when loading shows</string>
     <string name="metadata_provider">Metadata provider</string>
     <string name="refresh_metadata">Refresh metadata</string>
+    <string name="reset_metadata">Reset swapped metadata</string>
     <string name="refresh_metadata_summary">Fetch metadata from AniList sync for this show</string>
     <string name="subtitles_encoding">Subtitle encoding</string>
     <string name="category_providers">Providers</string>
