@@ -476,6 +476,7 @@
     <string name="sync_login_required">Not logged in — add a tracker account to sync</string>
     <string name="public_score_format">avg %s</string>
     <string name="sync_started_on">Started %s</string>
+    <string name="episode_sync_dates_set">Dates set — tap Sync to save</string>
     <string name="authenticated_user" formatted="true">%s authenticated</string>
     <string name="authenticated_user_fail" formatted="true">Could not log in at %s</string>
     <!-- ============ -->

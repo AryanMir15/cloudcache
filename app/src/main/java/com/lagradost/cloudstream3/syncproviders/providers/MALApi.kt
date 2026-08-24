@@ -131,7 +131,9 @@ class MALApi : SyncAPI() {
             id.toIntOrNull() ?: return false,
             fromIntToAnimeStatus(newStatus.status),
             newStatus.score?.toInt(10),
-            newStatus.watchedEpisodes
+            newStatus.watchedEpisodes,
+            newStatus.startDate,
+            newStatus.endDate
         )
     }
 
@@ -288,6 +290,8 @@ class MALApi : SyncAPI() {
             status = SyncWatchType.fromInternalId(malStatusAsString.indexOf(data?.status)),
             isFavorite = null,
             watchedEpisodes = data?.numEpisodesWatched,
+            startDate = data?.startDate?.let { parseDate(it) },
+            endDate = data?.finishDate?.let { parseDate(it) },
         )
     }
 
@@ -549,13 +553,17 @@ class MALApi : SyncAPI() {
         status: MalStatusType? = null,
         score: Int? = null,
         numWatchedEpisodes: Int? = null,
+        startDate: Long? = null,
+        finishDate: Long? = null,
     ): Boolean {
         val res = setScoreRequest(
             token,
             id,
             if (status == null) null else malStatusAsString[maxOf(0, status.value)],
             score,
-            numWatchedEpisodes
+            numWatchedEpisodes,
+            startDate,
+            finishDate
         )
 
         return if (res.isNullOrBlank()) {
@@ -579,11 +587,15 @@ class MALApi : SyncAPI() {
         status: String? = null,
         score: Int? = null,
         numWatchedEpisodes: Int? = null,
+        startDate: Long? = null,
+        finishDate: Long? = null,
     ): String? {
         val data = mapOf(
             "status" to status,
             "score" to score?.toString(),
-            "num_watched_episodes" to numWatchedEpisodes?.toString()
+            "num_watched_episodes" to numWatchedEpisodes?.toString(),
+            "start_date" to startDate?.toYyyyMmDd(),
+            "finish_date" to finishDate?.toYyyyMmDd()
         ).filterValues { it != null } as Map<String, String>
 
         return app.put(
@@ -594,6 +606,9 @@ class MALApi : SyncAPI() {
             data = data
         ).text
     }
+
+    private fun Long.toYyyyMmDd(): String =
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.ROOT).format(java.util.Date(this))
 
 
     data class ResponseToken(
@@ -629,6 +644,8 @@ class MALApi : SyncAPI() {
         @JsonProperty("num_episodes_watched") val numEpisodesWatched: Int,
         @JsonProperty("is_rewatching") val isRewatching: Boolean,
         @JsonProperty("updated_at") val updatedAt: String,
+        @JsonProperty("start_date") val startDate: String? = null,
+        @JsonProperty("finish_date") val finishDate: String? = null,
     )
 
     data class MalUser(

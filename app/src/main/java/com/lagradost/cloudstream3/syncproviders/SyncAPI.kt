@@ -90,6 +90,10 @@ abstract class SyncAPI : AuthAPI() {
         abstract var watchedEpisodes: Int?
         abstract var isFavorite: Boolean?
         abstract var maxEpisodes: Int?
+        /** When the user started this entry, unix time millis */
+        abstract var startDate: Long?
+        /** When the user finished this entry, unix time millis */
+        abstract var endDate: Long?
     }
 
     data class SyncStatus(
@@ -98,6 +102,8 @@ abstract class SyncAPI : AuthAPI() {
         override var watchedEpisodes: Int?,
         override var isFavorite: Boolean? = null,
         override var maxEpisodes: Int? = null,
+        override var startDate: Long? = null,
+        override var endDate: Long? = null,
     ) : AbstractSyncStatus()
 
     object EmptySyncStatus : AbstractSyncStatus() {
@@ -106,6 +112,8 @@ abstract class SyncAPI : AuthAPI() {
         override var watchedEpisodes: Int? = null
         override var isFavorite: Boolean? = null
         override var maxEpisodes: Int? = null
+        override var startDate: Long? = null
+        override var endDate: Long? = null
 
         /** Reset to defaults to prevent state leaking between entries */
         fun reset() {
@@ -114,6 +122,8 @@ abstract class SyncAPI : AuthAPI() {
             watchedEpisodes = null
             isFavorite = null
             maxEpisodes = null
+            startDate = null
+            endDate = null
         }
     }
 

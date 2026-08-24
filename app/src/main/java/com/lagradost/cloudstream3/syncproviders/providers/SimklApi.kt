@@ -974,6 +974,8 @@ class SimklApi : SyncAPI() {
         val episodeConstructor: SimklEpisodeConstructor,
         override var isFavorite: Boolean? = null,
         override var maxEpisodes: Int? = null,
+        override var startDate: Long? = null,
+        override var endDate: Long? = null,
         /** Save seen episodes separately to know the change from old to new.
          * Required to remove seen episodes if count decreases */
         val oldEpisodes: Int,

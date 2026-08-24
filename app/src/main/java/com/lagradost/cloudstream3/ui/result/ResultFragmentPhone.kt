@@ -142,6 +142,34 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         }
     }
 
+    private fun showDatePicker(
+        context: Context,
+        title: String,
+        initial: Long?,
+        onPicked: (Long?) -> Unit
+    ) {
+        val cal = java.util.Calendar.getInstance()
+        if (initial != null) cal.timeInMillis = initial
+        val dialog = android.app.DatePickerDialog(
+            context,
+            { _, year, month, day ->
+                val picked = java.util.Calendar.getInstance().apply {
+                    clear()
+                    set(year, month, day, 0, 0, 0)
+                }.timeInMillis
+                onPicked(picked)
+            },
+            cal.get(java.util.Calendar.YEAR),
+            cal.get(java.util.Calendar.MONTH),
+            cal.get(java.util.Calendar.DAY_OF_MONTH)
+        )
+        dialog.setTitle(title)
+        dialog.setButton(android.app.AlertDialog.BUTTON_NEGATIVE, "Clear") { _, _ ->
+            onPicked(null)
+        }
+        dialog.show()
+    }
+
     // [PANEL_FIX] Reusable PanelStateListener to prevent accumulation of listeners
     private var panelStateListener: OverlappingPanelsLayout.PanelStateListener? = null
     // [PANEL_FIX] Counter to track listener invocations
@@ -3000,6 +3028,19 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
             syncBinding?.resultSyncSetScore?.setOnClickListener {
                 syncModel.publishUserData()
+            }
+
+            // Tap the dates line to edit start/end dates
+            syncBinding?.resultSyncDates?.setOnClickListener {
+                val current = (syncModel.userData.value as? Resource.Success)?.value
+                val initialStart = current?.startDate
+                val initialEnd = current?.endDate
+                showDatePicker(requireContext(), "Start date", initialStart) { newStart ->
+                    showDatePicker(requireContext(), "End date", initialEnd) { newEnd ->
+                        syncModel.setDates(newStart, newEnd)
+                        showToast(R.string.episode_sync_dates_set, Toast.LENGTH_SHORT)
+                    }
+                }
             }
 
             // Change Entry button - search and replace tracker entry

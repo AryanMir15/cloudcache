@@ -170,6 +170,8 @@ class AniListApi : SyncAPI() {
             status = SyncWatchType.fromInternalId(data.type?.value ?: return null),
             isFavorite = data.isFavourite,
             maxEpisodes = data.episodes,
+            startDate = data.startedAt?.toEpochMillis(),
+            endDate = data.completedAt?.toEpochMillis(),
         )
     }
 
@@ -183,7 +185,9 @@ class AniListApi : SyncAPI() {
             id.toIntOrNull() ?: return false,
             fromIntToAnimeStatus(newStatus.status.internalId),
             newStatus.score,
-            newStatus.watchedEpisodes
+            newStatus.watchedEpisodes,
+            newStatus.startDate,
+            newStatus.endDate
         )
     }
 
@@ -761,7 +765,9 @@ averageScore
         id: Int,
         type: AniListStatusType,
         score: Score?,
-        progress: Int?
+        progress: Int?,
+        startDate: Long? = null,
+        endDate: Long? = null
     ): Boolean {
         val userID = auth.user.id
 
@@ -787,13 +793,19 @@ averageScore
                     }
                 """
             } else {
+                val startedAtArg = startDate?.toFuzzyDateArg()
+                val completedAtArg = endDate?.toFuzzyDateArg()
                 """mutation (${'$'}id: Int = $id, ${'$'}status: MediaListStatus = ${
                     aniListStatusString[maxOf(
                         0,
                         type.value
                     )]
                 }, ${if (score != null) "${'$'}scoreRaw: Int = ${score.toInt(100)}" else ""} , ${if (progress != null) "${'$'}progress: Int = $progress" else ""}) {
-                    SaveMediaListEntry (mediaId: ${'$'}id, status: ${'$'}status, scoreRaw: ${'$'}scoreRaw, progress: ${'$'}progress) {
+                    SaveMediaListEntry (mediaId: ${'$'}id, status: ${'$'}status, scoreRaw: ${'$'}scoreRaw, progress: ${'$'}progress${
+                        if (startedAtArg != null) ", startedAt: $startedAtArg" else ""
+                    }${
+                        if (completedAtArg != null) ", completedAt: $completedAtArg" else ""
+                    }) {
                         id
                         status
                         progress
@@ -804,6 +816,11 @@ averageScore
 
         val data = postApi(auth.token, q)
         return data != ""
+    }
+
+    private fun Long.toFuzzyDateArg(): String {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = this@toFuzzyDateArg }
+        return "{year: ${cal.get(java.util.Calendar.YEAR)}, month: ${cal.get(java.util.Calendar.MONTH) + 1}, day: ${cal.get(java.util.Calendar.DAY_OF_MONTH)}}"
     }
 
     private suspend fun getUser(token : AuthToken): AniListUser? {
@@ -1091,6 +1108,8 @@ averageScore
         @JsonProperty("episodes") val episodes: Int?,
         @JsonProperty("score") val score: Int?,
         @JsonProperty("type") val type: AniListStatusType?,
+        @JsonProperty("startedAt") val startedAt: StartedAt? = null,
+        @JsonProperty("completedAt") val completedAt: CompletedAt? = null,
     )
 
     data class GetDataMediaListEntry(
@@ -1381,6 +1400,18 @@ private fun AniListApi.StartedAt.toEpochMillis(): Long? {
     val year = year?.toIntOrNull() ?: return null
     val month = month?.toIntOrNull() ?: 1
     val day = day?.toIntOrNull() ?: 1
+    return try {
+        java.util.Calendar.getInstance().apply {
+            clear()
+            set(year, month - 1, day, 0, 0, 0)
+        }.timeInMillis
+    } catch (e: Exception) {
+        null
+    }
+}
+
+private fun AniListApi.CompletedAt.toEpochMillis(): Long? {
+    if (year <= 0) return null
     return try {
         java.util.Calendar.getInstance().apply {
             clear()

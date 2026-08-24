@@ -324,6 +324,46 @@ class SyncViewModel : ViewModel() {
         }
     }
 
+    fun setDates(startDate: Long?, endDate: Long?) {
+        Log.i(TAG, "setDates = $startDate to $endDate")
+        val user = userData.value
+        if (user is Resource.Success) {
+            val currentUser = user.value
+            val updatedUser = when (currentUser) {
+                is com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus -> {
+                    com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus(
+                        status = currentUser.status,
+                        score = currentUser.score,
+                        oldScore = currentUser.oldScore,
+                        watchedEpisodes = currentUser.watchedEpisodes,
+                        episodeConstructor = currentUser.episodeConstructor,
+                        isFavorite = currentUser.isFavorite,
+                        maxEpisodes = currentUser.maxEpisodes,
+                        startDate = startDate,
+                        endDate = endDate,
+                        oldEpisodes = currentUser.oldEpisodes,
+                        oldStatus = currentUser.oldStatus
+                    )
+                }
+                else -> {
+                    SyncAPI.SyncStatus(
+                        status = currentUser?.status ?: SyncWatchType.NONE,
+                        score = currentUser?.score,
+                        watchedEpisodes = currentUser?.watchedEpisodes,
+                        isFavorite = currentUser?.isFavorite,
+                        maxEpisodes = currentUser?.maxEpisodes,
+                        startDate = startDate,
+                        endDate = endDate
+                    )
+                }
+            }
+            _userDataResponse.postValue(Resource.Success(updatedUser))
+        } else {
+            Log.w(TAG, "setDates - skipped, user data not loaded (${user?.javaClass?.simpleName ?: "null"}), triggering refresh")
+            updateUserData()
+        }
+    }
+
     fun setScore(score: Score?): Boolean {
         Log.i(TAG, "setScore = $score")
         val user = userData.value
