@@ -214,18 +214,17 @@ object InAppUpdater {
             updateLock.withLock {
                 sink.writeAll(app.get(url).body.source())
                 sink.close()
-                openApk(this, Uri.fromFile(downloadedFile))
+                // Only report success if the install prompt could actually be opened
+                return openApk(this, Uri.fromFile(downloadedFile))
             }
-
-            return true
         } catch (e: Exception) {
             logError(e)
             return false
         }
     }
 
-    private fun openApk(context: Context, uri: Uri) = safe {
-        val path = uri.path ?: return@safe
+    private fun openApk(context: Context, uri: Uri): Boolean = try {
+        val path = uri.path ?: return false
         val contentUri = FileProvider.getUriForFile(
             context, BuildConfig.APPLICATION_ID + ".provider", File(path)
         )
@@ -236,6 +235,10 @@ object InAppUpdater {
             data = contentUri
         }
         context.startActivity(installIntent)
+        true
+    } catch (e: Exception) {
+        logError(e)
+        false
     }
 
     fun Activity.installPreReleaseIfNeeded() = ioSafe {
@@ -305,8 +308,14 @@ object InAppUpdater {
                 builder.setMessage(sanitizedChangelog)
                 builder.apply {
                     setPositiveButton(R.string.update) { _, _ ->
-                        // Forcefully start any delayed installations
-                        if (ApkInstaller.delayedInstaller?.startInstallation() == true) return@setPositiveButton
+                        // Forcefully start any delayed installations.
+                        // If a leftover session from a previous update exists, commit it
+                        // but tell the user what is happening instead of silently swallowing
+                        // the new download.
+                        if (ApkInstaller.delayedInstaller?.startInstallation() == true) {
+                            showToast(R.string.update_started, Toast.LENGTH_LONG)
+                            return@setPositiveButton
+                        }
 
                         showToast(R.string.download_started, Toast.LENGTH_LONG)
 
