@@ -771,13 +771,10 @@ class ResultViewModel2 : ViewModel() {
         }
         
         var sharedOriginalResponse: LoadResponse? = null
-        var sharedTrueOriginal: LoadResponse? = null // Stores the true original data from the first swap
         var sharedSwappedResponse: LoadResponse? = null
         var sharedFieldsToSwap: Set<MetadataField>? = null
         var isMetadataSwapActive: Boolean = false
         var selectedProvidersForSwap: Set<String>? = null
-        // Feature flag for new swap system - disabled until compilation errors are fixed
-        const val USE_NEW_SWAP_SYSTEM = false
         //private const val EPISODE_RANGE_SIZE = 20
         //private const val EPISODE_RANGE_OVERLOAD = 30
 
@@ -5168,28 +5165,19 @@ class ResultViewModel2 : ViewModel() {
             // CACHE-FIRST APPROACH: Check cache first, then API if cache not found
             // Move entire cache resolution to background thread to eliminate main thread blocking
             val cachedHeader = withContext(Dispatchers.IO) {
-                if (USE_NEW_SWAP_SYSTEM) {
-                    // Use new CacheCoordinator for unified key resolution
-                    val cacheKey = com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.resolveKey(url, null)
-                    android.util.Log.d(TAG, "Using new CacheCoordinator - resolved key: $cacheKey")
-                    com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.getHeaderCached(cacheKey)
-                } else {
-                    // OPTIMIZED CACHE RESOLUTION: Use HashMap index for O(1) lookups
-                    val allCachedHeaders = getKeys(DOWNLOAD_HEADER_CACHE)
-                        ?.mapNotNull { getKey<DownloadObjects.DownloadHeaderCached>(it) }
-                    
-                    android.util.Log.d("LocalLibraryTest", "Checking cache first for url: $url, found ${allCachedHeaders?.size} cached headers")
-                    
-                    // Build HashMap indexes for O(1) lookup instead of linear search
-                    val urlIndex = allCachedHeaders?.associateBy { it.url }
-                    val idIndex = allCachedHeaders?.associateBy { it.id.toString() }
-                    
-                    // O(1) lookup using HashMap indexes
-                    val cachedHeader = urlIndex?.get(url)
-                        ?: idIndex?.get(url)
-                    
-                    cachedHeader
-                }
+                // OPTIMIZED CACHE RESOLUTION: Use HashMap index for O(1) lookups
+                val allCachedHeaders = getKeys(DOWNLOAD_HEADER_CACHE)
+                    ?.mapNotNull { getKey<DownloadObjects.DownloadHeaderCached>(it) }
+                
+                android.util.Log.d("LocalLibraryTest", "Checking cache first for url: $url, found ${allCachedHeaders?.size} cached headers")
+                
+                // Build HashMap indexes for O(1) lookup instead of linear search
+                val urlIndex = allCachedHeaders?.associateBy { it.url }
+                val idIndex = allCachedHeaders?.associateBy { it.id.toString() }
+                
+                // O(1) lookup using HashMap indexes
+                urlIndex?.get(url)
+                    ?: idIndex?.get(url)
             }
             
             android.util.Log.d("LocalLibraryTest", "Matched cached header: ${cachedHeader?.name} (url: ${cachedHeader?.url}, id: ${cachedHeader?.id})")
@@ -5202,22 +5190,7 @@ class ResultViewModel2 : ViewModel() {
                 _page.postValue(Resource.Loading())
                 android.util.Log.d("[CACHE_ANIMATION]", "Showing loading state for cached data")
                 
-                // Check swap state if new system is enabled
                 var offlineResponse = createOfflineLoadResponse(cachedHeader, url, apiName, api)
-                
-                if (USE_NEW_SWAP_SYSTEM && activity != null && cachedHeader.hasSwappedMetadata) {
-                    val cacheKey = com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.resolveKey(url, cachedHeader.id)
-                    android.util.Log.d(TAG, "Checking swap state for cacheKey: $cacheKey")
-                    
-                    val swapMetadata = ioWork {
-                        com.lagradost.cloudstream3.ui.result.swap.MetadataSwapManager.getCurrentMetadata(activity, cacheKey)
-                    }
-                    
-                    if (swapMetadata != null) {
-                        android.util.Log.d(TAG, "Applying swap metadata from MetadataSwapManager")
-                        offlineResponse = swapMetadata.applyTo(offlineResponse)
-                    }
-                }
                 
                 android.util.Log.d("CacheFlow", "Created offline response - plot: ${offlineResponse.plot?.take(30)}, backgroundPosterUrl: ${offlineResponse.backgroundPosterUrl?.take(30)}, tags: ${offlineResponse.tags?.size}")
                 

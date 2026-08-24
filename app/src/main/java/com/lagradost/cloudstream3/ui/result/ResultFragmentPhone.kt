@@ -928,11 +928,9 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         // Reset metadata swap mode and clear static variables
         viewModel.setMetadataSwapMode(false)
         viewModel.originalResponse = null
-        if (!com.lagradost.cloudstream3.ui.result.ResultViewModel2.USE_NEW_SWAP_SYSTEM) {
-            com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse = null
-            com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive = false
-            android.util.Log.d("swapfix", "performDirectSwap - Cleared sharedOriginalResponse and isMetadataSwapActive")
-        }
+        com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedOriginalResponse = null
+        com.lagradost.cloudstream3.ui.result.ResultViewModel2.isMetadataSwapActive = false
+        android.util.Log.d("swapfix", "performDirectSwap - Cleared sharedOriginalResponse and isMetadataSwapActive")
 
         // Navigate to TARGET entry to ensure cache is saved with correct URL, then pop back to return to original
         if (originalResponseRef != null && swappedResponse != null) {
@@ -1399,35 +1397,6 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedFieldsToSwap ?: emptySet()
         var skipNormalLoad = false
 
-        // Use new MetadataSwapManager if feature flag is enabled
-        if (com.lagradost.cloudstream3.ui.result.ResultViewModel2.USE_NEW_SWAP_SYSTEM) {
-            val cacheKey = com.lagradost.cloudstream3.ui.result.cache.CacheCoordinator.resolveKey(
-                storedData.url,
-                null
-            )
-            android.util.Log.d(
-                "MetadataSwap",
-                "onViewCreated - Using new MetadataSwapManager - cacheKey: $cacheKey"
-            )
-
-            lifecycleScope.launch {
-                val isSwapped =
-                    com.lagradost.cloudstream3.ui.result.swap.MetadataSwapManager.isSwapped(
-                        context ?: return@launch, cacheKey
-                    )
-                android.util.Log.d("MetadataSwap", "onViewCreated - isSwapped: $isSwapped")
-
-                if (isSwapped) {
-                    // Let the normal load flow handle swap metadata application via ResultViewModel2
-                    // The ViewModel will check MetadataSwapManager and apply metadata if needed
-                    android.util.Log.d(
-                        "MetadataSwap",
-                        "onViewCreated - Swap active, letting ViewModel handle metadata application"
-                    )
-                }
-            }
-        }
-
         android.util.Log.d(
             "swapfix",
             "onViewCreated - sharedSwappedResponse: ${swappedResponse?.name}"
@@ -1444,7 +1413,21 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             "swapfix",
             "onViewCreated - viewModel.originalResponse.url: ${viewModel.originalResponse?.url}"
         )
-        if (swappedResponse != null && !com.lagradost.cloudstream3.ui.result.ResultViewModel2.USE_NEW_SWAP_SYSTEM) {
+        // Only apply a pending swap if it belongs to the entry being opened;
+        // a stale pending swap must not leak into an unrelated entry
+        if (swappedResponse != null && storedData != null &&
+            storedData.url != swappedResponse.url
+        ) {
+            android.util.Log.w(
+                "swapfix",
+                "onViewCreated - pending swap target ${swappedResponse.url} does not match entry ${storedData.url}, discarding"
+            )
+            com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedSwappedResponse = null
+            com.lagradost.cloudstream3.ui.result.ResultViewModel2.sharedFieldsToSwap = null
+            swappedResponse = null
+            fieldsToSwap = emptySet()
+        }
+        if (swappedResponse != null) {
             android.util.Log.d(
                 "swapfix",
                 "===== onViewCreated - HANDLING SWAPPED RESPONSE ====="
