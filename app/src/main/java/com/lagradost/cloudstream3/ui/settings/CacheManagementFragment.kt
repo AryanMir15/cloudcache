@@ -10,8 +10,9 @@ import com.lagradost.cloudstream3.databinding.FragmentCacheManagementBinding
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.ui.BaseFragment
 import com.lagradost.cloudstream3.utils.DOWNLOAD_EPISODE_CACHE
-import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
+import com.lagradost.cloudstream3.utils.DataStore.getSharedPrefs
 import com.lagradost.cloudstream3.utils.DataStoreHelper
+import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
 import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
 
 class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
@@ -51,7 +52,7 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
             var totalSize = 0L
 
             // Group episodes by parentId to show anime-based entries
-            val episodesByParentId = mutableMapOf<Int, MutableList<DownloadObjects.DownloadEpisodeCached>>()
+            val episodesByParentId = mutableMapOf<Int, MutableList<Pair<String, DownloadObjects.DownloadEpisodeCached>>>()
 
             keys?.forEach { key ->
                 // Keys from getKeys already include cache name prefix, so use getKey without cache name parameter
@@ -59,24 +60,26 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
                 cachedData?.let {
                     val parentId = it.parentId
                     if (parentId != 0) {
-                        episodesByParentId.getOrPut(parentId) { mutableListOf() }.add(it)
+                        episodesByParentId.getOrPut(parentId) { mutableListOf() }.add(key to it)
                     }
                 }
             }
 
             // Convert grouped episodes to cache entries (one per anime)
             episodesByParentId.forEach { (parentId, episodes) ->
-                // Get anime name from header cache
-                val animeName = com.lagradost.cloudstream3.CloudStreamApp.getKey<DownloadObjects.DownloadHeaderCached>(
-                    com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
-                    parentId.toString()
-                )?.name ?: episodes.firstOrNull()?.name?.let { name ->
-                    // Fallback: try to extract anime name from episode name
-                    name.replace(Regex("Episode \\d+.*"), "").trim().ifEmpty { name }
-                } ?: "Unknown"
+                // Get anime name from header cache (keyed by id or url)
+                val animeName = com.lagradost.cloudstream3.CloudStreamApp.getKeys(
+                    com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE
+                )?.mapNotNull {
+                    com.lagradost.cloudstream3.CloudStreamApp.getKey<DownloadObjects.DownloadHeaderCached>(it)
+                }?.firstOrNull { it.id == parentId }?.name
+                    ?: episodes.firstOrNull()?.second?.name?.let { name ->
+                        // Fallback: try to extract anime name from episode name
+                        name.replace(Regex("Episode \\d+.*"), "").trim().ifEmpty { name }
+                    } ?: "Unknown"
 
                 val episodeCount = episodes.size
-                val size = episodes.sumOf { calculateCacheSize(it) }
+                val size = episodes.sumOf { (key, _) -> calculateCacheSize(key) }
                 totalSize += size
 
                 cacheEntries.add(
@@ -98,12 +101,28 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
         }
     }
 
-    private fun calculateCacheSize(entry: DownloadObjects.DownloadEpisodeCached): Long {
-        // Rough estimation of cache size in bytes
-        val nameSize = entry.name?.length?.toLong() ?: 0L
-        val posterSize = entry.poster?.length?.toLong() ?: 0L
-        val descriptionSize = entry.description?.length?.toLong() ?: 0L
-        return nameSize + posterSize + descriptionSize + 500 // Add overhead
+    private fun calculateCacheSize(entryKey: String): Long {
+        // Real size: the JSON string stored for this key
+        return try {
+            requireContext().getSharedPrefs().getString(entryKey, null)?.length?.toLong() ?: 0L
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    /**
+     * Removes every header-cache entry whose id matches, regardless of whether
+     * it is stored under the id key or the url key.
+     */
+    private fun deleteMatchingHeaders(parentId: Int) {
+        com.lagradost.cloudstream3.CloudStreamApp.getKeys(
+            com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE
+        )?.forEach { key ->
+            val header = com.lagradost.cloudstream3.CloudStreamApp.getKey<DownloadObjects.DownloadHeaderCached>(key)
+            if (header?.id == parentId) {
+                com.lagradost.cloudstream3.CloudStreamApp.removeKey(key)
+            }
+        }
     }
 
     private fun deleteCacheEntry(entry: CacheEntry) {
@@ -118,6 +137,10 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
                     com.lagradost.cloudstream3.CloudStreamApp.removeKey(key)
                 }
             }
+
+            // The header is what lets the app silently re-cache this show on the
+            // next open, so it must go too
+            deleteMatchingHeaders(parentId)
             
             loadCacheEntries()
         } catch (e: Exception) {
@@ -131,10 +154,24 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
             com.lagradost.cloudstream3.CloudStreamApp.removeKeys(DOWNLOAD_EPISODE_CACHE)
             android.util.Log.d("CachePerformance", "Cleared all DOWNLOAD_EPISODE_CACHE entries")
             
-            // Also clear all parent indices
-            val indexKeys = com.lagradost.cloudstream3.CloudStreamApp.getKeys(com.lagradost.cloudstream3.utils.EPISODE_PARENT_INDEX)
-            android.util.Log.d("CachePerformance", "Found ${indexKeys?.size} parent index keys to clear")
-            indexKeys?.forEach { key ->
+            // The headers must go too, otherwise shows silently re-cache on next open
+            val removedHeaders = com.lagradost.cloudstream3.CloudStreamApp.removeKeys(
+                com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE
+            )
+            android.util.Log.d("CachePerformance", "Cleared $removedHeaders DOWNLOAD_HEADER_CACHE entries")
+
+            // Also clear all parent indices.
+            // Index keys are written as "${EPISODE_PARENT_INDEX}_${parentId}" (underscore
+            // suffix), so the folder-style getKeys below would match nothing.
+            val indexKeys = try {
+                requireContext().getSharedPrefs().all.keys
+                    .filter { it.startsWith(com.lagradost.cloudstream3.utils.EPISODE_PARENT_INDEX + "_") }
+                    .toList()
+            } catch (e: Exception) {
+                emptyList()
+            }
+            android.util.Log.d("CachePerformance", "Found ${indexKeys.size} parent index keys to clear")
+            indexKeys.forEach { key ->
                 com.lagradost.cloudstream3.CloudStreamApp.removeKey(key)
                 android.util.Log.d("CachePerformance", "Cleared parent index key: $key")
             }
