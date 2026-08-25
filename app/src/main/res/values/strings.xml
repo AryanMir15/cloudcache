@@ -478,6 +478,9 @@
     <string name="public_score_format">avg %s</string>
     <string name="sync_started_on">Started %s</string>
     <string name="episode_sync_dates_set">Dates set — tap Sync to save</string>
+    <string name="install_unknown_sources_title">Install unknown apps</string>
+    <string name="install_unknown_sources_message">To install the update, CloudStream needs permission to install apps from this source. Tap below to enable it, then try the update again.</string>
+    <string name="install_unknown_sources_open">Open settings</string>
     <string name="authenticated_user" formatted="true">%s authenticated</string>
     <string name="authenticated_user_fail" formatted="true">Could not log in at %s</string>
     <!-- ============ -->

@@ -376,6 +376,14 @@ object InAppUpdater {
                             getString(R.string.apk_installer_key), 1
                         )
 
+                        // Installing via session or ACTION_VIEW both require the
+                        // "install unknown apps" permission. Ask for it up front
+                        // instead of failing silently mid-install.
+                        if (!packageManager.canRequestPackageInstalls()) {
+                            showInstallPermissionDialog(this@runAutoUpdate)
+                            return@setPositiveButton
+                        }
+
                         when (currentInstaller) {
                             // New method
                             0 -> {
@@ -417,6 +425,38 @@ object InAppUpdater {
             }
         }
         return true
+    }
+
+    private fun Activity.showInstallPermissionDialog(context: Context) {
+        try {
+            val builder = AlertDialog.Builder(context, R.style.AlertDialogCustom)
+            builder.setTitle(R.string.install_unknown_sources_title)
+            builder.setMessage(R.string.install_unknown_sources_message)
+            builder.setPositiveButton(R.string.install_unknown_sources_open) { _, _ ->
+                // Directly opens this app's "install unknown apps" screen (API 26+)
+                try {
+                    context.startActivity(
+                        Intent(
+                            android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:${context.packageName}")
+                        )
+                    )
+                } catch (e: Exception) {
+                    logError(e)
+                    try {
+                        context.startActivity(
+                            Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS)
+                        )
+                    } catch (e2: Exception) {
+                        logError(e2)
+                    }
+                }
+            }
+            builder.setNegativeButton(R.string.cancel) { _, _ -> }
+            builder.show()
+        } catch (e: Exception) {
+            logError(e)
+        }
     }
 
     private fun isMiUi(): Boolean = !getSystemProperty("ro.miui.ui.version.name").isNullOrEmpty()
