@@ -880,7 +880,6 @@ class ResultFragmentTv : BaseFragment<FragmentResultTvBinding>(
                         resultMetaRating.setText(d.ratingText)
                         resultMetaStatus.setText(d.onGoingText)
                         resultMetaContentRating.setText(d.contentRatingText)
-                        resultCastText.setText(d.actorsText)
                         resultNextAiring.setText(d.nextAiringEpisode)
                         resultNextAiringTime.setText(d.nextAiringDate)
                         resultPoster.loadImage(d.posterImage, headers = d.posterHeaders)
@@ -934,6 +933,7 @@ class ResultFragmentTv : BaseFragment<FragmentResultTvBinding>(
                         val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(root.context)
                         val showCast = prefs.getBoolean(root.context.getString(R.string.show_cast_in_details_key), true)
 
+                        resultCastText.setText(if (showCast) d.actorsText else null)
                         resultCastItems.isGone = !showCast || d.actors.isNullOrEmpty()
                         (resultCastItems.adapter as? ActorAdaptor)?.submitList(if (showCast) d.actors else emptyList())
 
