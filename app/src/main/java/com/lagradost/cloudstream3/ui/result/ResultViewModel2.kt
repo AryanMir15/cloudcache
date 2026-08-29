@@ -4693,6 +4693,26 @@ class ResultViewModel2 : ViewModel() {
                             if (!isActive) return@launchSafe
                             val loadResponse = data.value as? LoadResponse ?: return@launchSafe
                             android.util.Log.d("SeasonMetadata", "[MIGRATION] API fetch succeeded - reloading from cache with updated header")
+
+                            // The provider response may be sparser than the cached
+                            // metadata (no actors/banner/plot...). Merge the fields
+                            // the API response is missing back in from the cache so
+                            // the page doesn't visibly downgrade.
+                            val cachedOffline = createOfflineLoadResponse(cachedHeader, validUrl, apiName, api)
+                            val missingFields = buildSet {
+                                if (loadResponse.plot.isNullOrBlank()) add(MetadataField.PLOT)
+                                if (loadResponse.actors.isNullOrEmpty()) add(MetadataField.ACTORS)
+                                if (loadResponse.score == null) add(MetadataField.SCORE)
+                                if ((loadResponse as? EpisodeResponse)?.showStatus == null) add(MetadataField.STATUS)
+                                if (loadResponse.posterUrl.isNullOrBlank()) add(MetadataField.POSTER)
+                                if (loadResponse.backgroundPosterUrl.isNullOrBlank()) add(MetadataField.BANNER)
+                                if (loadResponse.logoUrl.isNullOrBlank()) add(MetadataField.LOGO)
+                                if (loadResponse.year == null) add(MetadataField.YEAR)
+                            }
+                            if (missingFields.isNotEmpty()) {
+                                mergeMetadataFromLoadResponse(loadResponse, cachedOffline, missingFields)
+                            }
+
                             // The API fetch will cache the header with correct season metadata
                             postSuccessful(loadResponse, cachedHeader.id, updateEpisodes = false, updateFillers = false, apiRepository = repo)
                         }
