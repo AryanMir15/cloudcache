@@ -4,7 +4,7 @@
 activityKtx = "1.13.0"
 androidGradlePlugin = "9.1.1"
 androidx-room = "2.6.1"
-versionCode = "72"
+versionCode = "73"
 versionName = "4.10.0"
 animeDb = "1.0.2"
 annotation = "1.10.0"
