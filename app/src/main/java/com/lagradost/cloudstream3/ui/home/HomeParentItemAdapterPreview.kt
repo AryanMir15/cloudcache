@@ -837,7 +837,7 @@ class HomeParentItemAdapterPreview(
         }
 
         private fun updateSchedule(items: List<WeeklyScheduleItem>) {
-            scheduleHolder.isVisible = items.isNotEmpty()
+            scheduleHolder.isVisible = false
             scheduleAdapter.submitList(items)
 
             // Arrow click opens full schedule fragment

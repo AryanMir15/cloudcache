@@ -481,6 +481,11 @@
     <string name="install_unknown_sources_title">Install unknown apps</string>
     <string name="install_unknown_sources_message">To install the update, CloudStream needs permission to install apps from this source. Tap below to enable it, then try the update again.</string>
     <string name="install_unknown_sources_open">Open settings</string>
+    <string name="auto_download_path_title">Download path required</string>
+    <string name="auto_download_path_message">Auto-download needs a download location to save episodes. Set a download path in Settings → Downloads first — the default location won\'t work.\n\nDo you want to continue without setting one?</string>
+    <string name="auto_download_path_continue">Continue anyway</string>
+    <string name="update_check_title">Check for update</string>
+    <string name="update_check_message">To install an update, your device must allow installing apps from unknown sources. Make sure "Install unknown apps" is enabled for this app, then continue.</string>
     <string name="authenticated_user" formatted="true">%s authenticated</string>
     <string name="authenticated_user_fail" formatted="true">Could not log in at %s</string>
     <!-- ============ -->

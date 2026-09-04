@@ -230,16 +230,24 @@ class SettingsUpdates : BasePreferenceFragmentCompat() {
         getPref(R.string.manual_check_update_key)?.let { pref ->
             pref.summary = BuildConfig.VERSION_NAME
             pref.setOnPreferenceClickListener {
-                ioSafe {
-                    if (activity?.runAutoUpdate(false) == false) {
-                        activity?.runOnUiThread {
-                            showToast(
-                                R.string.no_update_found,
-                                Toast.LENGTH_SHORT
-                            )
+                val activity = activity ?: return@setOnPreferenceClickListener true
+                val builder = AlertDialog.Builder(activity, R.style.AlertDialogCustom)
+                builder.setTitle(R.string.update_check_title)
+                builder.setMessage(R.string.update_check_message)
+                builder.setPositiveButton(R.string.update) { _, _ ->
+                    ioSafe {
+                        if (activity.runAutoUpdate(false) == false) {
+                            activity.runOnUiThread {
+                                showToast(
+                                    R.string.no_update_found,
+                                    Toast.LENGTH_SHORT
+                                )
+                            }
                         }
                     }
                 }
+                builder.setNegativeButton(R.string.cancel) { _, _ -> }
+                builder.show()
                 return@setOnPreferenceClickListener true
             }
         }

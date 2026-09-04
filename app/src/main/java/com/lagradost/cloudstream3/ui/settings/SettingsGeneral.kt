@@ -477,10 +477,33 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
             }
 
         // Auto-download subscribed episodes
-        findPreference<androidx.preference.SwitchPreference>("auto_download_subscribed")?.setOnPreferenceChangeListener { _, newValue ->
-            val enabled = newValue as Boolean
-            android.util.Log.d("SettingsGeneral", "Auto-download subscribed episodes: $enabled")
-            true
+        findPreference<androidx.preference.SwitchPreference>("auto_download_subscribed")?.let { pref ->
+            pref.isChecked = com.lagradost.cloudstream3.utils.DataStoreHelper.autoDownloadSubscribedEpisodes
+            pref.setOnPreferenceChangeListener { _, newValue ->
+                val enabled = newValue as Boolean
+                if (enabled) {
+                    val downloadPath = PreferenceManager.getDefaultSharedPreferences(requireContext())
+                        .getString(getString(R.string.download_path_key), null)
+                    if (downloadPath.isNullOrBlank()) {
+                        val builder = AlertDialog.Builder(requireContext(), R.style.AlertDialogCustom)
+                        builder.setTitle(R.string.auto_download_path_title)
+                        builder.setMessage(R.string.auto_download_path_message)
+                        builder.setPositiveButton(R.string.auto_download_path_continue) { _, _ ->
+                            com.lagradost.cloudstream3.utils.DataStoreHelper.autoDownloadSubscribedEpisodes = true
+                            android.util.Log.d("SettingsGeneral", "Auto-download subscribed episodes: $enabled")
+                        }
+                        builder.setNegativeButton(R.string.cancel) { _, _ ->
+                            pref.isChecked = false
+                            com.lagradost.cloudstream3.utils.DataStoreHelper.autoDownloadSubscribedEpisodes = false
+                        }
+                        builder.show()
+                        return@setOnPreferenceChangeListener false
+                    }
+                }
+                com.lagradost.cloudstream3.utils.DataStoreHelper.autoDownloadSubscribedEpisodes = enabled
+                android.util.Log.d("SettingsGeneral", "Auto-download subscribed episodes: $enabled")
+                true
+            }
         }
 
         // Auto-download retry count - selectable dialog
@@ -521,8 +544,11 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
 
         // Auto-download network preference summary updater
         findPreference<androidx.preference.ListPreference>("auto_download_network_pref")?.let { pref ->
+            val currentValue = com.lagradost.cloudstream3.utils.DataStoreHelper.autoDownloadNetworkPreference
+            pref.value = currentValue
             pref.setOnPreferenceChangeListener { _, newValue ->
                 val value = newValue as String
+                com.lagradost.cloudstream3.utils.DataStoreHelper.autoDownloadNetworkPreference = value
                 val summary = when (value) {
                     "wifi_only" -> "Only download on Wi-Fi"
                     "data_only" -> "Only download on mobile data"
@@ -534,7 +560,6 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
             }
             
             // Set initial summary
-            val currentValue = com.lagradost.cloudstream3.utils.DataStoreHelper.autoDownloadNetworkPreference
             pref.summary = when (currentValue) {
                 "wifi_only" -> "Only download on Wi-Fi"
                 "data_only" -> "Only download on mobile data"
