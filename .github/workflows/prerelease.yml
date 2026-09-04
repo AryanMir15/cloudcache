@@ -34,7 +34,8 @@ jobs:
       env:
         SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
       run: |
-        echo "$SIGNING_KEY_BASE64" | base64 -d > $RUNNER_TEMP/keystore.jks
+        mkdir -p $RUNNER_TEMP/keystore
+        echo "$SIGNING_KEY_BASE64" | base64 -d > $RUNNER_TEMP/keystore/keystore.jks
 
     - name: Setup Gradle
       uses: gradle/actions/setup-gradle@v4
