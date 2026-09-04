@@ -6,7 +6,6 @@ on:
     paths-ignore:
       - '*.md'
       - '**/wcokey.txt'
-      - '.github/**'
 
 concurrency:
   group: "pre-release"
