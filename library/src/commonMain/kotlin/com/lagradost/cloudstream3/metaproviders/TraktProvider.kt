@@ -82,7 +82,6 @@ open class TraktProvider : MainAPI() {
             ) {
                 score = Score.from10(media.rating)
                 posterUrl = fixPath(poster)
-                tags = media.genres
             }
         } else {
             newTvSeriesSearchResponse(
@@ -95,7 +94,6 @@ open class TraktProvider : MainAPI() {
             ) {
                 score = Score.from10(media.rating)
                 this.posterUrl = fixPath(poster)
-                tags = media.genres
             }
         }
     }

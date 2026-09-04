@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.dokka)
     alias(libs.plugins.kotlin.serialization)
+    id("org.jetbrains.kotlin.android")
 }
 
 val javaTarget = JvmTarget.fromTarget(libs.versions.jvmTarget.get())
@@ -214,6 +215,7 @@ android {
 
 dependencies {
     // Testing
+    compileOnly(libs.junit) // Required by TestingUtils.kt in main sourceset
     testImplementation(libs.junit)
     testImplementation(libs.json)
     androidTestImplementation(libs.core)

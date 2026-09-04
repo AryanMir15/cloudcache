@@ -114,7 +114,6 @@ import com.lagradost.cloudstream3.extractors.HDStreamAble
 import com.lagradost.cloudstream3.extractors.Habetar
 import com.lagradost.cloudstream3.extractors.Handfacesnap
 import com.lagradost.cloudstream3.extractors.Haxloppd
-import com.lagradost.cloudstream3.extractors.Hgcloudto
 import com.lagradost.cloudstream3.extractors.HglinkTo
 import com.lagradost.cloudstream3.extractors.HgplayCDN
 import com.lagradost.cloudstream3.extractors.Hotlinger
@@ -1288,7 +1287,6 @@ val extractorApis: AtomicMutableList<ExtractorApi> = atomicListOf(
     MetaGnathTuggers(),
     Geodailymotion(),
     Mwish(),
-    Hgcloudto(),
     Dwish(),
     Ewish(),
     Kswplayer(),
