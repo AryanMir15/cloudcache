@@ -321,6 +321,7 @@ import io.ktor.http.decodeURLPart
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import me.xdrop.fuzzywuzzy.FuzzySearch
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -942,7 +943,7 @@ suspend fun loadExtractor(
     // this is to match mirror domains - like example.com, example.net
     for (index in extractorApis.lastIndex downTo 0) {
         val extractor = extractorApis[index]
-        if (Levenshtein.partialRatio(
+        if (FuzzySearch.partialRatio(
                 extractor.mainUrl,
                 currentUrl
             ) > 80
