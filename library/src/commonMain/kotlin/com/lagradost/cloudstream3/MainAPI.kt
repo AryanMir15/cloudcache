@@ -1369,6 +1369,7 @@ interface SearchResponse {
     var id: Int?
     var quality: SearchQuality?
     var score: Score?
+    var tags: List<String>?
 }
 
 fun MainAPI.newTorrentSearchResponse(
@@ -1527,6 +1528,7 @@ constructor(
     override var quality: SearchQuality? = null,
     override var posterHeaders: Map<String, String>? = null,
     override var score: Score? = null,
+    override var tags: List<String>? = null,
 ) : SearchResponse
 
 fun AnimeSearchResponse.addDubStatus(status: DubStatus, episodes: Int? = null) {
@@ -1587,6 +1589,7 @@ constructor(
     override var quality: SearchQuality? = null,
     override var posterHeaders: Map<String, String>? = null,
     override var score: Score? = null,
+    override var tags: List<String>? = null,
 ) : SearchResponse {
     @Suppress("DEPRECATION_ERROR")
     @Deprecated(
@@ -1602,7 +1605,7 @@ constructor(
         id: Int? = null,
         quality: SearchQuality? = null,
         posterHeaders: Map<String, String>? = null
-    ) : this(name, url, apiName, type, posterUrl, id, quality, posterHeaders, null)
+    ) : this(name, url, apiName, type, posterUrl, id, quality, posterHeaders, null, null)
 }
 
 /** Data class of [SearchResponse] interface for Movies.
@@ -1622,6 +1625,7 @@ constructor(
     override var quality: SearchQuality? = null,
     override var posterHeaders: Map<String, String>? = null,
     override var score: Score? = null,
+    override var tags: List<String>? = null,
 ) : SearchResponse {
     @Suppress("DEPRECATION_ERROR")
     @Deprecated(
@@ -1638,7 +1642,7 @@ constructor(
         id: Int? = null,
         quality: SearchQuality? = null,
         posterHeaders: Map<String, String>? = null
-    ) : this(name, url, apiName, type, posterUrl, id, year, quality, posterHeaders, null)
+    ) : this(name, url, apiName, type, posterUrl, id, year, quality, posterHeaders, null, null)
 }
 
 /** Data class of [SearchResponse] interface for Live streams.
@@ -1658,6 +1662,7 @@ constructor(
     override var posterHeaders: Map<String, String>? = null,
     var lang: String? = null,
     override var score: Score? = null,
+    override var tags: List<String>? = null,
 ) : SearchResponse {
     @Suppress("DEPRECATION_ERROR")
     @Deprecated(
@@ -1674,7 +1679,7 @@ constructor(
         quality: SearchQuality? = null,
         posterHeaders: Map<String, String>? = null,
         lang: String? = null,
-    ) : this(name, url, apiName, type, posterUrl, id, quality, posterHeaders, lang, null)
+    ) : this(name, url, apiName, type, posterUrl, id, quality, posterHeaders, lang, null, null)
 }
 
 /** Data class of [SearchResponse] interface for Tv series.
@@ -1695,6 +1700,7 @@ constructor(
     override var quality: SearchQuality? = null,
     override var posterHeaders: Map<String, String>? = null,
     override var score: Score? = null,
+    override var tags: List<String>? = null,
 ) : SearchResponse {
     @Suppress("DEPRECATION_ERROR")
     @Deprecated(
@@ -1723,6 +1729,7 @@ constructor(
         id,
         quality,
         posterHeaders,
+        null,
         null
     )
 }

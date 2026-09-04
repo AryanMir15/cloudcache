@@ -159,7 +159,7 @@ class PluginsFragment : BaseFragment<FragmentPluginsBinding>(
             setRecycledViewPool(PluginAdapter.sharedPool)
             adapter =
                 PluginAdapter {
-                    pluginViewModel.handlePluginAction(activity, listOf(url), it, isLocal)
+                    pluginViewModel.handlePluginAction(activity, url, it, isLocal)
                 }
         }
 
@@ -183,7 +183,7 @@ class PluginsFragment : BaseFragment<FragmentPluginsBinding>(
 
             binding.tvtypesChipsScroll.root.isVisible = false
         } else {
-            pluginViewModel.updatePluginList(context, listOf(url))
+            pluginViewModel.updatePluginList(context, url)
             binding.tvtypesChipsScroll.root.isVisible = true
             // not needed for users but may be useful for devs
             downloadAllButton?.isVisible = BuildConfig.DEBUG

@@ -268,6 +268,8 @@ dependencies {
     implementation(libs.biometric) // Fingerprint Authentication
     implementation(libs.previewseekbar.media3) // SeekBar Preview
     implementation(libs.qrcode.kotlin) // QR Code for PIN Auth on TV
+    implementation("com.airbnb.android:lottie:6.6.2") // Lottie animations
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0") // SwipeRefreshLayout
 
     // Extensions & Other Libs
     implementation(libs.jsoup) // HTML Parser

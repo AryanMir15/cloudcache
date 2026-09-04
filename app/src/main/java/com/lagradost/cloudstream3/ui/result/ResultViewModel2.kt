@@ -1549,7 +1549,7 @@ class ResultViewModel2 : ViewModel() {
         episodeIds: Array<String>,
         watchState: VideoWatchState
     ) {
-        val watchStateString = DataStore.mapper.writeValueAsString(watchState)
+        val watchStateString = com.lagradost.cloudstream3.mapper.writeValueAsString(watchState)
         episodeIds.forEach {
             if (getVideoWatchState(it.toInt()) != watchState) {
                 editor.setKeyRaw(
