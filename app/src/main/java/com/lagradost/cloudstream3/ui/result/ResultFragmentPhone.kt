@@ -538,16 +538,28 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             }
         }
 
-        // Reset metadata button - triggers full refresh to get original data
+        // Reset metadata button - clears swapped cache and reloads original entry from provider
         binding?.resultUndoMetadataFab?.setOnClickListener {
-            android.util.Log.d("MetadataSwap", "Reset metadata FAB clicked - triggering full refresh")
-            viewModel._metadataLoading.value = true
-            val providerName = viewModel.currentResponse?.apiName
-            if (providerName != null) {
-                viewModel.refreshMetadata(providerName)
+            android.util.Log.d("MetadataSwap", "Reset metadata FAB clicked - clearing swap and reloading original entry")
+            val storedData = getStoredData()
+            val currentResponse = viewModel.currentResponse
+            if (storedData != null && currentResponse != null) {
+                // Remove cached header entirely so it reloads fresh from provider
+                com.lagradost.cloudstream3.CloudStreamApp.removeKey(
+                    com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE, storedData.url
+                )
+                @Suppress("DEPRECATION_ERROR")
+                com.lagradost.cloudstream3.utils.AppContextUtils.loadSearchResult(
+                    com.lagradost.cloudstream3.AnimeSearchResponse(
+                        name = storedData.name,
+                        url = storedData.url,
+                        apiName = storedData.apiName,
+                        type = currentResponse.type,
+                        posterUrl = currentResponse.posterUrl
+                    )
+                )
             } else {
-                android.util.Log.e("MetadataSwap", "Cannot refresh metadata - provider name is null")
-                viewModel._metadataLoading.value = false
+                android.util.Log.e("MetadataSwap", "Cannot reload - stored data or currentResponse is null")
             }
         }
 

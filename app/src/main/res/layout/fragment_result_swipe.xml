@@ -277,7 +277,8 @@
                     android:contentDescription="@string/reset_metadata"
                     android:src="@drawable/ic_baseline_arrow_back_24"
                     app:fabSize="mini"
-                    app:tint="?attr/colorOnPrimary"
+                    app:backgroundTint="@color/black"
+                    app:tint="@color/white"
                     tools:ignore="ContentDescription" />
 
             <fragment
