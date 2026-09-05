@@ -4698,15 +4698,22 @@ class ResultViewModel2 : ViewModel() {
                             // the API response is missing back in from the cache so
                             // the page doesn't visibly downgrade.
                             val cachedOffline = createOfflineLoadResponse(cachedHeader, validUrl, apiName, api)
+                            // If metadata was swapped, force-merge ALL swapped fields from cache
+                            // (the API response may have different poster/banner/logo that would overwrite user's swap)
+                            val swappedFields = if (cachedHeader.hasSwappedMetadata) {
+                                cachedHeader.swappedFields.mapNotNull { field ->
+                                    try { MetadataField.valueOf(field) } catch (_: Exception) { null }
+                                }.toSet()
+                            } else emptySet()
                             val missingFields = buildSet {
-                                if (loadResponse.plot.isNullOrBlank()) add(MetadataField.PLOT)
-                                if (loadResponse.actors.isNullOrEmpty()) add(MetadataField.ACTORS)
-                                if (loadResponse.score == null) add(MetadataField.SCORE)
-                                if ((loadResponse as? EpisodeResponse)?.showStatus == null) add(MetadataField.STATUS)
-                                if (loadResponse.posterUrl.isNullOrBlank()) add(MetadataField.POSTER)
-                                if (loadResponse.backgroundPosterUrl.isNullOrBlank()) add(MetadataField.BANNER)
-                                if (loadResponse.logoUrl.isNullOrBlank()) add(MetadataField.LOGO)
-                                if (loadResponse.year == null) add(MetadataField.YEAR)
+                                if (swappedFields.contains(MetadataField.PLOT) || loadResponse.plot.isNullOrBlank()) add(MetadataField.PLOT)
+                                if (swappedFields.contains(MetadataField.ACTORS) || loadResponse.actors.isNullOrEmpty()) add(MetadataField.ACTORS)
+                                if (swappedFields.contains(MetadataField.SCORE) || loadResponse.score == null) add(MetadataField.SCORE)
+                                if (swappedFields.contains(MetadataField.STATUS) || (loadResponse as? EpisodeResponse)?.showStatus == null) add(MetadataField.STATUS)
+                                if (swappedFields.contains(MetadataField.POSTER) || loadResponse.posterUrl.isNullOrBlank()) add(MetadataField.POSTER)
+                                if (swappedFields.contains(MetadataField.BANNER) || loadResponse.backgroundPosterUrl.isNullOrBlank()) add(MetadataField.BANNER)
+                                if (swappedFields.contains(MetadataField.LOGO) || loadResponse.logoUrl.isNullOrBlank()) add(MetadataField.LOGO)
+                                if (swappedFields.contains(MetadataField.YEAR) || loadResponse.year == null) add(MetadataField.YEAR)
                             }
                             if (missingFields.isNotEmpty()) {
                                 mergeMetadataFromLoadResponse(loadResponse, cachedOffline, missingFields)

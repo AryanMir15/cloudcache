@@ -390,9 +390,9 @@ class AniListApi : SyncAPI() {
                        duration
                        episodes
                        genres
-                       synonyms
-averageScore
-                        isAdult
+                        synonyms
+                        averageScore
+                         isAdult
                         startDate { year month day }
                         endDate { year month day }
                         description(asHtml: false)

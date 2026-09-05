@@ -527,7 +527,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             ) {
                 undoFab?.removeCallbacks(undoFabAutoHide)
                 undoFab?.visibility = android.view.View.VISIBLE
-                undoFab?.postDelayed(undoFabAutoHide, 6000)
+                undoFab?.postDelayed(undoFabAutoHide, 3000)
             }
             val currentResponse = viewModel.currentResponse
             val originalResponse = viewModel.originalResponse
@@ -588,9 +588,9 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 val hasSwapped = cachedHeader?.hasSwappedMetadata == true
                 undoFab?.visibility = if (hasSwapped) android.view.View.VISIBLE else android.view.View.GONE
                 if (hasSwapped) {
-                    // Auto-hide the undo FAB after a few seconds so it doesn't sit on screen
+                    // Auto-hide the undo FAB after 3 seconds
                     undoFab?.removeCallbacks(undoFabAutoHide)
-                    undoFab?.postDelayed(undoFabAutoHide, 6000)
+                    undoFab?.postDelayed(undoFabAutoHide, 3000)
                 }
             }
         }
