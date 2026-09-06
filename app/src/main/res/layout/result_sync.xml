@@ -24,43 +24,25 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <LinearLayout
+                <com.lagradost.cloudstream3.widget.FlowLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    app:itemSpacing="8dp">
 
-                    <LinearLayout
-                        android:layout_width="0dp"
+                    <TextView
+                        android:id="@+id/result_sync_names"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:id="@+id/result_sync_names"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:text="Sync"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
-
-                        <TextView
-                            android:id="@+id/result_sync_subtitle"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="2dp"
-                            android:textColor="?attr/grayTextColor"
-                            android:textSize="12sp"
-                            android:visibility="gone" />
-                    </LinearLayout>
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Sync"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/result_sync_change_entry"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_gravity="center_vertical"
                         android:background="?android:attr/selectableItemBackground"
                         android:paddingStart="8dp"
                         android:paddingEnd="8dp"
@@ -75,10 +57,18 @@
                         android:id="@+id/result_sync_provider_selector"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
                         android:minWidth="90dp"
                         android:minHeight="36dp" />
-                </LinearLayout>
+                </com.lagradost.cloudstream3.widget.FlowLayout>
+
+                <TextView
+                    android:id="@+id/result_sync_subtitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textColor="?attr/grayTextColor"
+                    android:textSize="12sp"
+                    android:visibility="gone" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
