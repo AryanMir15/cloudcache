@@ -1670,6 +1670,16 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         hasCustomPoster = true,
                         hasSwappedMetadata = true,
                         swappedFields = fieldsToSwap.map { it.name }.toSet(),
+                        recommendations = existingCache?.recommendations
+                            ?: swappedResponse.recommendations?.map { rec ->
+                                com.lagradost.cloudstream3.utils.downloader.DownloadObjects.CachedSearchResponse(
+                                    name = rec.name,
+                                    url = rec.url,
+                                    apiName = rec.apiName,
+                                    posterUrl = rec.posterUrl,
+                                    type = rec.type ?: com.lagradost.cloudstream3.TvType.Movie
+                                )
+                            },
                         originalPoster = originalPoster,
                         originalBanner = originalBanner,
                         originalLogo = originalLogo,

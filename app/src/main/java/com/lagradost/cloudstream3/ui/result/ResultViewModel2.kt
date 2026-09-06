@@ -4051,7 +4051,12 @@ class ResultViewModel2 : ViewModel() {
     // this instantly updates the metadata on the page
     fun postPage(loadResponse: LoadResponse, apiRepository: APIRepository) {
         android.util.Log.d("MetadataSwap", "postPage called with: ${loadResponse.name}, actors: ${loadResponse.actors?.size}, plot: ${loadResponse.plot?.take(30)}")
-        _recommendations.postValue(loadResponse.recommendations ?: emptyList())
+        // Only update recommendations if the response actually has them - preserves
+        // existing recommendations when loading from offline/cache responses that
+        // carry null recommendations (e.g. after a metadata swap)
+        loadResponse.recommendations?.let {
+            _recommendations.postValue(it)
+        }
         // Force UI refresh by posting null first, then the new value
         _page.postValue(null)
         _page.postValue(Resource.Success(loadResponse.toResultData(apiRepository)))
