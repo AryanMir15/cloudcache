@@ -67,7 +67,7 @@ enum class PlayerResize(@StringRes val nameRes: Int) {
 }
 
 // when the player should switch skip op to next episode
-const val SKIP_OP_VIDEO_PERCENTAGE = 20
+const val SKIP_OP_VIDEO_PERCENTAGE = 70
 
 // when the player should preload the next episode for faster loading
 const val PRELOAD_NEXT_EPISODE_PERCENTAGE = 80
