@@ -2837,23 +2837,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                             }
                         }
 
-                        // Show the airing date range from the tracker metadata
-                        syncBinding?.resultSyncDates?.let { datesView ->
-                            val start = d.startDate
-                            val end = d.endDate
-                            val text = when {
-                                start != null && end != null ->
-                                    "${formatSyncDate(start)} to ${formatSyncDate(end)}"
-                                start != null -> getString(R.string.sync_started_on, formatSyncDate(start))
-                                else -> null
-                            }
-                            if (text != null) {
-                                datesView.text = text
-                                datesView.isVisible = true
-                            } else {
-                                datesView.isVisible = false
-                            }
-                        }
+                        // The user's own start/end dates are shown from the userData observer
 
                         viewModel.setMeta(d, syncModel.getSyncs())
                     }
@@ -2909,7 +2893,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                 // Show an informative empty state instead of hiding the panel
                                 resultSyncHolder.isVisible = true
                                 syncBinding?.resultSyncSubtitle?.let { sub ->
-                                    sub.text = getString(R.string.sync_login_required)
+                                    sub.text = getString(R.string.sync_entry_not_synced)
                                     sub.isVisible = true
                                 }
                                 resultSyncCheck.isEnabled = false
@@ -2918,6 +2902,14 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                 resultSyncSubEpisode.isEnabled = false
                                 resultSyncCurrentEpisodes.isEnabled = false
                                 resultSyncSetScore.isEnabled = false
+                                // Visually grey out the episode counter and rating
+                                resultSyncCurrentEpisodes.alpha = 0.4f
+                                resultSyncAddEpisode.alpha = 0.4f
+                                resultSyncSubEpisode.alpha = 0.4f
+                                resultSyncRating.alpha = 0.4f
+                                resultSyncEpisodes.alpha = 0.4f
+                                resultSyncScoreText.alpha = 0.4f
+                                resultSyncSetScore.alpha = 0.4f
                                 closed = false
                             } else {
                                 resultSyncHolder.isVisible = true
@@ -2927,6 +2919,14 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                 resultSyncSubEpisode.isEnabled = true
                                 resultSyncCurrentEpisodes.isEnabled = true
                                 resultSyncSetScore.isEnabled = true
+                                // Restore full opacity
+                                resultSyncCurrentEpisodes.alpha = 1f
+                                resultSyncAddEpisode.alpha = 1f
+                                resultSyncSubEpisode.alpha = 1f
+                                resultSyncRating.alpha = 1f
+                                resultSyncEpisodes.alpha = 1f
+                                resultSyncScoreText.alpha = 1f
+                                resultSyncSetScore.alpha = 1f
                                 
                                 // Update subtitle based on sync status
                                 val isNotSynced = d.status == SyncWatchType.NONE && d.watchedEpisodes == 0
@@ -2938,6 +2938,32 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                     if (providerName != null) {
                                         sub.text = getString(R.string.tracked_on_provider, providerName)
                                         sub.isVisible = true
+                                    }
+                                }
+
+                                // Show user's start/end dates from their sync status
+                                syncBinding?.resultSyncStartDate?.let { datesView ->
+                                    val start = d.startDate
+                                    val text = if (start != null) {
+                                        getString(R.string.sync_started_on, formatSyncDate(start))
+                                    } else null
+                                    if (text != null) {
+                                        datesView.text = text
+                                        datesView.isVisible = true
+                                    } else {
+                                        datesView.isVisible = false
+                                    }
+                                }
+                                syncBinding?.resultSyncEndDate?.let { datesView ->
+                                    val end = d.endDate
+                                    val text = if (end != null) {
+                                        getString(R.string.sync_ended_on, formatSyncDate(end))
+                                    } else null
+                                    if (text != null) {
+                                        datesView.text = text
+                                        datesView.isVisible = true
+                                    } else {
+                                        datesView.isVisible = false
                                     }
                                 }
                                 
@@ -3057,16 +3083,25 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 syncModel.publishUserData()
             }
 
-            // Tap the dates line to edit start/end dates
-            syncBinding?.resultSyncDates?.setOnClickListener {
+            // Tap the start date to edit it separately
+            syncBinding?.resultSyncStartDate?.setOnClickListener {
                 val current = (syncModel.userData.value as? Resource.Success)?.value
                 val initialStart = current?.startDate
-                val initialEnd = current?.endDate
                 showDatePicker(requireContext(), "Start date", initialStart) { newStart ->
-                    showDatePicker(requireContext(), "End date", initialEnd) { newEnd ->
-                        syncModel.setDates(newStart, newEnd)
-                        showToast(R.string.episode_sync_dates_set, Toast.LENGTH_SHORT)
-                    }
+                    val currentEnd = (syncModel.userData.value as? Resource.Success)?.value?.endDate
+                    syncModel.setDates(newStart, currentEnd)
+                    showToast(R.string.episode_sync_dates_set, Toast.LENGTH_SHORT)
+                }
+            }
+
+            // Tap the end date to edit it separately
+            syncBinding?.resultSyncEndDate?.setOnClickListener {
+                val current = (syncModel.userData.value as? Resource.Success)?.value
+                val initialEnd = current?.endDate
+                showDatePicker(requireContext(), "End date", initialEnd) { newEnd ->
+                    val currentStart = (syncModel.userData.value as? Resource.Success)?.value?.startDate
+                    syncModel.setDates(currentStart, newEnd)
+                    showToast(R.string.episode_sync_dates_set, Toast.LENGTH_SHORT)
                 }
             }
 

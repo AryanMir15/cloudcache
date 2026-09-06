@@ -292,6 +292,12 @@ class SyncViewModel : ViewModel() {
         if (user is Resource.Success) {
             // Create immutable copy with new episodes to ensure UI updates
             val currentUser = user.value
+            // Auto-set start date to today when the first episode is marked watched
+            val autoStartDate = if (episodes >= 1 && currentUser?.startDate == null) {
+                System.currentTimeMillis()
+            } else {
+                currentUser?.startDate
+            }
             val updatedUser = when (currentUser) {
                 is com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus -> {
                     com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus(
@@ -302,7 +308,7 @@ class SyncViewModel : ViewModel() {
                         episodeConstructor = currentUser.episodeConstructor,
                         isFavorite = currentUser.isFavorite,
                         maxEpisodes = currentUser.maxEpisodes,
-                        startDate = currentUser.startDate,
+                        startDate = autoStartDate,
                         endDate = currentUser.endDate,
                         oldEpisodes = currentUser.oldEpisodes,
                         oldStatus = currentUser.oldStatus
@@ -316,7 +322,7 @@ class SyncViewModel : ViewModel() {
                         watchedEpisodes = episodes,
                         isFavorite = currentUser?.isFavorite,
                         maxEpisodes = currentUser?.maxEpisodes,
-                        startDate = currentUser?.startDate,
+                        startDate = autoStartDate,
                         endDate = currentUser?.endDate
                     )
                 }
@@ -592,10 +598,15 @@ class SyncViewModel : ViewModel() {
     fun modifyMaxEpisode(episodeNum: Int) {
         Log.i(TAG, "modifyMaxEpisode = $episodeNum")
         modifyData { status ->
-            status.watchedEpisodes = maxOf(
+            val newWatched = maxOf(
                 episodeNum,
                 status.watchedEpisodes ?: return@modifyData null
             )
+            // Auto-set start date to today when the first episode is marked watched
+            if (newWatched >= 1 && status.startDate == null) {
+                status.startDate = System.currentTimeMillis()
+            }
+            status.watchedEpisodes = newWatched
             status
         }
     }

@@ -474,9 +474,11 @@
     <string name="searching">Searching…</string>
     <string name="tracked_on_provider">Tracked on %s</string>
     <string name="sync_login_required">Not logged in — add a tracker account to sync</string>
+    <string name="sync_entry_not_synced">Not in your tracker — sync the entry to update the values</string>
     <string name="sync_load_failed">Failed to load sync data</string>
     <string name="public_score_format">avg %s</string>
     <string name="sync_started_on">Started %s</string>
+    <string name="sync_ended_on">Ended %s</string>
     <string name="episode_sync_dates_set">Dates set — tap Sync to save</string>
     <string name="install_unknown_sources_title">Install unknown apps</string>
     <string name="install_unknown_sources_message">To install the update, CloudStream needs permission to install apps from this source. Tap below to enable it, then try the update again.</string>
