@@ -2928,18 +2928,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                 resultSyncScoreText.alpha = 1f
                                 resultSyncSetScore.alpha = 1f
                                 
-                                // Update subtitle based on sync status
-                                val isNotSynced = d.status == SyncWatchType.NONE && d.watchedEpisodes == 0
-                                val selectedProvider = syncModel.selectedProvider.value
-                                val providerName = selectedProvider?.let { prefix ->
-                                    syncModel.synced.value?.firstOrNull { it.idPrefix == prefix }?.name
-                                }
-                                syncBinding?.resultSyncSubtitle?.let { sub ->
-                                    if (providerName != null) {
-                                        sub.text = getString(R.string.tracked_on_provider, providerName)
-                                        sub.isVisible = true
-                                    }
-                                }
+                                // Provider name is already shown by the dropdown — no subtitle needed
 
                                 // Show user's start/end dates from their sync status
                                 // Always visible: left is start, right is end
@@ -3378,16 +3367,6 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             // Observe selected provider to update UI based on selection
             observe(syncModel.selectedProvider) { provider ->
                 android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Selected provider: $provider")
-                // Set subtitle to show which provider is selected
-                val providerDisplayName = syncModel.synced.value?.firstOrNull { it.idPrefix == provider }?.name
-                syncBinding?.resultSyncSubtitle?.let { sub ->
-                    if (providerDisplayName != null) {
-                        sub.text = getString(R.string.tracked_on_provider, providerDisplayName)
-                        sub.isVisible = true
-                    } else {
-                        sub.isVisible = false
-                    }
-                }
                 // Reset title to bookmark name — metadata observer will update with provider title
                 val bookmarkName = viewModel.currentResponse?.name
                 syncBinding?.resultSyncNames?.text = bookmarkName ?: "Sync"
