@@ -2890,26 +2890,46 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                             
                             // Check if user is not logged in (EmptySyncStatus)
                             if (d is SyncAPI.EmptySyncStatus) {
-                                // Show an informative empty state instead of hiding the panel
+                                val hasAnyAccount = syncModel.synced.value.orEmpty().any { it.hasAccount }
                                 resultSyncHolder.isVisible = true
-                                syncBinding?.resultSyncSubtitle?.let { sub ->
-                                    sub.text = getString(R.string.sync_entry_not_synced)
-                                    sub.isVisible = true
+                                if (!hasAnyAccount) {
+                                    // Not logged into any tracker - only show the message over the black bg
+                                    resultSyncSubtitle.text = getString(R.string.sync_not_logged_in)
+                                    resultSyncSubtitle.isVisible = true
+                                    resultSyncSubtitle.alpha = 1f
+                                    resultSyncStartDate.isVisible = false
+                                    resultSyncEndDate.isVisible = false
+                                    resultSyncDatesRow.isVisible = false
+                                    resultSyncCheck.isVisible = false
+                                    resultSyncRating.isVisible = false
+                                    resultSyncAddEpisode.isVisible = false
+                                    resultSyncSubEpisode.isVisible = false
+                                    resultSyncCurrentEpisodes.isVisible = false
+                                    resultSyncMaxEpisodes.isVisible = false
+                                    resultSyncEpisodes.isVisible = false
+                                    resultSyncScoreText.isVisible = false
+                                    resultSyncSetScore.isVisible = false
+                                    resultSyncChangeEntry.isVisible = false
+                                    resultSyncProviderSelector.isVisible = false
+                                } else {
+                                    // Logged in but entry not in tracker - grey out controls
+                                    resultSyncSubtitle.text = getString(R.string.sync_entry_not_synced)
+                                    resultSyncSubtitle.isVisible = true
+                                    resultSyncCheck.isEnabled = false
+                                    resultSyncRating.isEnabled = false
+                                    resultSyncAddEpisode.isEnabled = false
+                                    resultSyncSubEpisode.isEnabled = false
+                                    resultSyncCurrentEpisodes.isEnabled = false
+                                    resultSyncSetScore.isEnabled = false
+                                    // Visually grey out the episode counter and rating
+                                    resultSyncCurrentEpisodes.alpha = 0.4f
+                                    resultSyncAddEpisode.alpha = 0.4f
+                                    resultSyncSubEpisode.alpha = 0.4f
+                                    resultSyncRating.alpha = 0.4f
+                                    resultSyncEpisodes.alpha = 0.4f
+                                    resultSyncScoreText.alpha = 0.4f
+                                    resultSyncSetScore.alpha = 0.4f
                                 }
-                                resultSyncCheck.isEnabled = false
-                                resultSyncRating.isEnabled = false
-                                resultSyncAddEpisode.isEnabled = false
-                                resultSyncSubEpisode.isEnabled = false
-                                resultSyncCurrentEpisodes.isEnabled = false
-                                resultSyncSetScore.isEnabled = false
-                                // Visually grey out the episode counter and rating
-                                resultSyncCurrentEpisodes.alpha = 0.4f
-                                resultSyncAddEpisode.alpha = 0.4f
-                                resultSyncSubEpisode.alpha = 0.4f
-                                resultSyncRating.alpha = 0.4f
-                                resultSyncEpisodes.alpha = 0.4f
-                                resultSyncScoreText.alpha = 0.4f
-                                resultSyncSetScore.alpha = 0.4f
                                 closed = false
                             } else {
                                 resultSyncHolder.isVisible = true
@@ -2919,7 +2939,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                 resultSyncSubEpisode.isEnabled = true
                                 resultSyncCurrentEpisodes.isEnabled = true
                                 resultSyncSetScore.isEnabled = true
-                                // Restore full opacity
+                                // Restore full opacity and visibility
                                 resultSyncCurrentEpisodes.alpha = 1f
                                 resultSyncAddEpisode.alpha = 1f
                                 resultSyncSubEpisode.alpha = 1f
@@ -2927,6 +2947,17 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                 resultSyncEpisodes.alpha = 1f
                                 resultSyncScoreText.alpha = 1f
                                 resultSyncSetScore.alpha = 1f
+                                resultSyncCheck.isVisible = true
+                                resultSyncRating.isVisible = true
+                                resultSyncAddEpisode.isVisible = true
+                                resultSyncSubEpisode.isVisible = true
+                                resultSyncCurrentEpisodes.isVisible = true
+                                resultSyncMaxEpisodes.isVisible = true
+                                resultSyncEpisodes.isVisible = true
+                                resultSyncScoreText.isVisible = true
+                                resultSyncSetScore.isVisible = true
+                                resultSyncChangeEntry.isVisible = true
+                                resultSyncProviderSelector.isVisible = true
                                 
                                 // Update subtitle based on sync status
                                 val isNotSynced = d.status == SyncWatchType.NONE && d.watchedEpisodes == 0
@@ -2942,30 +2973,16 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                 }
 
                                 // Show user's start/end dates from their sync status
-                                syncBinding?.resultSyncStartDate?.let { datesView ->
+                                syncBinding?.resultSyncStartDate?.let { startView ->
                                     val start = d.startDate
-                                    val text = if (start != null) {
-                                        getString(R.string.sync_started_on, formatSyncDate(start))
-                                    } else null
-                                    if (text != null) {
-                                        datesView.text = text
-                                        datesView.isVisible = true
-                                    } else {
-                                        datesView.isVisible = false
-                                    }
+                                    startView.text = start?.let { formatSyncDate(it) } ?: ""
                                 }
-                                syncBinding?.resultSyncEndDate?.let { datesView ->
+                                syncBinding?.resultSyncEndDate?.let { endView ->
                                     val end = d.endDate
-                                    val text = if (end != null) {
-                                        getString(R.string.sync_ended_on, formatSyncDate(end))
-                                    } else null
-                                    if (text != null) {
-                                        datesView.text = text
-                                        datesView.isVisible = true
-                                    } else {
-                                        datesView.isVisible = false
-                                    }
+                                    endView.text = end?.let { formatSyncDate(it) } ?: ""
                                 }
+                                val hasDates = d.startDate != null || d.endDate != null
+                                syncBinding?.resultSyncDatesRow?.isVisible = hasDates
                                 
                                 val desiredScore = d.score?.toFloat(1) ?: 0.0f
                                 val totalSteps = (resultSyncRating.valueTo / resultSyncRating.stepSize)
