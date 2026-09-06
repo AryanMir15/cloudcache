@@ -4874,6 +4874,9 @@ class ResultViewModel2 : ViewModel() {
                     comingSoonIfNone = false
                 ) {
                     posterUrl = cachedHeader.poster
+                    backgroundPosterUrl = cachedHeader.backgroundPosterUrl
+                    logoUrl = cachedHeader.logoUrl
+                    actors = parseActorsFromCache(cachedHeader.actors)
                     year = cachedHeader.year
                     plot = cachedHeader.plot
                     score = cachedHeader.score?.let { Score.from(it, 10) }
