@@ -815,7 +815,6 @@ class SyncViewModel : ViewModel() {
     fun searchTracker(query: String, providerPrefix: String = aniListApi.idPrefix) = ioSafe {
         Log.i(TAG, "searchTracker - query: $query, provider: $providerPrefix")
         _isSearching.postValue(true)
-        _searchResults.postValue(emptyList())
 
         try {
             val repo = repos.firstOrNull { it.idPrefix == providerPrefix }
@@ -829,13 +828,16 @@ class SyncViewModel : ViewModel() {
             if (result.isSuccess) {
                 val results = result.getOrNull() ?: emptyList()
                 Log.i(TAG, "searchTracker - found ${results.size} results")
+                _isSearching.postValue(false)
                 _searchResults.postValue(results)
             } else {
                 Log.e(TAG, "searchTracker - search failed", result.exceptionOrNull())
+                _isSearching.postValue(false)
                 _searchResults.postValue(emptyList())
             }
         } catch (e: Exception) {
             Log.e(TAG, "searchTracker - error", e)
+            _isSearching.postValue(false)
             _searchResults.postValue(emptyList())
         } finally {
             _isSearching.postValue(false)

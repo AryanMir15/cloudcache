@@ -3130,7 +3130,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             observe(syncModel.searchResults) { results ->
                 val act = activity ?: return@observe
                 if (results.isNullOrEmpty()) {
-                    showToast(R.string.no_results_found)
+                    // Skip the toast if a search is still in-flight — only show it once done
+                    if (syncModel.isSearching.value != true) {
+                        showToast(R.string.no_results_found)
+                    }
                     return@observe
                 }
 
