@@ -660,6 +660,7 @@ class SyncViewModel : ViewModel() {
                 // If a specific provider is selected, only fetch that provider's status
                 val selected = selectedProvider.value
                 if (selected != null && prefix != selected.lowercase()) {
+                    Log.i(TAG, "updateUserData - SKIPPING $prefix (selected=$selected)")
                     return@forEach
                 }
                 triedApis++

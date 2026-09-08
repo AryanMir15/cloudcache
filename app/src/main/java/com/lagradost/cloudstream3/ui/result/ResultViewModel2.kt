@@ -2824,6 +2824,7 @@ class ResultViewModel2 : ViewModel() {
     ): Pair<LoadResponse, Boolean> {
         //if (meta == null) return resp to false
         var updateEpisodes = false
+        android.util.Log.d("[TRACKER_DEBUG]", "applyMeta ENTRY - resp=${resp.name}, meta=${meta?.title}, syncs=$syncs, thread=${Thread.currentThread().name}")
         val out = resp.apply {
             Log.i(TAG, "applyMeta - meta: ${meta != null}, meta.airStatus: ${meta?.airStatus}, meta.synopsis: ${meta?.synopsis?.take(50)}, meta.actors: ${meta?.actors?.size}")
 
@@ -2890,6 +2891,7 @@ class ResultViewModel2 : ViewModel() {
                                 .trim()
                         }
                     android.util.Log.d("[TRACKER_DEBUG]", "getTracker resolution - name=${this.name}, year=${this.year}, type=${this.type}, titles=$trackerTitles, existing syncData=$syncData")
+                    android.util.Log.d("[TRACKER_DEBUG]", "getTracker about to call APIHolder.getTracker on thread=${Thread.currentThread().name}")
                     val res = APIHolder.getTracker(
                         trackerTitles,
                         TrackerType.getTypes(this.type),
@@ -3037,6 +3039,7 @@ class ResultViewModel2 : ViewModel() {
             return
         }
         Log.i(TAG, "setMeta")
+        android.util.Log.d("[TRACKER_DEBUG]", "setMeta called - meta=${meta?.title}, syncs=$syncs")
         viewModelScope.launchSafe {
             currentMeta = meta
             currentSync = syncs
@@ -5261,6 +5264,7 @@ class ResultViewModel2 : ViewModel() {
 
                 is Resource.Success -> {
                     if (!isActive) return@ioSafe
+                    android.util.Log.d("[TRACKER_DEBUG]", "LOAD PATH - repo.load success, calling applyMeta, currentSync=$currentSync, currentMeta=${currentMeta?.title}")
                     val loadResponse = ioWork {
                         applyMeta(data.value, currentMeta, currentSync).first
                     }

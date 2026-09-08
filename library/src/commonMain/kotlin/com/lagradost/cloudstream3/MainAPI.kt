@@ -328,14 +328,19 @@ object APIHolder {
             ).toJson()
         )
 
+        android.util.Log.d("[TRACKER_DEBUG]", "searchAnilist - about to POST title=$title")
         return try {
-            val res = app.post(
+            val response = app.post(
                 "https://graphql.anilist.co/",
                 data = data,
                 timeout = 5
-            ).text
-            tryParseJson<AniSearch>(res)
+            )
+            android.util.Log.d("[TRACKER_DEBUG]", "searchAnilist - POST returned, text=${response.text.take(200)}")
+            val parsed = tryParseJson<AniSearch>(response.text)
+            android.util.Log.d("[TRACKER_DEBUG]", "searchAnilist - parsed=${parsed?.data?.page?.media?.size} media")
+            parsed
         } catch (t: Throwable) {
+            android.util.Log.d("[TRACKER_DEBUG]", "searchAnilist - THREW ${t::class.simpleName}: ${t.message}")
             logError(t)
             null
         }
