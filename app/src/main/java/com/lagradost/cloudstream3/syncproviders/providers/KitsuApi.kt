@@ -165,7 +165,7 @@ class KitsuApi: SyncAPI() {
         return res.data.map {
             val attributes = it.attributes
 
-            val title = attributes.canonicalTitle ?: attributes.titles?.enJp ?: attributes.titles?.jaJp ?: "No title"
+            val title = attributes.titles?.enJp ?: attributes.canonicalTitle ?: attributes.titles?.jaJp ?: "No title"
 
             SyncSearchResult(
                 title,

@@ -88,11 +88,11 @@ class AniListApi : SyncAPI() {
         val data = searchShows(query) ?: return null
         return data.data?.page?.media?.map {
             SyncAPI.SyncSearchResult(
-                it.title.romaji ?: return null,
+                it.title.english?.takeIf { e -> e.isNotBlank() } ?: it.title.romaji ?: return null,
                 this.name,
                 it.id.toString(),
                 getUrlFromId(it.id),
-                it.bannerImage
+                it.coverImage?.large ?: it.coverImage?.medium ?: it.bannerImage
             )
         }
     }
@@ -232,6 +232,7 @@ class AniListApi : SyncAPI() {
                             endDate { year month day }
                             title {
                                 romaji
+                                english
                             }
                             averageScore
                             meanScore
@@ -239,6 +240,7 @@ class AniListApi : SyncAPI() {
                                 timeUntilAiring
                                 episode
                             }
+                            coverImage { large medium }
                             trailer { id site thumbnail }
                             bannerImage
                             recommendations {
@@ -1145,12 +1147,18 @@ class AniListApi : SyncAPI() {
 
     data class GetSearchTitle(
         @JsonProperty("romaji") val romaji: String?,
+        @JsonProperty("english") val english: String?,
     )
 
     data class TrailerObject(
         @JsonProperty("id") val id: String?,
         @JsonProperty("thumbnail") val thumbnail: String?,
         @JsonProperty("site") val site: String?,
+    )
+
+    data class GetSearchCoverImage(
+        @JsonProperty("large") val large: String?,
+        @JsonProperty("medium") val medium: String?,
     )
 
     data class GetSearchMedia(
@@ -1163,6 +1171,7 @@ class AniListApi : SyncAPI() {
         @JsonProperty("averageScore") val averageScore: Int?,
         @JsonProperty("meanScore") val meanScore: Int?,
         @JsonProperty("bannerImage") val bannerImage: String?,
+        @JsonProperty("coverImage") val coverImage: GetSearchCoverImage?,
         @JsonProperty("trailer") val trailer: TrailerObject?,
         @JsonProperty("nextAiringEpisode") val nextAiringEpisode: SeasonNextAiringEpisode?,
         @JsonProperty("recommendations") val recommendations: Recommendations?,

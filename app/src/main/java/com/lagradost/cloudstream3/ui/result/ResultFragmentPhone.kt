@@ -19,6 +19,8 @@ import android.view.animation.DecelerateInterpolator
 import android.widget.AbsListView
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.ImageView
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isGone
@@ -52,7 +54,6 @@ import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.Score
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.base64Encode
-import com.lagradost.cloudstream3.databinding.BottomInputDialogBinding
 import com.lagradost.cloudstream3.databinding.FragmentResultBinding
 import com.lagradost.cloudstream3.databinding.FragmentResultSwipeBinding
 import com.lagradost.cloudstream3.databinding.MetadataPreviewDialogBinding
@@ -2894,12 +2895,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                             
                             // Check if user is not logged in (EmptySyncStatus)
                             if (d is SyncAPI.EmptySyncStatus) {
-                                // Show an informative empty state instead of hiding the panel
                                 resultSyncHolder.isVisible = true
-                                syncBinding?.resultSyncSubtitle?.let { sub ->
-                                    sub.text = getString(R.string.sync_entry_not_synced)
-                                    sub.isVisible = true
-                                }
                                 // Allow selecting a status so a new/untracked entry can be added to the tracker
                                 resultSyncCheck.isEnabled = true
                                 resultSyncRating.isEnabled = false
@@ -3101,38 +3097,43 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     val searchProvider = syncModel.selectedProvider.value
                         ?: currentSyncs.keys.firstOrNull()
 
-                    val binding = BottomInputDialogBinding.inflate(
-                        act.layoutInflater
-                    )
-                    val dialog = BottomSheetDialog(act)
-                    dialog.setContentView(binding.root)
+                    val dialogView = act.layoutInflater.inflate(R.layout.search_input_dialog, null)
+                    val text1 = dialogView.findViewById<TextView>(R.id.text1)
+                    val searchInput = dialogView.findViewById<com.google.android.material.textfield.TextInputEditText>(R.id.nginx_text_input)
+                    val applyBtn = dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.apply_btt)
+                    val cancelBtn = dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.cancel_btt)
 
-                    binding.text1.setText(R.string.search_tracker_title)
-                    binding.nginxTextInput.apply {
+                    text1.setText(R.string.search_tracker_title)
+                    searchInput.apply {
                         hint = getString(R.string.search_tracker_hint)
                         isFocusableInTouchMode = true
-                        requestFocus()
                     }
-                    binding.applyBtt.setText(R.string.search_tracker_action)
-                    binding.applyBttHolder.isVisible = true
 
-                    binding.applyBtt.setOnClickListener {
-                        val query = binding.nginxTextInput.text.toString().trim()
+                    val dialog = AlertDialog.Builder(act, R.style.AlertDialogCustom)
+                        .setView(dialogView)
+                        .create()
+
+                    dialog.window?.setSoftInputMode(
+                        android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                    )
+
+                    applyBtn.setOnClickListener {
+                        val query = searchInput.text.toString().trim()
                         if (query.isNotEmpty() && searchProvider != null) {
                             lastTrackerSearchProvider = searchProvider
                             syncModel.searchTracker(query, searchProvider)
                             dialog.dismissSafe(act)
                         }
                     }
-                    binding.cancelBtt.setOnClickListener {
+                    cancelBtn.setOnClickListener {
                         dialog.dismissSafe(act)
                     }
 
                     dialog.show()
-                    // Show keyboard
-                    binding.nginxTextInput.post {
+                    searchInput.post {
+                        searchInput.requestFocus()
                         val imm = act.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                        imm.showSoftInput(binding.nginxTextInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                        imm.showSoftInput(searchInput, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
                     }
                 }
             }
@@ -3148,47 +3149,73 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     return@observe
                 }
 
-                val resultNames = results.map { result ->
-                    buildString {
-                        append(result.name)
-                        result.type?.let { append(" • $it") }
-                    }
-                }
-
-                act.showBottomDialogInstant(
-                    resultNames,
-                    getString(R.string.search_tracker_title),
-                    {},
-                ) { which ->
-                    val selected = results[which]
-                    val syncId = selected.syncId
-                    val providerPrefix = lastTrackerSearchProvider
-                        ?: com.lagradost.cloudstream3.syncproviders.AccountManager.aniListApi.idPrefix
-
-                    syncModel.replaceSyncEntry(providerPrefix, syncId)
-
-                    viewModel.currentResponse?.let { response ->
-                        val syncData = HashMap(response.syncData)
-                        syncData[providerPrefix] = syncId
-                        response.syncData = syncData
-
-                        ioSafe {
-                            val bookmarks = com.lagradost.cloudstream3.utils.DataStoreHelper.getAllBookmarkedData()
-                            val bookmark = bookmarks.find { b ->
-                                b.name == response.name && b.apiName == response.apiName
-                            }
-                            bookmark?.let { b ->
-                                val updatedBookmark = b.copy(syncData = syncData)
-                                com.lagradost.cloudstream3.utils.DataStoreHelper.setBookmarkedData(
-                                    b.id,
-                                    updatedBookmark
-                                )
-                            }
+                var selectedIndex = -1
+                val inflater = act.layoutInflater
+                val adapter = object : ArrayAdapter<SyncAPI.SyncSearchResult>(
+                    act, R.layout.sync_search_result_item, results
+                ) {
+                    override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                        val view = convertView ?: inflater.inflate(
+                            R.layout.sync_search_result_item, parent, false
+                        )
+                        val poster = view.findViewById<ImageView>(R.id.result_poster)
+                        val title = view.findViewById<TextView>(R.id.result_title)
+                        val item = results[position]
+                        title.text = item.name
+                        item.posterUrl?.let { poster.loadImage(it) }
+                            ?: poster.setImageResource(R.drawable.baseline_theaters_24)
+                        if (position == selectedIndex) {
+                            view.alpha = 1.0f
+                        } else {
+                            view.alpha = 0.7f
                         }
-
-                        showToast(getString(R.string.entry_changed))
+                        return view
                     }
                 }
+
+                val dialog = AlertDialog.Builder(act, R.style.AlertDialogCustom)
+                    .setTitle(R.string.search_tracker_title)
+                    .setAdapter(adapter) { _, which ->
+                        selectedIndex = which
+                        adapter.notifyDataSetChanged()
+
+                        val selected = results[which]
+                        val syncId = selected.syncId
+                        val providerPrefix = lastTrackerSearchProvider
+                            ?: com.lagradost.cloudstream3.syncproviders.AccountManager.aniListApi.idPrefix
+
+                        syncModel.replaceSyncEntry(providerPrefix, syncId)
+
+                        viewModel.currentResponse?.let { response ->
+                            val syncData = HashMap(response.syncData)
+                            syncData[providerPrefix] = syncId
+                            response.syncData = syncData
+
+                            ioSafe {
+                                val bookmarks = com.lagradost.cloudstream3.utils.DataStoreHelper.getAllBookmarkedData()
+                                val bookmark = bookmarks.find { b ->
+                                    b.name == response.name && b.apiName == response.apiName
+                                }
+                                bookmark?.let { b ->
+                                    val updatedBookmark = b.copy(syncData = syncData)
+                                    com.lagradost.cloudstream3.utils.DataStoreHelper.setBookmarkedData(
+                                        b.id,
+                                        updatedBookmark
+                                    )
+                                }
+                            }
+
+                            showToast(getString(R.string.entry_changed))
+                        }
+                    }
+                    .setNegativeButton(R.string.cancel) { d, _ ->
+                        d.dismiss()
+                    }
+                    .create()
+
+                dialog.show()
+                dialog.listView?.divider = null
+                dialog.listView?.dividerHeight = 0
             }
 
             observe(viewModel.watchStatus) { watchType ->
