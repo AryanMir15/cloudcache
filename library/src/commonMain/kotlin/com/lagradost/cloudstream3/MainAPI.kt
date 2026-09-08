@@ -250,7 +250,11 @@ object APIHolder {
                 trackerCache[mainTitle]
                     ?: searchAnilist(mainTitle)?.also {
                         trackerCache[mainTitle] = it
-                    } ?: return null
+                    } ?: run {
+                        android.util.Log.d("[TRACKER_DEBUG]", "searchAnilist returned null for title=$mainTitle")
+                        return null
+                    }
+            android.util.Log.d("[TRACKER_DEBUG]", "searchAnilist for '$mainTitle' returned ${search.data?.page?.media?.size} media, year=$year")
 
             val res = search.data?.page?.media?.find { media ->
                 val matchingYears = year == null || media.seasonYear == year
@@ -261,6 +265,12 @@ object APIHolder {
                 } ?: false
 
                 val matchingTypes = types?.any { it.name.equals(media.format, true) } == true
+                android.util.Log.d(
+                    "[TRACKER_DEBUG]", "candidate: id=${media.id} idMal=${media.idMal} title=${media.title?.romaji}/${media.title?.english} " +
+                        "seasonYear=${media.seasonYear} format=${media.format} " +
+                        "matchYears=$matchingYears matchTitles=$matchingTitles matchTypes=$matchingTypes " +
+                        "(year=$year titles=$titles types=$types)"
+                )
                 if (lessAccurate) matchingTitles || matchingTypes && matchingYears else matchingTitles && matchingTypes && matchingYears
             } ?: return null
 

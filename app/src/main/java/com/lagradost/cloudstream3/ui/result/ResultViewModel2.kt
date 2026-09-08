@@ -2880,23 +2880,25 @@ class ResultViewModel2 : ViewModel() {
                     // already exist, no need to run getTracker
                     if (this.getAniListId() != null && this.getKitsuId() != null && this.getMalId() != null) return@runAllAsync
 
+                    val trackerTitles = listOfNotNull(
+                        this.engName,
+                        this.name,
+                        this.japName
+                    ).filter { it.length > 2 }
+                        .distinct().map {
+                            it.lowercase().replace(Regex("""\(?[ds]ub(bed)?\)?(\s|$)"""), "")
+                                .trim()
+                        }
+                    android.util.Log.d("[TRACKER_DEBUG]", "getTracker resolution - name=${this.name}, year=${this.year}, type=${this.type}, titles=$trackerTitles, existing syncData=$syncData")
                     val res = APIHolder.getTracker(
-                        listOfNotNull(
-                            this.engName,
-                            this.name,
-                            this.japName
-                        ).filter { it.length > 2 }
-                            .distinct().map {
-                                // this actually would be nice if we improved a bit as 3rd season == season 3 == III ect
-                                // right now it just removes the dubbed status
-                                it.lowercase().replace(Regex("""\(?[ds]ub(bed)?\)?(\s|$)"""), "")
-                                    .trim()
-                            },
+                        trackerTitles,
                         TrackerType.getTypes(this.type),
                         this.year
                     )
+                    android.util.Log.d("[TRACKER_DEBUG]", "getTracker result - res=${res?.malId}/${res?.aniId}")
 
                     val kitsuId = AccountManager.kitsuApi.getAnimeIdByTitle(this.name)
+                    android.util.Log.d("[TRACKER_DEBUG]", "kitsuId=$kitsuId")
 
                     val ids = arrayOf(
                         AccountManager.malApi.idPrefix to res?.malId?.toString(),
