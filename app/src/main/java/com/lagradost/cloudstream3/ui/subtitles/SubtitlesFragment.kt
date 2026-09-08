@@ -332,7 +332,9 @@ class SubtitlesFragment : BaseDialogFragment<SubtitleSettingsBinding>(
     private fun Context.updateState() {
         val text = getString(R.string.subtitles_example_text)
         val fixedText = SpannableString.valueOf(if (state.upperCase) text.uppercase() else text)
-        setSubtitleViewStyle(binding?.subtitleText, state, false)
+        setSubtitleViewStyle(binding?.subtitleText, state, true)
+        // Elevation is applied via translationY in the player, so mirror that here for an instant preview
+        binding?.subtitleText?.translationY = -state.elevation.toPx.toFloat()
 
         binding?.subtitleText?.setCues(
             listOf(
