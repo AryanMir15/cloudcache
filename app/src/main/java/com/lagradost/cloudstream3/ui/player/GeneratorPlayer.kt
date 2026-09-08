@@ -184,6 +184,10 @@ class GeneratorPlayer : FullScreenPlayer() {
     private var isActive: Boolean = false
     private var isNextEpisode: Boolean = false // this is used to reset the watch time
 
+    // Remembers the source identity (url or extractor name) of the last played link so the
+    // next episode can try to use the same source before falling back to the default behavior
+    private var preferredLinkIdentity: String? = null
+
     private var preferredAutoSelectSubtitles: String? = null // null means do nothing, "" means none
 
     private var binding: FragmentPlayerBinding? = null
@@ -518,6 +522,11 @@ class GeneratorPlayer : FullScreenPlayer() {
 
         // Removed uiReset() here to prevent player UI flicker on link load
         currentSelectedLink = link
+        // Remember this source so the next episode tries it first.
+        // Extractor names persist across episodes while URLs change, so prefer the name.
+        preferredLinkIdentity = link.first?.name?.takeIf { it.isNotBlank() }
+            ?: link.first?.url?.takeIf { it.isNotBlank() }
+            ?: link.second?.uri?.toString()
         currentMeta = viewModel.getMeta()
         nextMeta = viewModel.getNextMeta()
 
@@ -1598,7 +1607,21 @@ class GeneratorPlayer : FullScreenPlayer() {
             noLinksFound()
             return
         }
-        loadLink(links.first(), false)
+
+        // Try to reuse the same source as the last played link when advancing to the next
+        // episode. If a matching link isn't found, fall back to the default best-link behavior.
+        val preferred = preferredLinkIdentity
+        val chosen = if (preferred != null) {
+            // Extractor names are consistent across episodes (e.g. "vaPlayer", "MovieBox [English]"),
+            // so match on the name first, then fall back to URL matching.
+            links.firstOrNull { (link, uri) ->
+                link?.name == preferred || link?.url == preferred || uri?.toString() == preferred
+            } ?: links.firstOrNull { (link, _) ->
+                link?.name?.startsWith(preferred.substringBefore(" (")) == true
+            }
+        } else null
+
+        loadLink(chosen ?: links.first(), false)
         showPlayerMetadata()
     }
 
