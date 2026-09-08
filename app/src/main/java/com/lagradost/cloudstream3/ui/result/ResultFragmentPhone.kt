@@ -2759,8 +2759,8 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
                 // Populate provider selector dropdown (no "All Providers" — just direct providers)
                 syncBinding?.resultSyncProviderSelector?.let { spinner ->
-                    // Only list providers that have an account AND a sync entry for this show
-                    val providersWithAccounts = list.filter { it.hasAccount && it.isSynced }
+                    // List providers that have an account, even if the entry isn't synced yet
+                    val providersWithAccounts = list.filter { it.hasAccount }
                     val providerNames = providersWithAccounts.map { it.name }
                     val providerPrefixes = providersWithAccounts.map { it.idPrefix }
                     
@@ -2896,7 +2896,8 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                     sub.text = getString(R.string.sync_entry_not_synced)
                                     sub.isVisible = true
                                 }
-                                resultSyncCheck.isEnabled = false
+                                // Allow selecting a status so a new/untracked entry can be added to the tracker
+                                resultSyncCheck.isEnabled = true
                                 resultSyncRating.isEnabled = false
                                 resultSyncAddEpisode.isEnabled = false
                                 resultSyncSubEpisode.isEnabled = false
@@ -2910,6 +2911,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                 resultSyncEpisodes.alpha = 0.4f
                                 resultSyncScoreText.alpha = 0.4f
                                 resultSyncSetScore.alpha = 0.4f
+                                resultSyncCheck.alpha = 1f
                                 closed = false
                             } else {
                                 resultSyncHolder.isVisible = true

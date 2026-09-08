@@ -292,8 +292,9 @@ class SyncViewModel : ViewModel() {
         if (user is Resource.Success) {
             // Create immutable copy with new episodes to ensure UI updates
             val currentUser = user.value
-            // Auto-set start date to today when the first episode is marked watched
-            val autoStartDate = if (episodes >= 1 && currentUser?.startDate == null) {
+            // Auto-set start date to today only when the first episode is marked watched
+            // and BOTH start and end dates are unset (don't override existing dates)
+            val autoStartDate = if (episodes >= 1 && currentUser?.startDate == null && currentUser?.endDate == null) {
                 System.currentTimeMillis()
             } else {
                 currentUser?.startDate
@@ -602,8 +603,9 @@ class SyncViewModel : ViewModel() {
                 episodeNum,
                 status.watchedEpisodes ?: return@modifyData null
             )
-            // Auto-set start date to today when the first episode is marked watched
-            if (newWatched >= 1 && status.startDate == null) {
+            // Auto-set start date to today only when the first episode is marked watched
+            // and BOTH start and end dates are unset (don't override existing dates)
+            if (newWatched >= 1 && status.startDate == null && status.endDate == null) {
                 status.startDate = System.currentTimeMillis()
             }
             status.watchedEpisodes = newWatched
