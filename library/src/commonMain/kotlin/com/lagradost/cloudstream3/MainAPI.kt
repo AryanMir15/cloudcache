@@ -21,14 +21,12 @@ import com.lagradost.cloudstream3.utils.Coroutines.atomicListOf
 import com.lagradost.cloudstream3.utils.Coroutines.mainWork
 import com.lagradost.cloudstream3.utils.SubtitleHelper.fromCodeToLangTagIETF
 import com.lagradost.cloudstream3.utils.SubtitleHelper.fromLanguageToTagIETF
-import com.lagradost.nicehttp.RequestBodyTypes
 import io.ktor.http.Url
 import io.ktor.http.URLBuilder
 import io.ktor.http.encodedPath
 import io.ktor.http.takeFrom
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
@@ -319,17 +317,28 @@ object APIHolder {
         }
     """.trimIndent().trim()
 
+        // Same request style as AniListApi.searchShows: post the query as form data with
+        // a trailing slash and a timeout, so the call can't hang or fail on redirects.
         val data = mapOf(
             "query" to query,
             "variables" to mapOf(
                 "search" to title,
                 "sort" to "SEARCH_MATCH",
                 "type" to "ANIME",
-            )
-        ).toJson().toRequestBody(RequestBodyTypes.JSON.toMediaTypeOrNull())
+            ).toJson()
+        )
 
-        return app.post("https://graphql.anilist.co", requestBody = data)
-            .parsedSafe()
+        return try {
+            val res = app.post(
+                "https://graphql.anilist.co/",
+                data = data,
+                timeout = 5
+            ).text
+            tryParseJson<AniSearch>(res)
+        } catch (t: Throwable) {
+            logError(t)
+            null
+        }
     }
 }
 
