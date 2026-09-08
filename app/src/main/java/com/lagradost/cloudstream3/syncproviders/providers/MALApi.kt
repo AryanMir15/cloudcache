@@ -101,7 +101,7 @@ class MALApi : SyncAPI() {
 
     override suspend fun search(auth: AuthData?, query: String): List<SyncAPI.SyncSearchResult>? {
         val auth = auth?.token?.accessToken ?: return null
-        val url = "$apiUrl/v2/anime?q=$query&limit=$MAL_MAX_SEARCH_LIMIT"
+        val url = "$apiUrl/v2/anime?q=$query&limit=$MAL_MAX_SEARCH_LIMIT&fields=alternative_titles,main_picture"
         val res = app.get(
             url, headers = mapOf(
                 "Authorization" to "Bearer $auth",
@@ -110,7 +110,8 @@ class MALApi : SyncAPI() {
         return res.data.map {
             val node = it.node
             SyncAPI.SyncSearchResult(
-                node.title,
+                // Prefer the English title when available so results are easier to recognize
+                node.alternativeTitles?.en?.takeIf { it.isNotBlank() } ?: node.title,
                 this.name,
                 node.id.toString(),
                 "$mainUrl/anime/${node.id}/",
