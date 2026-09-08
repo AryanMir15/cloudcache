@@ -93,6 +93,7 @@
                 android:nextFocusRight="@id/result_share"
 
                 android:id="@+id/result_favorite"
+                android:visibility="gone"
                 android:layout_width="25dp"
                 android:layout_height="25dp"
                 android:layout_margin="5dp"
@@ -110,6 +111,7 @@
                     android:nextFocusRight="@id/result_open_in_browser"
 
                     android:id="@+id/result_share"
+                    android:visibility="gone"
                     android:layout_width="25dp"
                     android:layout_height="25dp"
                     android:layout_margin="5dp"
@@ -128,6 +130,7 @@
                     android:nextFocusRight="@id/result_search"
 
                     android:id="@+id/result_open_in_browser"
+                    android:visibility="gone"
                     android:layout_width="25dp"
                     android:layout_height="25dp"
                     android:layout_margin="5dp"

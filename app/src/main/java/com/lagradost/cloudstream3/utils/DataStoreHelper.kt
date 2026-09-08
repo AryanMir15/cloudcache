@@ -156,6 +156,8 @@ object DataStoreHelper {
     )
     var playBackSpeed: Float by UserPreferenceDelegate("playback_speed", 1.0f)
     var resizeMode: Int by UserPreferenceDelegate("resize_mode", 0)
+    var playerBrightness: Float? by UserPreferenceDelegate("player_brightness", -1f)
+    var playerVolume: Float? by UserPreferenceDelegate("player_volume", -1f)
     var librarySortingMode: Int by UserPreferenceDelegate(
         "library_sorting_mode",
         ListSorting.AlphabeticalA.ordinal

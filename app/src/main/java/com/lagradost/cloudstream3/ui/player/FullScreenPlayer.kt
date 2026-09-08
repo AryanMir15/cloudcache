@@ -1390,6 +1390,8 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                 lp?.screenBrightness = brightness.coerceIn(0.004f, 1.0f)
                 // Log.i("Brightness", "clamped brightness: ${lp?.screenBrightness}")
                 activity?.window?.attributes = lp
+                // Remember the player brightness preference so it persists across sessions
+                DataStoreHelper.playerBrightness = brightness.coerceIn(0.004f, 1.0f)
             } catch (e: Exception) {
                 logError(e)
             }
@@ -2237,6 +2239,8 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
         }
 
         currentRequestedVolume = nextVolume
+        // Remember the player volume preference so it persists across sessions
+        DataStoreHelper.playerVolume = nextVolume
 
         // Update the progress bar
         playerBinding?.apply {
@@ -2335,6 +2339,18 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
         setPlayBackSpeed(DataStoreHelper.playBackSpeed)
         savedInstanceState?.getLong(SUBTITLE_DELAY_BUNDLE_KEY)?.let {
             subtitleDelay = it
+        }
+
+        // Restore the player's remembered brightness and volume preferences
+        DataStoreHelper.playerBrightness?.let { savedBrightness ->
+            if (savedBrightness >= 0f) {
+                setBrightness(savedBrightness)
+            }
+        }
+        DataStoreHelper.playerVolume?.let { savedVolume ->
+            if (savedVolume >= 0f) {
+                handleVolumeAdjustment(savedVolume - currentRequestedVolume, fromButton = false)
+            }
         }
 
         // handle tv controls
