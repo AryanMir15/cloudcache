@@ -194,6 +194,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     // This prevents the "sync gap" where IDs are found but isSynced hasn't updated yet
     private var wasNameMatchFound = false
 
+    // Remembers which provider the last "change entry" search ran on,
+    // so the result applies to that same provider instead of always AniList
+    private var lastTrackerSearchProvider: String? = null
+
     override var layout = R.layout.fragment_result_swipe
 
     override fun onCreateView(
@@ -3093,6 +3097,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         return@setOnClickListener
                     }
 
+                    // Search on the currently selected provider (falls back to the first synced one)
+                    val searchProvider = syncModel.selectedProvider.value
+                        ?: currentSyncs.keys.firstOrNull()
+
                     val binding = BottomInputDialogBinding.inflate(
                         act.layoutInflater
                     )
@@ -3110,8 +3118,9 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
                     binding.applyBtt.setOnClickListener {
                         val query = binding.nginxTextInput.text.toString().trim()
-                        if (query.isNotEmpty()) {
-                            syncModel.searchTracker(query)
+                        if (query.isNotEmpty() && searchProvider != null) {
+                            lastTrackerSearchProvider = searchProvider
+                            syncModel.searchTracker(query, searchProvider)
                             dialog.dismissSafe(act)
                         }
                     }
@@ -3153,7 +3162,8 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 ) { which ->
                     val selected = results[which]
                     val syncId = selected.syncId
-                    val providerPrefix = com.lagradost.cloudstream3.syncproviders.AccountManager.aniListApi.idPrefix
+                    val providerPrefix = lastTrackerSearchProvider
+                        ?: com.lagradost.cloudstream3.syncproviders.AccountManager.aniListApi.idPrefix
 
                     syncModel.replaceSyncEntry(providerPrefix, syncId)
 
