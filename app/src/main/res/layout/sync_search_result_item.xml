@@ -12,8 +12,8 @@
 
     <ImageView
         android:id="@+id/result_poster"
-        android:layout_width="40dp"
-        android:layout_height="56dp"
+        android:layout_width="48dp"
+        android:layout_height="68dp"
         android:scaleType="centerCrop"
         android:adjustViewBounds="true"
         android:layout_marginEnd="12dp"
@@ -27,7 +27,7 @@
         android:layout_weight="1"
         android:ellipsize="end"
         android:maxLines="2"
-        android:textColor="?attr/textColor"
+        android:textColor="@android:color/white"
         android:textSize="15sp"
         tools:text="Sakamoto Days" />
 

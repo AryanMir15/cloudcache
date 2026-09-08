@@ -92,7 +92,7 @@ class AniListApi : SyncAPI() {
                 this.name,
                 it.id.toString(),
                 getUrlFromId(it.id),
-                it.coverImage?.large ?: it.coverImage?.medium ?: it.bannerImage
+                it.bannerImage
             )
         }
     }
@@ -240,7 +240,6 @@ class AniListApi : SyncAPI() {
                                 timeUntilAiring
                                 episode
                             }
-                            coverImage { large medium }
                             trailer { id site thumbnail }
                             bannerImage
                             recommendations {
@@ -1156,11 +1155,6 @@ class AniListApi : SyncAPI() {
         @JsonProperty("site") val site: String?,
     )
 
-    data class GetSearchCoverImage(
-        @JsonProperty("large") val large: String?,
-        @JsonProperty("medium") val medium: String?,
-    )
-
     data class GetSearchMedia(
         @JsonProperty("id") val id: Int,
         @JsonProperty("idMal") val idMal: Int?,
@@ -1171,7 +1165,6 @@ class AniListApi : SyncAPI() {
         @JsonProperty("averageScore") val averageScore: Int?,
         @JsonProperty("meanScore") val meanScore: Int?,
         @JsonProperty("bannerImage") val bannerImage: String?,
-        @JsonProperty("coverImage") val coverImage: GetSearchCoverImage?,
         @JsonProperty("trailer") val trailer: TrailerObject?,
         @JsonProperty("nextAiringEpisode") val nextAiringEpisode: SeasonNextAiringEpisode?,
         @JsonProperty("recommendations") val recommendations: Recommendations?,
