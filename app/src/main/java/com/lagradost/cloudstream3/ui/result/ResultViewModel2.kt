@@ -3092,10 +3092,36 @@ class ResultViewModel2 : ViewModel() {
                         val responseActors = response.actors
                         // Preserve originalUrl from existing cache to maintain cache key consistency
                         val originalUrl = existingCachedHeader?.originalUrl ?: existingCachedHeader?.url ?: response.url
+                        val mappedActors = responseActors?.map { actorData ->
+                            "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
+                        }
                         setKey(
                             DOWNLOAD_HEADER_CACHE,
                             originalUrl,
-                            DownloadObjects.DownloadHeaderCached(
+                            existingCachedHeader?.copy(
+                                apiName = response.apiName,
+                                url = response.url,
+                                type = response.type,
+                                name = response.name,
+                                poster = response.posterUrl,
+                                backgroundPosterUrl = response.backgroundPosterUrl,
+                                logoUrl = response.logoUrl,
+                                plot = response.plot,
+                                score = response.score?.toInt(),
+                                showStatus = if (response is AnimeLoadResponse) response.showStatus?.name else if (response is TvSeriesLoadResponse) response.showStatus?.name else null,
+                                year = response.year,
+                                episodeCount = if (response is AnimeLoadResponse) response.episodes.values.flatten().size else if (response is TvSeriesLoadResponse) response.episodes.size else null,
+                                date = null,
+                                actors = mappedActors,
+                                tags = response.tags,
+                                cacheTime = System.currentTimeMillis(),
+                                metadataOnlyMode = existingCachedHeader.metadataOnlyMode,
+                                hasCustomPoster = existingCachedHeader.hasCustomPoster,
+                                hasSwappedMetadata = existingCachedHeader.hasSwappedMetadata,
+                                swappedFields = existingCachedHeader.swappedFields,
+                                syncData = response.syncData,
+                                recommendations = existingCachedHeader.recommendations
+                            ) ?: DownloadObjects.DownloadHeaderCached(
                                 apiName = response.apiName,
                                 url = response.url,
                                 originalUrl = originalUrl,
@@ -3110,17 +3136,13 @@ class ResultViewModel2 : ViewModel() {
                                 year = response.year,
                                 episodeCount = if (response is AnimeLoadResponse) response.episodes.values.flatten().size else if (response is TvSeriesLoadResponse) response.episodes.size else null,
                                 date = null,
-                                actors = responseActors?.map { actorData ->
-                                    "${actorData.actor.name}|${actorData.actor.image}|${actorData.role?.name}|${actorData.roleString}|${actorData.voiceActor?.name}|${actorData.voiceActor?.image}"
-                                },
+                                actors = mappedActors,
                                 tags = response.tags,
                                 id = id,
                                 cacheTime = System.currentTimeMillis(),
-                                metadataOnlyMode = existingCachedHeader?.metadataOnlyMode ?: false,
-                                hasCustomPoster = false,
-                                hasSwappedMetadata = false,
+                                metadataOnlyMode = false,
                                 syncData = response.syncData,
-                                recommendations = existingCachedHeader?.recommendations ?: response.recommendations?.map { rec ->
+                                recommendations = response.recommendations?.map { rec ->
                                     DownloadObjects.CachedSearchResponse(
                                         name = rec.name,
                                         url = rec.url,
