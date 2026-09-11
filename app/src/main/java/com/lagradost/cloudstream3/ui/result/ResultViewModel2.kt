@@ -2690,6 +2690,12 @@ class ResultViewModel2 : ViewModel() {
                 // CLEAR CACHE before fetching to ensure full refresh like initial load
                 val cacheKeyForSwap = response.url
                 Log.d(TAG, "ACTORS_REFRESH_DEBUG - Clearing cache for full refresh: $cacheKeyForSwap")
+                // Preserve existing cached header before clearing — we need to carry
+                // forward fields that this path doesn't re-fetch (totalSeasons,
+                // seasonMetadata, swap data, trailers, recommendations, etc.)
+                val preRefreshCachedHeader = getKey<DownloadObjects.DownloadHeaderCached>(
+                    DOWNLOAD_HEADER_CACHE, cacheKeyForSwap
+                )
                 CloudStreamApp.removeKey(DOWNLOAD_HEADER_CACHE, cacheKeyForSwap)
 
                 // Fetch metadata with 30-second timeout
@@ -2771,7 +2777,25 @@ class ResultViewModel2 : ViewModel() {
                         setKey(
                             DOWNLOAD_HEADER_CACHE,
                             cacheKeyForSwap,
-                            DownloadObjects.DownloadHeaderCached(
+                            preRefreshCachedHeader?.copy(
+                                apiName = mergedResponse.apiName,
+                                url = mergedResponse.url,
+                                type = mergedResponse.type,
+                                name = mergedResponse.name,
+                                poster = mergedPoster,
+                                backgroundPosterUrl = mergedResponse.backgroundPosterUrl,
+                                logoUrl = mergedLogo,
+                                plot = mergedPlot,
+                                score = mergedResponse.score?.toInt(),
+                                showStatus = if (mergedResponse is AnimeLoadResponse) mergedResponse.showStatus?.name else if (mergedResponse is TvSeriesLoadResponse) mergedResponse.showStatus?.name else null,
+                                year = mergedResponse.year,
+                                episodeCount = if (mergedResponse is AnimeLoadResponse) mergedResponse.episodes.values.flatten().size else if (mergedResponse is TvSeriesLoadResponse) mergedResponse.episodes.size else null,
+                                date = null,
+                                actors = actorsToSave,
+                                tags = mergedResponse.tags,
+                                cacheTime = System.currentTimeMillis(),
+                                metadataOnlyMode = false
+                            ) ?: DownloadObjects.DownloadHeaderCached(
                                 apiName = mergedResponse.apiName,
                                 url = mergedResponse.url,
                                 type = mergedResponse.type,
@@ -2789,18 +2813,7 @@ class ResultViewModel2 : ViewModel() {
                                 tags = mergedResponse.tags,
                                 id = id,
                                 cacheTime = System.currentTimeMillis(),
-                                metadataOnlyMode = false,
-                                hasCustomPoster = false,
-                                hasSwappedMetadata = false,
-                                swappedFields = emptySet(),
-                                originalPoster = null,
-                                originalBanner = null,
-                                originalLogo = null,
-                                originalPlot = null,
-                                originalActors = null,
-                                originalScore = null,
-                                originalYear = null,
-                                originalShowStatus = null
+                                metadataOnlyMode = false
                             )
                         )
                     }
