@@ -5527,12 +5527,15 @@ class ResultViewModel2 : ViewModel() {
                         val preservedBanner = if (existingCachedHeader?.hasSwappedMetadata == true && "BANNER" in existingCachedHeader.swappedFields) {
                             existingCachedHeader.backgroundPosterUrl
                         } else {
-                            loadResponse.backgroundPosterUrl ?: existingCachedHeader?.backgroundPosterUrl
+                            // Always prefer existing cached value if it exists — it may have
+                            // come from a tracker fetch or a previous better provider response.
+                            // Only use the new API value when the cache is empty.
+                            existingCachedHeader?.backgroundPosterUrl ?: loadResponse.backgroundPosterUrl
                         }
                         val preservedLogo = if (existingCachedHeader?.hasSwappedMetadata == true && "LOGO" in existingCachedHeader.swappedFields) {
                             existingCachedHeader.logoUrl
                         } else {
-                            loadResponse.logoUrl ?: existingCachedHeader?.logoUrl
+                            existingCachedHeader?.logoUrl ?: loadResponse.logoUrl
                         }
                         val preservedPlot = if (existingCachedHeader?.hasSwappedMetadata == true && "PLOT" in existingCachedHeader.swappedFields) {
                             existingCachedHeader.plot
