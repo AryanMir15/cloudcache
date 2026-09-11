@@ -223,4 +223,46 @@ object QualityDataHelper {
         if (target == null) return Qualities.Unknown
         return Qualities.entries.minBy { abs(it.value - target) }
     }
+
+    // ==================== Favorite Sources ====================
+
+    private const val FAVORITE_SOURCES = "favorite_sources"
+    private const val SELECTED_SOURCES = "selected_sources"
+
+    fun getFavoriteSources(): Set<String> {
+        return getKey<Array<String>>("$currentAccount/$FAVORITE_SOURCES")?.toSet()
+            ?: emptySet()
+    }
+
+    fun setFavoriteSource(name: String, isFavorite: Boolean) {
+        val current = getFavoriteSources().toMutableSet()
+        if (isFavorite) {
+            current.add(name)
+        } else {
+            current.remove(name)
+            // Also remove from selected if unfavorited
+            val selected = getSelectedSources().toMutableList()
+            if (selected.remove(name)) {
+                setSelectedSources(selected)
+            }
+        }
+        setKey("$currentAccount/$FAVORITE_SOURCES", current.toTypedArray())
+    }
+
+    fun isFavoriteSource(name: String): Boolean {
+        return getFavoriteSources().contains(name)
+    }
+
+    fun getSelectedSources(): List<String> {
+        return getKey<Array<String>>("$currentAccount/$SELECTED_SOURCES")?.toList()
+            ?: emptyList()
+    }
+
+    fun setSelectedSources(sources: List<String>) {
+        if (sources.isEmpty()) {
+            removeKey("$currentAccount/$SELECTED_SOURCES")
+        } else {
+            setKey("$currentAccount/$SELECTED_SOURCES", sources.toTypedArray())
+        }
+    }
 }
