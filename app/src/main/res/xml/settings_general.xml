@@ -105,6 +105,12 @@
 
     <PreferenceCategory android:title="@string/download_preferences_title">
 
+        <Preference
+            android:icon="@drawable/ic_baseline_star_24"
+            android:key="@string/download_preferred_source_key"
+            android:title="@string/download_preferred_source_title"
+            android:summary="@string/download_preferred_source_summary" />
+
         <ListPreference
             android:icon="@drawable/netflix_download"
             android:key="@string/download_quality_pref_key"

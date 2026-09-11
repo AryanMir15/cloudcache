@@ -431,6 +431,15 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
             return@setOnPreferenceClickListener true
         }
 
+        // Preferred Source
+        getPref(R.string.download_preferred_source_key)?.setOnPreferenceClickListener {
+            com.lagradost.cloudstream3.ui.player.source_priority.PreferredSourceDialog(
+                requireContext(),
+                R.style.AlertDialogCustom
+            ).show()
+            return@setOnPreferenceClickListener true
+        }
+
         // Cache Management
         findPreference<androidx.preference.Preference>("cache_management_key")?.setOnPreferenceClickListener {
             activity?.navigate(R.id.action_navigation_settings_general_to_cacheManagementFragment)
