@@ -1859,10 +1859,24 @@ class ResultViewModel2 : ViewModel() {
                                         // Also cache episode info for next episode navigation
                                         val parentId = click.data.parentId ?: currentResponse?.getId() ?: 0
                                         android.util.Log.d("LocalLibraryTest", "Caching episode - id: ${click.data.id}, name: ${click.data.name}, airDate: ${click.data.airDate}, score: ${click.data.score}")
+                                        val existingEpForMain = CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(
+                                            DOWNLOAD_EPISODE_CACHE, click.data.id.toString()
+                                        )
                                         CloudStreamApp.setKey(
                                             DOWNLOAD_EPISODE_CACHE,
                                             click.data.id.toString(),
-                                            DownloadObjects.DownloadEpisodeCached(
+                                            existingEpForMain?.copy(
+                                                name = click.data.name ?: "Episode ${click.data.episode}",
+                                                poster = click.data.poster,
+                                                episode = click.data.episode,
+                                                season = click.data.season,
+                                                score = click.data.score,
+                                                description = click.data.description,
+                                                date = click.data.airDate,
+                                                cacheTime = System.currentTimeMillis(),
+                                                dubStatus = click.data.dubStatus?.name,
+                                                data = click.data.data
+                                            ) ?: DownloadObjects.DownloadEpisodeCached(
                                                 name = click.data.name ?: "Episode ${click.data.episode}",
                                                 poster = click.data.poster,
                                                 episode = click.data.episode,
@@ -1967,10 +1981,13 @@ class ResultViewModel2 : ViewModel() {
                                         android.util.Log.d("LocalLibraryTest", "Extracted season metadata: $totalSeasons seasons, ${seasonMetadata.size} seasons with metadata")
                                         
                                         android.util.Log.d("SeasonMetadata", "[DOWNLOAD PATH] Caching header - cacheKey: $parentId, totalSeasons: $totalSeasons, seasonMetadata size: ${seasonMetadata.size}")
+                                        val existingLocalHeader = CloudStreamApp.getKey<DownloadObjects.DownloadHeaderCached>(
+                                            DOWNLOAD_HEADER_CACHE, parentId.toString()
+                                        )
                                         CloudStreamApp.setKey(
                                             DOWNLOAD_HEADER_CACHE,
                                             parentId.toString(),
-                                            DownloadObjects.DownloadHeaderCached(
+                                            existingLocalHeader?.copy(
                                                 apiName = response?.apiName ?: "Local",
                                                 url = response?.url ?: "",
                                                 type = response?.type ?: TvType.Anime,
@@ -1988,13 +2005,39 @@ class ResultViewModel2 : ViewModel() {
                                                 tags = response?.tags,
                                                 cacheTime = System.currentTimeMillis(),
                                                 metadataOnlyMode = false,
-                                                hasCustomPoster = false,
-                                                hasSwappedMetadata = false,
-                                                // FIX: Include syncData when caching headers
                                                 syncData = response?.syncData,
                                                 totalSeasons = totalSeasons,
                                                 seasonMetadata = seasonMetadata,
-                                                // Cache recommendations
+                                                recommendations = existingLocalHeader.recommendations ?: response?.recommendations?.map { rec ->
+                                                    DownloadObjects.CachedSearchResponse(
+                                                        name = rec.name,
+                                                        url = rec.url,
+                                                        apiName = rec.apiName,
+                                                        posterUrl = rec.posterUrl,
+                                                        type = rec.type ?: TvType.Movie
+                                                    )
+                                                }
+                                            ) ?: DownloadObjects.DownloadHeaderCached(
+                                                apiName = response?.apiName ?: "Local",
+                                                url = response?.url ?: "",
+                                                type = response?.type ?: TvType.Anime,
+                                                name = response?.name ?: "Unknown",
+                                                poster = response?.posterUrl,
+                                                backgroundPosterUrl = response?.backgroundPosterUrl,
+                                                logoUrl = response?.logoUrl,
+                                                plot = response?.plot,
+                                                score = cachedScore,
+                                                showStatus = cachedShowStatus,
+                                                year = cachedYear,
+                                                episodeCount = if (response is AnimeLoadResponse) response.episodes.values.flatten().size else if (response is TvSeriesLoadResponse) response.episodes.size else null,
+                                                date = null,
+                                                actors = cachedActors,
+                                                tags = response?.tags,
+                                                cacheTime = System.currentTimeMillis(),
+                                                metadataOnlyMode = false,
+                                                syncData = response?.syncData,
+                                                totalSeasons = totalSeasons,
+                                                seasonMetadata = seasonMetadata,
                                                 recommendations = response?.recommendations?.map { rec ->
                                                     DownloadObjects.CachedSearchResponse(
                                                         name = rec.name,
@@ -2039,10 +2082,24 @@ class ResultViewModel2 : ViewModel() {
                                                 
                                                 // Also cache episode info for next episode navigation
                                                 val parentId = click.data.parentId ?: currentResponse?.getId() ?: 0
+                                                val existingEpForFallback = CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(
+                                                    DOWNLOAD_EPISODE_CACHE, click.data.id.toString()
+                                                )
                                                 CloudStreamApp.setKey(
                                                     DOWNLOAD_EPISODE_CACHE,
                                                     click.data.id.toString(),
-                                                    DownloadObjects.DownloadEpisodeCached(
+                                                    existingEpForFallback?.copy(
+                                                        name = click.data.name ?: "Episode ${click.data.episode}",
+                                                        poster = click.data.poster,
+                                                        episode = click.data.episode,
+                                                        season = click.data.season,
+                                                        score = click.data.score,
+                                                        description = click.data.description,
+                                                        date = click.data.airDate,
+                                                        cacheTime = System.currentTimeMillis(),
+                                                        dubStatus = click.data.dubStatus?.name,
+                                                        data = click.data.data
+                                                    ) ?: DownloadObjects.DownloadEpisodeCached(
                                                         name = click.data.name ?: "Episode ${click.data.episode}",
                                                         poster = click.data.poster,
                                                         episode = click.data.episode,
@@ -2060,10 +2117,40 @@ class ResultViewModel2 : ViewModel() {
                                                 
                                                 // Cache header info for the series
                                                 val response = currentResponse
+                                                val existingFallbackHeader = CloudStreamApp.getKey<DownloadObjects.DownloadHeaderCached>(
+                                                    DOWNLOAD_HEADER_CACHE, parentId.toString()
+                                                )
                                                 CloudStreamApp.setKey(
                                                     DOWNLOAD_HEADER_CACHE,
                                                     parentId.toString(),
-                                                    DownloadObjects.DownloadHeaderCached(
+                                                    existingFallbackHeader?.copy(
+                                                        apiName = response?.apiName ?: "Local",
+                                                        url = response?.url ?: "",
+                                                        type = response?.type ?: TvType.Anime,
+                                                        name = response?.name ?: "Unknown",
+                                                        poster = response?.posterUrl,
+                                                        backgroundPosterUrl = response?.backgroundPosterUrl,
+                                                        logoUrl = response?.logoUrl,
+                                                        plot = response?.plot,
+                                                        score = response?.score?.toInt(),
+                                                        showStatus = if (response is AnimeLoadResponse) response.showStatus?.name else if (response is TvSeriesLoadResponse) response.showStatus?.name else if (response is LoadResponseFromSearch) response.showStatus?.name else null,
+                                                        year = response?.year,
+                                                        episodeCount = if (response is AnimeLoadResponse) response.episodes.values.flatten().size else if (response is TvSeriesLoadResponse) response.episodes.size else null,
+                                                        date = null,
+                                                        tags = response?.tags,
+                                                        cacheTime = System.currentTimeMillis(),
+                                                        metadataOnlyMode = false,
+                                                        syncData = response?.syncData,
+                                                        recommendations = existingFallbackHeader.recommendations ?: response?.recommendations?.map { rec ->
+                                                            DownloadObjects.CachedSearchResponse(
+                                                                name = rec.name,
+                                                                url = rec.url,
+                                                                apiName = rec.apiName,
+                                                                posterUrl = rec.posterUrl,
+                                                                type = rec.type ?: TvType.Movie
+                                                            )
+                                                        }
+                                                    ) ?: DownloadObjects.DownloadHeaderCached(
                                                         apiName = response?.apiName ?: "Local",
                                                         url = response?.url ?: "",
                                                         type = response?.type ?: TvType.Anime,
@@ -2081,8 +2168,6 @@ class ResultViewModel2 : ViewModel() {
                                                         tags = response?.tags,
                                                         cacheTime = System.currentTimeMillis(),
                                                         metadataOnlyMode = false,
-                                                        hasCustomPoster = false,
-                                                        hasSwappedMetadata = false,
                                                         syncData = response?.syncData,
                                                         recommendations = response?.recommendations?.map { rec ->
                                                             DownloadObjects.CachedSearchResponse(
