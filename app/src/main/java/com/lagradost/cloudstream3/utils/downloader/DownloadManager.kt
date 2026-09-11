@@ -2092,16 +2092,28 @@ object VideoDownloadManager {
             
             try {
                 // Prepare visual keys
+                // Preserve existing cached header fields (totalSeasons, seasonMetadata,
+                // swap data, trailers, recommendations, etc.) instead of overwriting
+                val existingHeader = getKey<DownloadObjects.DownloadHeaderCached>(
+                    DOWNLOAD_HEADER_CACHE, downloadItem.resultId.toString()
+                )
                 setKey(
                     DOWNLOAD_HEADER_CACHE,
                     downloadItem.resultId.toString(),
-                    DownloadObjects.DownloadHeaderCached(
+                    existingHeader?.copy(
                         apiName = downloadItem.apiName,
                         url = downloadItem.resultUrl,
                         type = downloadItem.resultType,
                         name = downloadItem.resultName,
                         poster = downloadItem.resultPoster,
-                        backgroundPosterUrl = null,
+                        cacheTime = System.currentTimeMillis(),
+                        metadataOnlyMode = false
+                    ) ?: DownloadObjects.DownloadHeaderCached(
+                        apiName = downloadItem.apiName,
+                        url = downloadItem.resultUrl,
+                        type = downloadItem.resultType,
+                        name = downloadItem.resultName,
+                        poster = downloadItem.resultPoster,
                         plot = null,
                         score = null,
                         showStatus = null,
@@ -2109,21 +2121,30 @@ object VideoDownloadManager {
                         episodeCount = null,
                         date = null,
                         actors = null,
-                        tags = null,
                         id = downloadItem.resultId,
                         cacheTime = System.currentTimeMillis(),
-                        metadataOnlyMode = false,
-                        hasCustomPoster = false,
-                        hasSwappedMetadata = false
+                        metadataOnlyMode = false
                     )
                 )
+                val epCacheKey = getFolderName(
+                    DOWNLOAD_EPISODE_CACHE,
+                    downloadItem.resultId.toString()
+                )
+                val existingEpisode = getKey<DownloadObjects.DownloadEpisodeCached>(
+                    epCacheKey, downloadItem.episode.id.toString()
+                )
                 setKey(
-                    getFolderName(
-                        DOWNLOAD_EPISODE_CACHE,
-                        downloadItem.resultId.toString()
-                    ), // 3 deep folder for faster access
+                    epCacheKey, // 3 deep folder for faster access
                     downloadItem.episode.id.toString(),
-                    DownloadObjects.DownloadEpisodeCached(
+                    existingEpisode?.copy(
+                        name = downloadItem.episode.name,
+                        poster = downloadItem.episode.poster,
+                        episode = downloadItem.episode.episode,
+                        season = downloadItem.episode.season,
+                        score = downloadItem.episode.score,
+                        description = downloadItem.episode.description,
+                        cacheTime = System.currentTimeMillis()
+                    ) ?: DownloadObjects.DownloadEpisodeCached(
                         name = downloadItem.episode.name,
                         poster = downloadItem.episode.poster,
                         episode = downloadItem.episode.episode,
