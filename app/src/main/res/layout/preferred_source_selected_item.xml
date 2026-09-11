@@ -36,7 +36,7 @@
         android:layout_width="24dp"
         android:layout_height="24dp"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:src="@drawable/baseline_close_24"
+        android:src="@drawable/ic_baseline_close_24"
         android:contentDescription="@string/remove" />
 
 </LinearLayout>
