@@ -7,36 +7,15 @@
     android:orientation="horizontal">
 
     <ImageView
-        android:id="@+id/favorite_button"
+        android:id="@+id/add_button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentStart="true"
+        android:layout_alignParentEnd="true"
         android:layout_centerVertical="true"
-        android:layout_toStartOf="@+id/priority_text"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:padding="10dp"
         android:focusable="true"
-        android:src="@drawable/ic_baseline_star_border_24"
-        android:visibility="gone"
-        tools:visibility="visible" />
-
-    <TextView
-        android:id="@+id/priority_text"
-        style="@style/NoCheckLabel"
-        android:layout_width="wrap_content"
-        android:layout_toStartOf="@+id/subtract_button"
-        tools:text="hello" />
-
-    <ImageView
-        android:id="@+id/subtract_button"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_centerVertical="true"
-        android:layout_toStartOf="@id/priority_number"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:padding="10dp"
-        android:focusable="true"
-        android:src="@drawable/baseline_remove_24" />
+        android:src="@drawable/ic_baseline_add_24" />
 
     <TextView
         android:id="@+id/priority_number"
@@ -50,14 +29,38 @@
         tools:text="1" />
 
     <ImageView
-        android:id="@+id/add_button"
+        android:id="@+id/subtract_button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentEnd="true"
         android:layout_centerVertical="true"
+        android:layout_toStartOf="@id/priority_number"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:padding="10dp"
         android:focusable="true"
-        android:src="@drawable/ic_baseline_add_24" />
+        android:src="@drawable/baseline_remove_24" />
+
+    <ImageView
+        android:id="@+id/favorite_button"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_centerVertical="true"
+        android:layout_toStartOf="@+id/subtract_button"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:padding="6dp"
+        android:focusable="true"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_baseline_star_border_24"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
+    <TextView
+        android:id="@+id/priority_text"
+        style="@style/NoCheckLabel"
+        android:layout_width="wrap_content"
+        android:layout_alignParentStart="true"
+        android:layout_toStartOf="@+id/favorite_button"
+        android:ellipsize="end"
+        android:maxLines="1"
+        tools:text="hello" />
 
 </RelativeLayout>
