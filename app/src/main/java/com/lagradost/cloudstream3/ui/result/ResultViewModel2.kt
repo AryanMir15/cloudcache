@@ -4075,18 +4075,18 @@ class ResultViewModel2 : ViewModel() {
         
         android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Episode caching completed - updating header to metadataOnlyMode=false")
         // Update header to mark as fully cached.
-        // The header may be stored under a URL key or an ID key, so find it by id.
-        val headerKey = CloudStreamApp.getKeys(DOWNLOAD_HEADER_CACHE)?.firstOrNull { key ->
-            getKey<DownloadObjects.DownloadHeaderCached>(key)?.id == mainId
-        }
-        if (headerKey != null) {
-            val cachedHeader = getKey<DownloadObjects.DownloadHeaderCached>(headerKey)
-            if (cachedHeader != null && cachedHeader.metadataOnlyMode) {
-                android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Updating header metadataOnlyMode from true to false - id: $mainId")
-                val updatedHeader = cachedHeader.copy(metadataOnlyMode = false)
-                CloudStreamApp.setKey(DOWNLOAD_HEADER_CACHE, headerKey, updatedHeader)
-                android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Header updated successfully - metadataOnlyMode: false")
-            }
+        // Try direct lookups by ID and URL instead of scanning all headers
+        val cachedHeader = getKey<DownloadObjects.DownloadHeaderCached>(
+            DOWNLOAD_HEADER_CACHE, mainId.toString()
+        ) ?: getKey<DownloadObjects.DownloadHeaderCached>(
+            DOWNLOAD_HEADER_CACHE, currentResponse?.url ?: mainId.toString()
+        )
+        if (cachedHeader != null && cachedHeader.metadataOnlyMode) {
+            val headerKey = cachedHeader.url ?: mainId.toString()
+            android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Updating header metadataOnlyMode from true to false - id: $mainId")
+            val updatedHeader = cachedHeader.copy(metadataOnlyMode = false)
+            CloudStreamApp.setKey(DOWNLOAD_HEADER_CACHE, headerKey, updatedHeader)
+            android.util.Log.d(CACHE_DEBUG_TAG, "[METADATA_ONLY] Header updated successfully - metadataOnlyMode: false")
         }
     }
 
@@ -4724,30 +4724,17 @@ class ResultViewModel2 : ViewModel() {
                     // This allows us to know season counts, etc., without loading all episodes
                     allEpisodeIdsForMetadata = allEpisodeIds.toList()
                     
-                    // Extract minimal metadata from ALL episodes for UI selectors (season, episode, dubStatus)
-                    // This is necessary to show all seasons/dubs in selectors without loading full episode data
-                    // Use episode's own season and dubStatus fields directly (matching non-cache behavior)
-                    android.util.Log.d("SeasonMetadata", "[SELECTOR METADATA] Starting extraction - processing ${allEpisodeIds.size} episodes")
-                    
+                    // Build selector metadata from already-loaded episodes (avoid re-reading from cache)
                     val metadataStartTime = System.currentTimeMillis()
-                    val allEpisodesMetadata = allEpisodeIds.mapNotNull { episodeId ->
-                        val episode = getKey<DownloadObjects.DownloadEpisodeCached>(DOWNLOAD_EPISODE_CACHE, episodeId)
-                        if (episode != null) {
-                            // Use episode's own season and dubStatus fields directly (no header metadata correction)
-                            android.util.Log.d("SeasonMetadata", "[METADATA] Episode ${episode.episode}: season=${episode.season}, dubStatus=${episode.dubStatus}")
-                            EpisodeSelectorMetadata(
-                                id = episode.id,
-                                season = episode.season,
-                                episode = episode.episode,
-                                dubStatus = episode.dubStatus
-                            )
-                        } else null
+                    selectorMetadata = initialBatchEpisodes.map { ep ->
+                        EpisodeSelectorMetadata(
+                            id = ep.id,
+                            season = ep.season,
+                            episode = ep.episode,
+                            dubStatus = ep.dubStatus
+                        )
                     }
-                    
-                    val metadataDuration = System.currentTimeMillis() - metadataStartTime
-                    android.util.Log.d("SeasonMetadata", "[SELECTOR METADATA] Extraction completed - duration: ${metadataDuration}ms, extracted: ${allEpisodesMetadata.size} episodes")
-                    android.util.Log.d("CacheFlow", "Extracted lightweight metadata from ${allEpisodesMetadata.size} episodes for UI selectors in ${System.currentTimeMillis() - metadataStartTime}ms")
-                    selectorMetadata = allEpisodesMetadata
+                    android.util.Log.d("CacheFlow", "Built selector metadata from ${selectorMetadata?.size} episodes in ${System.currentTimeMillis() - metadataStartTime}ms")
                     
                     initialBatchEpisodes
                 } else {
@@ -4914,21 +4901,8 @@ class ResultViewModel2 : ViewModel() {
             android.util.Log.d("DubStatusFix", "Grouping ${resultEpisodes.size} episodes by season and dub status using episode fields")
             
             val episodesBySeasonAndDub = resultEpisodes.groupBy { 
-                val cachedDub = cachedEpisodes.find { cached -> cached.id == it.id }?.dubStatus
-                val dubStatus = if (cachedDub != null) {
-                    try { 
-                        com.lagradost.cloudstream3.DubStatus.valueOf(cachedDub) 
-                    } catch (e: Exception) { 
-                        com.lagradost.cloudstream3.DubStatus.Subbed 
-                    }
-                } else {
-                    // Fallback to Subbed if no cached dubStatus
-                    com.lagradost.cloudstream3.DubStatus.Subbed
-                }
-                
-                // Use episode's own season field directly
+                val dubStatus = it.dubStatus ?: com.lagradost.cloudstream3.DubStatus.Subbed
                 val season = it.season ?: 0
-                android.util.Log.d("DubStatusFix", "[GROUPING] Episode ${it.episode}: season=$season, dubStatus=$dubStatus")
                 season to dubStatus
             }
             android.util.Log.d("DubStatusFix", "=== GROUPING COMPLETE ===")
@@ -5330,19 +5304,15 @@ class ResultViewModel2 : ViewModel() {
             // CACHE-FIRST APPROACH: Check cache first, then API if cache not found
             // Move entire cache resolution to background thread to eliminate main thread blocking
             val cachedHeader = withContext(Dispatchers.IO) {
-                // OPTIMIZED CACHE RESOLUTION: Use HashMap index for O(1) lookups
-                val allCachedHeaders = getKeys(DOWNLOAD_HEADER_CACHE)
-                    ?.mapNotNull { getKey<DownloadObjects.DownloadHeaderCached>(it) }
-                
-                android.util.Log.d("LocalLibraryTest", "Checking cache first for url: $url, found ${allCachedHeaders?.size} cached headers")
-                
-                // Build HashMap indexes for O(1) lookup instead of linear search
-                val urlIndex = allCachedHeaders?.associateBy { it.url }
-                val idIndex = allCachedHeaders?.associateBy { it.id.toString() }
-                
-                // O(1) lookup using HashMap indexes
-                urlIndex?.get(url)
-                    ?: idIndex?.get(url)
+                // Direct lookup by URL first, then by ID — no need to load all headers
+                getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, url)
+                    ?: run {
+                        // Fallback: extract numeric ID from URL if present
+                        val numericId = url.toIntOrNull()
+                        if (numericId != null) {
+                            getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, numericId.toString())
+                        } else null
+                    }
             }
             
             android.util.Log.d("LocalLibraryTest", "Matched cached header: ${cachedHeader?.name} (url: ${cachedHeader?.url}, id: ${cachedHeader?.id})")
@@ -5471,10 +5441,8 @@ class ResultViewModel2 : ViewModel() {
                     // Use the same cache key logic as when storing swapped metadata
                     val cacheKeyForSwap = currentResponse?.url ?: validUrl
                     val swappedCache = getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, cacheKeyForSwap)
-                        // Fallback: the header may be stored under a different key (id or original URL)
-                        ?: getKeys(DOWNLOAD_HEADER_CACHE)?.mapNotNull {
-                            getKey<DownloadObjects.DownloadHeaderCached>(it)
-                        }?.firstOrNull { it.id == mainId || it.url == cacheKeyForSwap }
+                        // Fallback: try by ID directly
+                        ?: getKey<DownloadObjects.DownloadHeaderCached>(DOWNLOAD_HEADER_CACHE, mainId.toString())
                     // Use originalUrl from cache if available for consistent cache key
                     val actualCacheKey = swappedCache?.originalUrl ?: swappedCache?.url ?: cacheKeyForSwap
                     val finalResponse = if (swappedCache?.hasSwappedMetadata == true && swappedCache.swappedFields.isNotEmpty()) {
