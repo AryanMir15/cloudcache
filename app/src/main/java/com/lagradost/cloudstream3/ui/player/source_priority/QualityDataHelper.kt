@@ -265,4 +265,12 @@ object QualityDataHelper {
             setKey("$currentAccount/$SELECTED_SOURCES", sources.toTypedArray())
         }
     }
+
+    /** Sort comparator: favorited items first, then by priority descending */
+    fun <T : SourcePriority<*>> favoritesComparator(): Comparator<T> {
+        return Comparator { a, b ->
+            if (a.isFavorite != b.isFavorite) return@Comparator if (a.isFavorite) -1 else 1
+            b.priority.compareTo(a.priority)
+        }
+    }
 }

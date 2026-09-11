@@ -2,6 +2,8 @@ package com.lagradost.cloudstream3.ui.player.source_priority
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.core.view.isVisible
+import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.databinding.PlayerPrioritizeItemBinding
 import com.lagradost.cloudstream3.ui.NoStateAdapter
 import com.lagradost.cloudstream3.ui.ViewHolderState
@@ -9,11 +11,14 @@ import com.lagradost.cloudstream3.ui.ViewHolderState
 data class SourcePriority<T>(
     val data: T,
     val name: String,
-    var priority: Int
+    var priority: Int,
+    var isFavorite: Boolean = false
 )
 
-class PriorityAdapter<T>() :
-    NoStateAdapter<SourcePriority<T>>() {
+class PriorityAdapter<T>(
+    private val showFavorite: Boolean = false,
+    private val onFavoriteChanged: ((name: String, isFavorite: Boolean) -> Unit)? = null
+) : NoStateAdapter<SourcePriority<T>>() {
 
     override fun onCreateContent(parent: ViewGroup): ViewHolderState<Any> {
         return ViewHolderState(
@@ -47,6 +52,24 @@ class PriorityAdapter<T>() :
         binding.subtractButton.setOnClickListener {
             item.priority--
             updatePriority()
+        }
+
+        if (showFavorite) {
+            binding.favoriteButton.isVisible = true
+            binding.favoriteButton.setImageResource(
+                if (item.isFavorite) R.drawable.ic_baseline_star_24
+                else R.drawable.ic_baseline_star_border_24
+            )
+            binding.favoriteButton.setOnClickListener {
+                item.isFavorite = !item.isFavorite
+                binding.favoriteButton.setImageResource(
+                    if (item.isFavorite) R.drawable.ic_baseline_star_24
+                    else R.drawable.ic_baseline_star_border_24
+                )
+                onFavoriteChanged?.invoke(item.name, item.isFavorite)
+            }
+        } else {
+            binding.favoriteButton.isVisible = false
         }
     }
 }

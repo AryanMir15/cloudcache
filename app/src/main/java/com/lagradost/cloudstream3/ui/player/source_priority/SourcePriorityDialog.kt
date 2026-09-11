@@ -39,14 +39,21 @@ class SourcePriorityDialog(
         profileText.hint = txt(R.string.profile_number, profile.id).asString(context)
 
         sourcesRecyclerView.adapter = PriorityAdapter<Nothing?>(
+            showFavorite = true,
+            onFavoriteChanged = { name, isFavorite ->
+                QualityDataHelper.setFavoriteSource(name, isFavorite)
+            }
         ).apply {
             submitList(links.map { link ->
-                SourcePriority(
+                SourcePriority<Nothing?>(
                     null,
                     link.source,
-                    QualityDataHelper.getSourcePriority(profile.id, link.source)
+                    QualityDataHelper.getSourcePriority(profile.id, link.source),
+                    isFavorite = QualityDataHelper.isFavoriteSource(link.source)
                 )
-            }.distinctBy { it.name }.sortedBy { -it.priority })
+            }.distinctBy { it.name }.sortedWith(
+                QualityDataHelper.favoritesComparator()
+            ))
         }
 
         qualitiesRecyclerView.adapter = PriorityAdapter<Qualities>(
@@ -77,7 +84,7 @@ class SourcePriorityDialog(
             }
 
             qualityAdapter?.submitList(qualities.sortedBy { -it.priority })
-            sourcesAdapter?.submitList(sources.sortedBy { -it.priority })
+            sourcesAdapter?.submitList(sources.sortedWith(QualityDataHelper.favoritesComparator()))
 
             val savedProfileName = profileText.text.toString()
             if (savedProfileName.isBlank()) {
