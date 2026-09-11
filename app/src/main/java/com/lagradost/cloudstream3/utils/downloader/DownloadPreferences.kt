@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.preference.PreferenceManager
 import com.lagradost.cloudstream3.DubStatus
 import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.ui.player.source_priority.QualityDataHelper
 
 object DownloadPreferences {
     private const val TAG = "DownloadPreferences"
@@ -11,6 +12,7 @@ object DownloadPreferences {
     data class DownloadPrefs(
         val preferredQuality: Int?,
         val preferredAudio: AudioPref,
+        val preferredSources: List<String>,
     )
 
     enum class AudioPref {
@@ -39,7 +41,9 @@ object DownloadPreferences {
             else -> AudioPref.ANY
         }
 
-        return DownloadPrefs(preferredQuality, preferredAudio)
+        val preferredSources = QualityDataHelper.getSelectedSources()
+
+        return DownloadPrefs(preferredQuality, preferredAudio, preferredSources)
     }
 
     /**
@@ -95,10 +99,9 @@ object DownloadPreferences {
 
     /**
      * Filters and sorts links based on user download preferences.
-     * Quality preference is treated as a CAP: the highest quality at or below
-     * the preferred value is chosen. If nothing is at or below the cap,
-     * the best available link is used instead (rather than downloading
-     * something far worse than requested).
+     * Hierarchy: Source → Quality → Audio.
+     * If preferred sources are configured, those are tried first.
+     * Quality is a cap semantics. Audio is best-effort.
      */
     fun selectBestLinks(
         context: Context,
@@ -110,31 +113,41 @@ object DownloadPreferences {
         val prefs = getPreferences(context)
         val preferredQuality = prefs.preferredQuality
         val preferredAudio = prefs.preferredAudio
+        val preferredSources = prefs.preferredSources
 
-        // Best-effort audio filtering: prefer links matching the audio pref,
-        // but never drop everything if the heuristic misses
+        // Step 1: Source preference — narrow to selected sources first
+        val sourceFiltered = if (preferredSources.isNotEmpty()) {
+            allLinks.filter { link ->
+                preferredSources.any { pref ->
+                    link.source.contains(pref, ignoreCase = true) ||
+                        link.name.contains(pref, ignoreCase = true)
+                }
+            }
+        } else emptyList()
+
+        // Use preferred sources if any matched, otherwise fall through to all links
+        val candidates = sourceFiltered.ifEmpty { allLinks }
+
+        // Step 2: Audio filtering — best-effort, never drops everything
         val audioMatched = if (preferredAudio == AudioPref.ANY) {
-            allLinks
+            candidates
         } else {
-            val matched = allLinks.filter {
+            val matched = candidates.filter {
                 matchesAudioPreference(it, preferredAudio, episodeDubStatus)
             }
-            if (matched.isEmpty()) allLinks else matched
+            if (matched.isEmpty()) candidates else matched
         }
 
-        // No quality preference: best available wins
+        // Step 3: Quality filtering — cap semantics
         if (preferredQuality == null) {
             return audioMatched.sortedByDescending { it.quality }
         }
 
-        // Cap semantics: highest quality at or below the preferred value
         val capped = audioMatched.filter { it.quality > 0 && it.quality <= preferredQuality }
         if (capped.isNotEmpty()) {
             return capped.sortedByDescending { it.quality }
         }
 
-        // Nothing at or below the cap: use the closest available (best), so the
-        // user still gets a working download instead of a silent mismatch
         val known = audioMatched.filter { it.quality > 0 }
         if (known.isNotEmpty()) {
             return known.sortedByDescending { it.quality }
