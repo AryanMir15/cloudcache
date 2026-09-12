@@ -77,6 +77,7 @@ class SyncViewModel : ViewModel() {
     
     // [RACE_CONDITION_FIX] Track in-flight requests to prevent overlapping calls
     private val isFetchingUserData = AtomicBoolean(false)
+    private var lastMetaAndUserCall: Long = 0
     private var lastRequestedSyncs: Map<String, String> = emptyMap()
     // Queued refresh request: set when updateUserData is called while a fetch is in flight
     private val pendingUserDataRefresh = AtomicBoolean(false)
@@ -884,6 +885,14 @@ class SyncViewModel : ViewModel() {
     }
 
     fun updateMetaAndUser() {
+        // Debounce: called 2-3 times during page load, only run once per 3 seconds
+        val now = System.currentTimeMillis()
+        if (now - lastMetaAndUserCall < 3000) {
+            Log.i(TAG, "updateMetaAndUser - SKIPPED: called ${now - lastMetaAndUserCall}ms ago")
+            return
+        }
+        lastMetaAndUserCall = now
+
         _userDataResponse.postValue(Resource.Loading())
         _metaResponse.postValue(Resource.Loading())
 

@@ -29,6 +29,9 @@ class SyncRepo(override val api: SyncAPI) : AuthRepo(api) {
     }
 
     suspend fun search(query: String): Result<List<SyncAPI.SyncSearchResult>?> = runCatching {
-        api.search(freshAuth(), query)
+        // Try freshAuth first, but fall back to raw authData if refresh fails.
+        // Some providers (AniList) support unauthenticated search, so a null auth is OK.
+        val auth = try { freshAuth() } catch (_: Exception) { authData() }
+        api.search(auth, query)
     }
 }

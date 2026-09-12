@@ -60,9 +60,9 @@ class AniListApi : SyncAPI() {
 
     // https://docs.anilist.co/guide/auth/
     override suspend fun refreshToken(token: AuthToken): AuthToken? {
-        // AniList access tokens are long-lived. They will remain valid for 1 year from the time they are issued.
-        // Refresh tokens are not currently supported. Once a token expires, you will need to re-authenticate your users.
-        return super.refreshToken(token)
+        // AniList access tokens are long-lived (1 year). No refresh support.
+        // Return null to indicate refresh is not possible, instead of throwing.
+        return null
     }
 
     override suspend fun user(token: AuthToken?): AuthUser? {
