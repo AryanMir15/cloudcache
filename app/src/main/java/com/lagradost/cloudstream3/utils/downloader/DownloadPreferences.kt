@@ -110,7 +110,14 @@ object DownloadPreferences {
     ): List<com.lagradost.cloudstream3.utils.ExtractorLink> {
         if (allLinks.isEmpty()) return emptyList()
 
-        val prefs = getPreferences(context)
+        // Wrap preference reading in try-catch — a crash here should never prevent download
+        val prefs = try {
+            getPreferences(context)
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "Failed to read download preferences, using all links", e)
+            return allLinks.sortedByDescending { it.quality }
+        }
+
         val preferredQuality = prefs.preferredQuality
         val preferredAudio = prefs.preferredAudio
         val preferredSources = prefs.preferredSources

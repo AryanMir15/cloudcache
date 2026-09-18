@@ -2322,14 +2322,24 @@ object VideoDownloadManager {
 
             // Use download preferences for link selection with fallback chain
             val episodeDubStatus = downloadItem.dubStatus
-            val preferredLinks = DownloadPreferences.selectBestLinks(
-                context,
-                currentLinks.toList(),
-                episodeDubStatus
-            )
+            val preferredLinks = try {
+                DownloadPreferences.selectBestLinks(
+                    context,
+                    currentLinks.toList(),
+                    episodeDubStatus
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "selectBestLinks failed, falling back to all links", e)
+                currentLinks.toList().sortedByDescending { it.quality }
+            }
 
-            // Sort by quality (highest first) as final tiebreaker
-            val sortedLinks = preferredLinks.sortedByDescending { it.quality }
+            // Ensure we never pass an empty list — fall back to all links if filtering returned nothing
+            val sortedLinks = if (preferredLinks.isEmpty()) {
+                Log.w(TAG, "selectBestLinks returned empty, falling back to all ${currentLinks.size} links")
+                currentLinks.toList().sortedByDescending { it.quality }
+            } else {
+                preferredLinks.sortedByDescending { it.quality }
+            }
 
             Log.d(TAG, "downloadEpisodeWithoutLinks: Selected ${sortedLinks.size} links from ${currentLinks.size} total (dubStatus=$episodeDubStatus)")
 
