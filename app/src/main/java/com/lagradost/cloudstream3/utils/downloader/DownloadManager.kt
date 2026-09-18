@@ -1798,7 +1798,10 @@ object VideoDownloadManager {
 
     private fun deleteFileAndUpdateSettings(context: Context, id: Int): Boolean {
         val success = deleteFile(context, id)
-        if (success) context.removeKey(KEY_DOWNLOAD_INFO, id.toString())
+        if (success) {
+            context.removeKey(KEY_DOWNLOAD_INFO, id.toString())
+            removeDownloadStatus(id, context)
+        }
         return success
     }
 

@@ -1768,8 +1768,12 @@ class GeneratorPlayer : FullScreenPlayer() {
                                 ctx.getString(R.string.episode_sync_enabled_key), true
                             )
                         ) {
-                            maxEpisodeSet = meta.episode
-                            sync.modifyMaxEpisode(meta.totalEpisodeIndex ?: meta.episode)
+                            // Track absolute episode to prevent re-updating lower episodes
+                            maxEpisodeSet = absoluteEpisode
+                            // Send per-season episode number to tracker — trackers
+                            // (AniList/MAL) expect the episode number within the current
+                            // season entry, not a cross-season absolute count.
+                            sync.modifyMaxEpisode(meta.episode)
                         }
                     }
                 }
