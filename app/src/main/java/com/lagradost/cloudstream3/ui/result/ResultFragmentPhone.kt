@@ -3164,11 +3164,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         title.text = item.name
                         item.posterUrl?.let { poster.loadImage(it) }
                             ?: poster.setImageResource(R.drawable.baseline_theaters_24)
-                        if (position == selectedIndex) {
-                            view.alpha = 1.0f
-                        } else {
-                            view.alpha = 0.7f
-                        }
+                        view.alpha = 1.0f
                         return view
                     }
                 }
