@@ -98,6 +98,7 @@ import com.lagradost.cloudstream3.ui.settings.Globals.PHONE
 import com.lagradost.cloudstream3.ui.settings.Globals.TV
 import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
 import com.lagradost.cloudstream3.ui.subtitles.SUBTITLE_AUTO_SELECT_KEY
+import com.lagradost.cloudstream3.ui.subtitles.SUBTITLE_VARIANT_KEY
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment
 import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment.Companion.getAutoSelectLanguageTagIETF
 import com.lagradost.cloudstream3.utils.AppContextUtils.getShortSeasonText
@@ -189,6 +190,7 @@ class GeneratorPlayer : FullScreenPlayer() {
     private var preferredLinkIdentity: String? = null
 
     private var preferredAutoSelectSubtitles: String? = null // null means do nothing, "" means none
+    private var preferredSubtitleVariant: String? = null    // nameSuffix of the selected variant (e.g., "1", "2")
 
     private var binding: FragmentPlayerBinding? = null
     private var allMeta: List<ResultEpisode>? = null
@@ -201,10 +203,10 @@ class GeneratorPlayer : FullScreenPlayer() {
     }
 
     private fun setSubtitles(subtitle: SubtitleData?, userInitiated: Boolean): Boolean {
-        // If subtitle is changed and user initiated -> Save the language
+        // If subtitle is changed and user initiated -> Save the language and variant
         if (subtitle != currentSelectedSubtitles && userInitiated) {
             val subtitleLanguageTagIETF = if (subtitle == null) {
-                "" // -> No Subtitles
+                "" // -> No Subtitles
             } else {
                 subtitle.getIETF_tag()
             }
@@ -213,11 +215,14 @@ class GeneratorPlayer : FullScreenPlayer() {
                 Log.i(TAG, "Set SUBTITLE_AUTO_SELECT_KEY to '$subtitleLanguageTagIETF'")
                 setKey(SUBTITLE_AUTO_SELECT_KEY, subtitleLanguageTagIETF)
                 preferredAutoSelectSubtitles = subtitleLanguageTagIETF
+                // Also persist the variant (nameSuffix) so next episode picks the same one
+                val variant = subtitle?.nameSuffix ?: ""
+                setKey(SUBTITLE_VARIANT_KEY, variant)
+                preferredSubtitleVariant = variant
             }
         }
 
         currentSelectedSubtitles = subtitle
-        //Log.i(TAG, "setSubtitles = $subtitle")
         return player.setPreferredSubtitles(subtitle)
     }
 
@@ -1817,13 +1822,21 @@ class GeneratorPlayer : FullScreenPlayer() {
         subtitles: Set<SubtitleData>, settings: Boolean, downloads: Boolean
     ): SubtitleData? {
         val langCode = preferredAutoSelectSubtitles ?: return null
+        val variant = preferredSubtitleVariant
+
         if (downloads) {
-            return sortSubs(subtitles).firstOrNull { it.origin == SubtitleOrigin.DOWNLOADED_FILE && it.matchesLanguageCode(langCode) }
+            val downloaded = sortSubs(subtitles).filter { it.origin == SubtitleOrigin.DOWNLOADED_FILE && it.matchesLanguageCode(langCode) }
+            // Try matching the saved variant first, then fall back to first match
+            return (if (!variant.isNullOrBlank()) downloaded.firstOrNull { it.nameSuffix == variant } else null)
+                ?: downloaded.firstOrNull()
         }
 
         if (!settings) return null
 
-        return sortSubs(subtitles).firstOrNull { it.matchesLanguageCode(langCode) }
+        val matching = sortSubs(subtitles).filter { it.matchesLanguageCode(langCode) }
+        // Try matching the saved variant first, then fall back to first match
+        return (if (!variant.isNullOrBlank()) matching.firstOrNull { it.nameSuffix == variant } else null)
+            ?: matching.firstOrNull()
     }
     
     private fun autoSelectFromSettings(): Boolean {
@@ -2274,6 +2287,7 @@ class GeneratorPlayer : FullScreenPlayer() {
         sync.updateUserData()
 
         preferredAutoSelectSubtitles = getAutoSelectLanguageTagIETF()
+        preferredSubtitleVariant = getKey<String>(SUBTITLE_VARIANT_KEY)
 
         if (currentSelectedLink == null) {
             viewModel.loadLinks()

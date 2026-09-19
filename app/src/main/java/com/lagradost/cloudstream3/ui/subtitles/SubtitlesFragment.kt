@@ -58,6 +58,7 @@ import java.io.File
 
 const val SUBTITLE_KEY = "subtitle_settings"
 const val SUBTITLE_AUTO_SELECT_KEY = "subs_auto_select"
+const val SUBTITLE_VARIANT_KEY = "subs_auto_variant"
 const val SUBTITLE_DOWNLOAD_KEY = "subs_auto_download"
 
 data class SaveCaptionStyle(
