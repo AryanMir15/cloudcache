@@ -11,7 +11,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Prerelease
-class Firestream : ExtractorApi() {
+open class Firestream : ExtractorApi() {
     override val name = "Firestream"
     override val mainUrl = "https://firestream.to"
     override val requiresReferer = false
@@ -22,7 +22,7 @@ class Firestream : ExtractorApi() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit,
     ) {
-        val id = url.removeSuffix("/").substringAfterLast("/")
+        val id = url.removeSuffix("/").substringAfterLast("/").substringBefore("?")
         val url = getExtractorUrl(id)
 
         val doc = app.get(url).document
@@ -47,4 +47,9 @@ class Firestream : ExtractorApi() {
     private data class VideoResponse(
         @JsonProperty("signedVideoUrl") @SerialName("signedVideoUrl") val signedVideoUrl: String,
     )
+}
+
+@Prerelease
+class FirestreamSite : Firestream() {
+    override val mainUrl = "https://firestream.site"
 }
