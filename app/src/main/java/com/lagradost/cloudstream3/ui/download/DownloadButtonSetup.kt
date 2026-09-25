@@ -26,6 +26,7 @@ import com.lagradost.cloudstream3.utils.SnackbarHelper.showSnackbar
 import com.lagradost.cloudstream3.utils.UIHelper.navigate
 import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
 import com.lagradost.cloudstream3.utils.downloader.DownloadQueueManager
+import com.lagradost.cloudstream3.utils.downloader.MediaFileSniffer
 import com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager
 import kotlinx.coroutines.MainScope
 
@@ -144,6 +145,23 @@ object DownloadButtonSetup {
                     }
                     if (!isComplete) {
                         showSnackbar(act, R.string.download_not_ready_toast, Snackbar.LENGTH_LONG)
+                        return
+                    }
+
+                    // Content check: a full-size file can still start with garbage
+                    // (error-page bytes written at chunk 0 — the downloader uses
+                    // verify=false), and ExoPlayer then fails with
+                    // ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED (3003) behind a
+                    // confusing "No Links Found" toast. Sniff the first bytes and
+                    // block obviously non-media files here.
+                    val playFileInfo = VideoDownloadManager.getDownloadFileInfo(act, id)
+                    val head = MediaFileSniffer.readHead(act, playFileInfo?.path)
+                    if (!MediaFileSniffer.looksLikeMedia(head)) {
+                        android.util.Log.w(
+                            "DownloadButtonSetup",
+                            "PLAY_FILE blocked id=$id — first bytes: ${MediaFileSniffer.headToHex(head)}"
+                        )
+                        showSnackbar(act, R.string.download_corrupt_file_toast, Snackbar.LENGTH_LONG)
                         return
                     }
 

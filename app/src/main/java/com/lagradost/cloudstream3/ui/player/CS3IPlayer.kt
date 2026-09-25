@@ -164,6 +164,10 @@ class CS3IPlayer : IPlayer {
 
     private var currentLink: ExtractorLink? = null
     private var currentDownloadedFile: ExtractorUri? = null
+
+    /** true while playing a downloaded (offline) file — used for error messages */
+    val isOfflinePlayback: Boolean get() = currentDownloadedFile != null
+
     private var hasUsedFirstRender = false
 
     private var currentWindow: Int = 0
@@ -315,6 +319,9 @@ class CS3IPlayer : IPlayer {
         releasePlayer()
 
         if (link != null) {
+            // playing an online link — the previously loaded downloaded file (if any)
+            // no longer applies (also keeps isOfflinePlayback accurate for error toasts)
+            currentDownloadedFile = null
             // only video support atm
             (imageGenerator as? PreviewGenerator)?.let { gen ->
                 if (preview) {

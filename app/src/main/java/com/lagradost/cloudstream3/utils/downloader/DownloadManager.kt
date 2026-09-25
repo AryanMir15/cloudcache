@@ -905,11 +905,18 @@ object VideoDownloadManager {
                 headers = headers + mapOf(
                     // range header is inclusive so [startByte, endByte-1] = [startByte, endByte)
                     // if nothing at end the server will continue until eof
-                    "Range" to "bytes=$startByte-" // ${endByte?.minus(1)?.toString() ?: "" }
+                    "Range" to "bytes=$startByte-" // ${endByte?.minus(1)?.toString() ?: ""}
                 ),
                 referer = referer,
                 verify = false
             )
+            // verify=false makes NiceHttp return error responses (403/429/…) normally.
+            // Writing such an error page into a chunk corrupts the video while every
+            // size check still passes — the file later fails in the player with
+            // ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED (3003). Fail the chunk instead.
+            if (request.code !in 200..299) {
+                throw IOException("HTTP ${request.code} while downloading chunk at byte $startByte")
+            }
             val requestStream = request.body.byteStream()
 
             val buffer = ByteArray(bufferSize)
@@ -1093,7 +1100,10 @@ object VideoDownloadManager {
         parallelConnections: Int = 3,
         /** how many bytes a valid file must be in bytes,
          * this should be different for subtitles and video */
-        minimumSize: Long = 100
+        minimumSize: Long = 100,
+        /** sniff the first bytes before marking IsDone so an error page saved
+         * as .mp4 can never be reported as a completed video */
+        validateContent: Boolean = false
     ): DownloadStatus = withContext(Dispatchers.IO) {
         if (parallelConnections < 1) {
             return@withContext DOWNLOAD_INVALID_INPUT
@@ -1322,6 +1332,20 @@ object VideoDownloadManager {
                 metadata.onDelete()
                 stream.delete()
                 return@withContext DOWNLOAD_INVALID_INPUT
+            }
+
+            // Content validation: a full-size file can still start with garbage
+            // (error-page bytes at chunk 0). ExoPlayer cannot sniff it and fails
+            // with ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED (3003).
+            if (validateContent) {
+                fileStream.closeQuietly()
+                val head = MediaFileSniffer.readHead(stream.file)
+                if (!MediaFileSniffer.looksLikeMedia(head)) {
+                    Log.e(TAG, "downloadThing: rejecting non-media file, first bytes: ${MediaFileSniffer.headToHex(head)}")
+                    metadata.onDelete()
+                    stream.delete()
+                    return@withContext DOWNLOAD_INVALID_INPUT
+                }
             }
 
             metadata.type = DownloadType.IsDone
@@ -1624,6 +1648,18 @@ object VideoDownloadManager {
                 return@withContext DOWNLOAD_STOPPED
             }
 
+            // HLS output is concatenated MPEG-TS/fMP4 (saved as .mp4) — reject
+            // anything that doesn't look like media (e.g. an error page fetched
+            // for segment 0) instead of marking it IsDone.
+            fileStream.closeQuietly()
+            val head = MediaFileSniffer.readHead(stream.file)
+            if (!MediaFileSniffer.looksLikeMedia(head)) {
+                Log.e(TAG, "downloadHLS: rejecting non-media output, first bytes: ${MediaFileSniffer.headToHex(head)}")
+                metadata.onDelete()
+                stream.delete()
+                return@withContext DOWNLOAD_INVALID_INPUT
+            }
+
             metadata.type = DownloadType.IsDone
             return@withContext DOWNLOAD_SUCCESS
         } catch (t: Throwable) {
@@ -1715,7 +1751,8 @@ object VideoDownloadManager {
                         callback,
                         parallelConnections = maxConcurrentConnections(context),
                         /** We require at least 10 MB video files */
-                        minimumSize = (1 shl 20) * 10
+                        minimumSize = (1 shl 20) * 10,
+                        validateContent = true
                     )
                 }
 

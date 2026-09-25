@@ -276,6 +276,9 @@ abstract class AbstractPlayerFragment(
     }
 
     open fun playerError(exception: Throwable) {
+        // Offline playback has exactly one "mirror" — a corrupt/incomplete
+        // downloaded file must not be reported as "No Links Found".
+        val offlinePlayback = (player as? CS3IPlayer)?.isOfflinePlayback == true
         fun showToast(message: String, gotoNext: Boolean = false) {
             if (gotoNext && hasNextMirror()) {
                 showToast(
@@ -284,8 +287,12 @@ abstract class AbstractPlayerFragment(
                 )
                 nextMirror()
             } else {
+                val prefix = if (offlinePlayback)
+                    context?.getString(R.string.offline_play_error)
+                else
+                    context?.getString(R.string.no_links_found_toast)
                 showToast(
-                    context?.getString(R.string.no_links_found_toast) + "\n" + message,
+                    prefix + "\n" + message,
                     Toast.LENGTH_LONG
                 )
                 activity?.popCurrentPage()

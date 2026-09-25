@@ -109,6 +109,8 @@
     <string name="popup_resume_download">Resume Download</string>
     <string name="popup_pause_download">Pause Download</string>
     <string name="download_not_ready_toast">Download hasn\'t finished yet — wait for it to complete before playing</string>
+    <string name="download_corrupt_file_toast">Downloaded file looks corrupt or isn\'t a video file — delete it and download again</string>
+    <string name="offline_play_error">Can\'t play this downloaded file — it may be corrupt or incomplete, delete and download again</string>
     <string name="home_more_info">More info</string>
     <string name="home_expanded_hide">Hide</string>
     <string name="home_play">Play</string>
