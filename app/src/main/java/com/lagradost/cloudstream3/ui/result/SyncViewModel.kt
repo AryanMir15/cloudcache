@@ -171,8 +171,11 @@ class SyncViewModel : ViewModel() {
     }
 
     // [SIMKL_DEFINITIVE_FIX][PHASE3] Thread-safe addSyncs with Mutex
-    suspend fun addSyncs(map: Map<String, String>?): Boolean {
-        Log.i(TAG, "addSyncs called with: $map")
+    // overwrite=false keeps an existing entry when the incoming id differs — used for
+    // guessed data (getTracker title search / API response syncData) so a manually
+    // swapped entry on one provider can't be clobbered by another provider's guess
+    suspend fun addSyncs(map: Map<String, String>?, overwrite: Boolean = true): Boolean {
+        Log.i(TAG, "addSyncs called with: $map (overwrite=$overwrite)")
 
         return syncsMutex.withLock {
             Log.i(TAG, "addSyncs current syncs map: $syncs")
@@ -180,6 +183,10 @@ class SyncViewModel : ViewModel() {
 
             map?.forEach { (prefix, id) ->
                 if (syncs[prefix] != id) {
+                    if (!overwrite && syncs.containsKey(prefix)) {
+                        Log.i(TAG, "addSyncs - keeping existing $prefix = ${syncs[prefix]} (incoming $id, overwrite=false)")
+                        return@forEach
+                    }
                     Log.i(TAG, "addSyncs - adding $prefix = $id")
                     syncs[prefix] = id
                     isValid = true
@@ -197,12 +204,16 @@ class SyncViewModel : ViewModel() {
 
     
     // Non-blocking version for Java interop and legacy code
-    fun addSyncsBlocking(map: Map<String, String>?): Boolean {
-        Log.i(TAG, "addSyncsBlocking called with: $map")
+    fun addSyncsBlocking(map: Map<String, String>?, overwrite: Boolean = true): Boolean {
+        Log.i(TAG, "addSyncsBlocking called with: $map (overwrite=$overwrite)")
         Log.i(TAG, "addSyncsBlocking current syncs map: $syncs")
         var isValid = false
 
         map?.forEach { (prefix, id) ->
+            if (!overwrite && syncs.containsKey(prefix) && syncs[prefix] != id) {
+                Log.i(TAG, "addSyncsBlocking - keeping existing $prefix = ${syncs[prefix]} (incoming $id, overwrite=false)")
+                return@forEach
+            }
             val added = addSyncBlocking(prefix, id)
             Log.i(TAG, "addSyncsBlocking - addSync($prefix, $id) returned: $added")
             isValid = added || isValid

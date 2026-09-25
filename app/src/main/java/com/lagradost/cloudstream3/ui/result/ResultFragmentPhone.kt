@@ -1777,7 +1777,8 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                             }
 
                             if (syncMap.isNotEmpty()) {
-                                syncModel.addSyncs(syncMap)
+                                // Guessed ids from title search — never overwrite existing entries
+                                syncModel.addSyncs(syncMap, overwrite = false)
                                 syncModel.updateMetaAndUser()
                                 syncModel.updateSynced()
                             }
@@ -2565,8 +2566,9 @@ open class ResultFragmentPhone : FullScreenPlayer() {
 
                         // FIX: Always process sync data from API response, even if some IDs already exist
                         // This ensures we get all sync providers (simkl, kitsu) from the response
+                        // fill-only: guessed ids must not clobber user-set entries
                         // [SIMKL_DEFINITIVE_FIX] Use blocking version since we're in an observer callback
-                        val hadNewSyncData = syncModel.addSyncsBlocking(d.syncData)
+                        val hadNewSyncData = syncModel.addSyncsBlocking(d.syncData, overwrite = false)
                         if (hadNewSyncData) {
                             android.util.Log.d("[MINI_SYNC_FIX]", "Processing API sync data - new: $hadNewSyncData, total: ${d.syncData}")
                             
@@ -2593,10 +2595,13 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                         )
                                         // Match by URL (handle both direct URL and session URL)
                                         if (header?.url == d.url) {
+                                            // Merge: existing cached (user-set) ids win over response guesses
+                                            val mergedHeaderSync =
+                                                d.syncData + (header.syncData ?: emptyMap())
                                             com.lagradost.cloudstream3.CloudStreamApp.setKey(
                                                 com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
                                                 key,
-                                                header.copy(syncData = d.syncData)
+                                                header.copy(syncData = mergedHeaderSync)
                                             )
                                             updatedCount++
                                             android.util.Log.d("[MINI_SYNC_FIX]", "OFFLINE_CACHE_DEBUG: Updated cache entry with key=$key")
@@ -2612,10 +2617,12 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                             d.url
                                         )
                                         if (directHeader != null) {
+                                            val mergedDirectSync =
+                                                d.syncData + (directHeader.syncData ?: emptyMap())
                                             com.lagradost.cloudstream3.CloudStreamApp.setKey(
                                                 com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
                                                 d.url,
-                                                directHeader.copy(syncData = d.syncData)
+                                                directHeader.copy(syncData = mergedDirectSync)
                                             )
                                             android.util.Log.d("[MINI_SYNC_FIX]", "Updated offline cache with sync data using direct URL key")
                                         } else {
@@ -3193,7 +3200,12 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                     b.name == response.name && b.apiName == response.apiName
                                 }
                                 bookmark?.let { b ->
-                                    val updatedBookmark = b.copy(syncData = syncData)
+                                    // Bookmark entries win over response guesses, but the
+                                    // freshly selected entry is always applied last; keys
+                                    // only present in either map are kept (no full replace)
+                                    val mergedBookmarkSync =
+                                        syncData + (b.syncData ?: emptyMap()) + (providerPrefix to syncId)
+                                    val updatedBookmark = b.copy(syncData = mergedBookmarkSync)
                                     com.lagradost.cloudstream3.utils.DataStoreHelper.setBookmarkedData(
                                         b.id,
                                         updatedBookmark

@@ -137,9 +137,10 @@ class APIRepository(val api: MainAPI) {
             for (i in cache.indices) {
                 if (cache[i].response.url == fixedUrl) {
                     val existing = cache[i]
-                    // Merge new sync data with existing
-                    val mergedSyncData = existing.response.syncData.toMutableMap()
-                    mergedSyncData.putAll(syncData)
+                    // Merge new sync data with existing — existing (user-set) ids win,
+                    // response only contributes keys the cache doesn't have yet
+                    val mergedSyncData = syncData.toMutableMap()
+                    mergedSyncData.putAll(existing.response.syncData)
                     
                     // Update the response with merged sync data
                     existing.response.syncData = mergedSyncData

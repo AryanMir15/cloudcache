@@ -977,6 +977,10 @@ class ResultViewModel2 : ViewModel() {
             // re-add it again here if it was just removed.
             if (status != WatchType.NONE) {
                 val current = getBookmarkedData(currentId)
+                // Keep keys the existing bookmark has but the response lost (full-map
+                // replace would silently drop them); session response wins on conflict
+                val mergedSyncData =
+                    (current?.syncData ?: emptyMap()) + response.syncData
 
                 setBookmarkedData(
                     currentId,
@@ -990,7 +994,7 @@ class ResultViewModel2 : ViewModel() {
                         response.type,
                         response.posterUrl,
                         response.year,
-                        response.syncData,
+                        mergedSyncData,
                         plot = response.plot,
                         tags = response.tags,
                         score = response.score
@@ -1110,7 +1114,7 @@ class ResultViewModel2 : ViewModel() {
                         response.type,
                         response.posterUrl,
                         response.year,
-                        response.syncData,
+                        (current?.syncData ?: emptyMap()) + response.syncData,
                         posterHeaders = response.posterHeaders,
                         plot = response.plot,
                         score = response.score,
@@ -1208,7 +1212,7 @@ class ResultViewModel2 : ViewModel() {
                         response.type,
                         response.posterUrl,
                         response.year,
-                        response.syncData,
+                        (current?.syncData ?: emptyMap()) + response.syncData,
                         plot = response.plot,
                         score = response.score,
                         tags = response.tags
@@ -3205,7 +3209,7 @@ class ResultViewModel2 : ViewModel() {
                                 hasCustomPoster = existingCachedHeader.hasCustomPoster,
                                 hasSwappedMetadata = existingCachedHeader.hasSwappedMetadata,
                                 swappedFields = existingCachedHeader.swappedFields,
-                                syncData = response.syncData,
+                                syncData = (existingCachedHeader.syncData ?: emptyMap()) + response.syncData,
                                 recommendations = existingCachedHeader.recommendations
                             ) ?: DownloadObjects.DownloadHeaderCached(
                                 apiName = response.apiName,
