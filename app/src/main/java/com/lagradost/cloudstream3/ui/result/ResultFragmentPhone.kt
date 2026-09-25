@@ -119,6 +119,8 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     companion object {
         // Tag key for tracking panel listener registration on the view
         private const val PANEL_LISTENER_TAG_KEY = "panel_listener_registered"
+        // Last user-selected sync provider (survives restarts; panel no longer resets to MAL)
+        private const val SYNC_SELECTED_PROVIDER_KEY = "result_sync_selected_provider"
     }
 
     // FIX: Track registration state to prevent infinite loops
@@ -198,6 +200,12 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     // Remembers which provider the last "change entry" search ran on,
     // so the result applies to that same provider instead of always AniList
     private var lastTrackerSearchProvider: String? = null
+
+    // Idx of a programmatic spinner selection (panel-open fallback); its
+    // onItemSelected must not overwrite the persisted user preference
+    private var programmaticSpinnerIndex = -1
+    // providerPrefixes backing the provider spinner, kept for programmatic re-selection
+    private var syncProviderPrefixes: List<String> = emptyList()
 
     override var layout = R.layout.fragment_result_swipe
 
@@ -2775,6 +2783,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     val providersWithAccounts = list.filter { it.hasAccount }
                     val providerNames = providersWithAccounts.map { it.name }
                     val providerPrefixes = providersWithAccounts.map { it.idPrefix }
+                    syncProviderPrefixes = providerPrefixes
                     
                     if (providerNames.isNotEmpty()) {
                         // Check if spinner already has this data to avoid re-populating
@@ -2790,6 +2799,13 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                     val selectedPrefix = providerPrefixes[position]
                                     android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Setting selectedProvider to: $selectedPrefix")
                                     syncModel.setSelectedProvider(selectedPrefix)
+                                    // Persist user selection — skip for programmatic (fallback) selections
+                                    if (position != programmaticSpinnerIndex) {
+                                        androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
+                                            .edit()
+                                            .putString(SYNC_SELECTED_PROVIDER_KEY, selectedPrefix)
+                                            .apply()
+                                    }
                                 }
                                 
                                 override fun onNothingSelected(parent: AdapterView<*>?) {
@@ -2803,6 +2819,15 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                             )
                             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
                             spinner.adapter = adapter
+
+                            // Restore last used provider instead of always landing on MAL
+                            val savedProvider = androidx.preference.PreferenceManager
+                                .getDefaultSharedPreferences(requireContext())
+                                .getString(SYNC_SELECTED_PROVIDER_KEY, null)
+                            val savedIndex = savedProvider?.let { providerPrefixes.indexOf(it) } ?: -1
+                            if (savedIndex > 0 && spinner.selectedItemPosition != savedIndex) {
+                                spinner.setSelection(savedIndex)
+                            }
                         }
                     }
                 }
@@ -3422,6 +3447,19 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 syncBinding?.resultSyncNames?.text = bookmarkName ?: "Sync"
                 // Hide public score until metadata loads
                 syncBinding?.resultSyncPublicScore?.isVisible = false
+
+                // Keep the spinner in sync with programmatic selection changes
+                // (e.g. per-show fallback) without persisting them as user preference
+                provider?.let {
+                    val idx = syncProviderPrefixes.indexOf(it)
+                    syncBinding?.resultSyncProviderSelector?.let { spinner ->
+                        if (idx >= 0 && idx != spinner.selectedItemPosition) {
+                            programmaticSpinnerIndex = idx
+                            spinner.setSelection(idx)
+                            spinner.post { programmaticSpinnerIndex = -1 }
+                        }
+                    }
+                }
 
                 updateSyncPanelForProvider(provider)
             }
