@@ -1722,6 +1722,25 @@ class GeneratorPlayer : FullScreenPlayer() {
 
     var maxEpisodeSet: Int? = null
     var hasRequestedStamps: Boolean = false
+
+    /**
+     * Marks an episode as watched once playback reaches the same threshold used
+     * for tracker progress (UPDATE_SYNC_PROGRESS_PERCENTAGE), so the result-list
+     * checkmark and the AniList/MAL episode count flip together. Previously
+     * playback never set VideoWatchState.Watched at all — only the manual
+     * long-press action did — so episodes watched to <95% showed no checkmark.
+     */
+    private fun autoMarkWatched(id: Int?, percentage: Long, isEpisodeBased: Boolean) {
+        if (!isEpisodeBased || id == null) return
+        if (percentage < UPDATE_SYNC_PROGRESS_PERCENTAGE) return
+        if (getVideoWatchState(id) == VideoWatchState.Watched) return
+        DataStoreHelper.setVideoWatchState(id, VideoWatchState.Watched)
+        android.util.Log.d(
+            "WatchStateDebug",
+            "auto-marked id=$id watched at $percentage%"
+        )
+    }
+
     override fun playerPositionChanged(position: Long, duration: Long) {
         // Don't save livestream data
         if ((currentMeta as? ResultEpisode)?.tvType?.isLiveStream() == true) return
@@ -1783,6 +1802,8 @@ class GeneratorPlayer : FullScreenPlayer() {
                     }
                 }
 
+                autoMarkWatched(meta.id, percentage, meta.tvType.isEpisodeBased())
+
                 if (meta.tvType.isEpisodeBased()) {
                     isOpVisible = percentage < SKIP_OP_VIDEO_PERCENTAGE
                     android.util.Log.d("LocalLibraryTest", "Skip intro: tvType=${meta.tvType}, percentage=$percentage, isOpVisible=$isOpVisible")
@@ -1795,6 +1816,12 @@ class GeneratorPlayer : FullScreenPlayer() {
                     isOpVisible = percentage < SKIP_OP_VIDEO_PERCENTAGE
                     android.util.Log.d("LocalLibraryTest", "Skip intro (local): tvType=${meta.tvType}, percentage=$percentage, isOpVisible=$isOpVisible")
                 }
+
+                autoMarkWatched(
+                    meta.id,
+                    percentage,
+                    meta.tvType?.isEpisodeBased() == true || meta.episode != null
+                )
             }
         }
 
