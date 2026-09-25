@@ -1111,6 +1111,7 @@ class ResultViewModel2 : ViewModel() {
                         response.posterUrl,
                         response.year,
                         response.syncData,
+                        posterHeaders = response.posterHeaders,
                         plot = response.plot,
                         score = response.score,
                         tags = response.tags

@@ -3,9 +3,10 @@ package com.lagradost.cloudstream3.utils.downloader
 import android.content.Context
 import android.graphics.Bitmap
 import androidx.core.graphics.drawable.toBitmap
-import coil3.Extras
 import coil3.SingletonImageLoader
 import coil3.asDrawable
+import coil3.network.NetworkHeaders
+import coil3.network.httpHeaders
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import com.lagradost.cloudstream3.R
@@ -38,9 +39,16 @@ object DownloadUtils {
         val request = ImageRequest.Builder(this)
             .data(url)
             .apply {
-                headers?.forEach { (key, value) ->
-                    extras[Extras.Key<String>(key)] = value
-                }
+                // extras[] never sent these as HTTP headers; use Coil's httpHeaders
+                // so referer/UA protected poster hosts actually resolve
+                httpHeaders(
+                    coil3.network.NetworkHeaders.Builder().also { headerBuilder ->
+                        headerBuilder["User-Agent"] = com.lagradost.cloudstream3.USER_AGENT
+                        headers?.forEach { (key, value) ->
+                            headerBuilder[key] = value
+                        }
+                    }.build()
+                )
             }
             .build()
 

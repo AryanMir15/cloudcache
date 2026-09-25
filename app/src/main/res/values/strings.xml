@@ -687,7 +687,7 @@
     <string name="subscription_list_name">Subscribed</string>
     <string name="subscription_new">Subscribed to %s</string>
     <string name="subscription_deleted">Unsubscribed from %s</string>
-    <string name="subscription_episode_released">Episode %d released!</string>
+    <string name="subscription_episode_released">Episode %1$d of %2$s released!</string>
     <string name="subscription_episode_released_dubbed">Episode %1$d of %2$s (%3$s) has been released!</string>
     <string name="action_subscribe">Subscribe</string>
     <string name="action_unsubscribe">Unsubscribe</string>

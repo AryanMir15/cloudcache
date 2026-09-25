@@ -111,7 +111,10 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             .setSmallIcon(com.google.android.gms.cast.framework.R.drawable.quantum_ic_refresh_white_24)
             .setProgress(0, 0, true)
 
-    private val updateNotificationBuilder =
+    // Fresh builder per notification: the previous shared builder was mutated by
+    // concurrent showNotification/showAutoDownloadNotification/showCompletionNotification
+    // calls (amap loop), so built notifications lost title/largeIcon/smallIcon
+    private fun baseNotificationBuilder() =
         NotificationCompat.Builder(context, EPISODE_CHECK_CHANNEL_ID)
             .setColorized(true)
             .setOnlyAlertOnce(true)
@@ -515,10 +518,19 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             }
 
             val updateNotification =
-                updateNotificationBuilder.setContentTitle(updateHeader)
+                baseNotificationBuilder().setContentTitle(updateHeader)
                     .setContentText(updateDescription)
                     .setContentIntent(pendingIntent)
                     .setLargeIcon(poster)
+                    .apply {
+                        if (poster != null) {
+                            setStyle(
+                                NotificationCompat.BigPictureStyle()
+                                    .bigPicture(poster)
+                                    .bigLargeIcon(null as android.graphics.Bitmap?)
+                            )
+                        }
+                    }
                     .build()
 
             // Use subscription ID as notification ID (unique per show)
@@ -552,7 +564,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
                 PendingIntentCompat.getActivity(context, 0, intent, 0, false)
 
             val notification =
-                updateNotificationBuilder.setContentTitle(title)
+                baseNotificationBuilder().setContentTitle(title)
                     .setContentText(description)
                     .setContentIntent(pendingIntent)
                     .setSmallIcon(R.drawable.netflix_download) // Use download icon
@@ -598,7 +610,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
                 PendingIntentCompat.getActivity(context, 0, intent, 0, false)
 
             val notification =
-                updateNotificationBuilder.setContentTitle(title)
+                baseNotificationBuilder().setContentTitle(title)
                     .setContentText(description)
                     .setContentIntent(pendingIntent)
                     .setSmallIcon(R.drawable.ic_refresh)
