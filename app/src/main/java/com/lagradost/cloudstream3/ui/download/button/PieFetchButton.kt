@@ -196,11 +196,22 @@ open class PieFetchButton(context: Context, attributeSet: AttributeSet) :
                 }
             } else {
                 val list = arrayListOf(
-                    Pair(DOWNLOAD_ACTION_PLAY_FILE, R.string.popup_play_file),
                     Pair(DOWNLOAD_ACTION_DELETE_FILE, R.string.popup_delete_file),
                 )
 
                 currentMetaData.apply {
+                    // Only offer playback for completed downloads — ExoPlayer can't
+                    // parse a partially written file (same isDone heuristic as
+                    // updateViewOnDownload), an incomplete file just errors out
+                    val isComplete = status == VideoDownloadManager.DownloadType.IsDone ||
+                            (totalLength > 0 && downloadedLength > 1024 && downloadedLength + 1024 >= totalLength)
+                    if (isComplete) {
+                        list.add(
+                            0,
+                            Pair(DOWNLOAD_ACTION_PLAY_FILE, R.string.popup_play_file)
+                        )
+                    }
+
                     // DON'T RESUME A DOWNLOADED FILE lastState != VideoDownloadManager.DownloadType.IsDone &&
                     if (progressPercentage < 98) {
                         list.add(

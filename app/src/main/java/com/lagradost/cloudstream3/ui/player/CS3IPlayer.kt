@@ -1716,7 +1716,11 @@ class CS3IPlayer : IPlayer {
         try {
             currentDownloadedFile = data
 
-            val mediaItem = getMediaItem(MimeTypes.VIDEO_MP4, data.uri)
+            // Downloads can be mkv/webm/mov/… — a hardcoded MP4 mime makes ExoPlayer
+            // only try the MP4 extractor, which fails to parse other containers
+            val mimeType = inferOfflineMimeType(data)
+            Log.i(TAG, "loadOfflinePlayer mime=$mimeType uri=${data.uri}")
+            val mediaItem = getMediaItem(mimeType, data.uri)
             val offlineSourceFactory = context.createOfflineSource()
 
             val (subSources, activeSubtitles) = getSubSources(
@@ -1731,6 +1735,17 @@ class CS3IPlayer : IPlayer {
             Log.e(TAG, "loadOfflinePlayer error", t)
             event(ErrorEvent(t))
         }
+    }
+
+    private fun inferOfflineMimeType(data: ExtractorUri): String {
+        val name = data.displayName ?: data.uri.lastPathSegment
+        val ext = name?.substringAfterLast('.', "")?.lowercase()
+        if (!ext.isNullOrBlank()) {
+            val mime = android.webkit.MimeTypeMap.getSingleton()
+                .getMimeTypeFromExtension(ext)
+            if (mime != null && mime.startsWith("video/")) return mime
+        }
+        return MimeTypes.VIDEO_MP4
     }
 
     private fun getSubSources(

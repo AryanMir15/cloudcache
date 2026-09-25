@@ -123,6 +123,30 @@ object DownloadButtonSetup {
 
             DOWNLOAD_ACTION_PLAY_FILE -> {
                 activity?.let { act ->
+                    // Never hand a partially written file to ExoPlayer — it fails to
+                    // parse/decode it and the error surfaces as a confusing
+                    // "No Links Found" toast. Trust the persisted download status,
+                    // fall back to the file-size ratio when status isn't available.
+                    val dlStatus = VideoDownloadManager.downloadStatus[id]
+                    val isComplete = when (dlStatus) {
+                        VideoDownloadManager.DownloadType.IsDone -> true
+                        null -> {
+                            val info = VideoDownloadManager.getDownloadFileInfo(act, id)
+                            when {
+                                info == null -> false
+                                // Size unknown (SAF content URIs report -1) — let the player decide
+                                info.totalBytes <= 0 || info.fileLength < 0 -> true
+                                else -> (info.fileLength.toFloat() / info.totalBytes.toFloat()) > 0.98f
+                            }
+                        }
+                        // IsPending/IsDownloading/IsPaused/IsFailed/IsStopped
+                        else -> false
+                    }
+                    if (!isComplete) {
+                        showSnackbar(act, R.string.download_not_ready_toast, Snackbar.LENGTH_LONG)
+                        return
+                    }
+
                     val parent = getKey<DownloadObjects.DownloadHeaderCached>(
                         DOWNLOAD_HEADER_CACHE,
                         click.data.parentId.toString()
