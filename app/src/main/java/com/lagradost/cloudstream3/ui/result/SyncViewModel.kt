@@ -559,6 +559,9 @@ class SyncViewModel : ViewModel() {
 
     fun fetchProviderStatus(provider: String) = ioSafe {
         Log.i(TAG, "fetchProviderStatus for provider: $provider")
+        // Refetch metadata so title/totalEpisodes follow the selected provider's entry
+        // (metadata LiveData would otherwise stay pinned to the first successful load)
+        updateMetadata()
         val providerId = syncs[provider.lowercase()]
         if (providerId != null) {
             val repo = repos.firstOrNull { it.idPrefix == provider.lowercase() }
@@ -625,7 +628,13 @@ class SyncViewModel : ViewModel() {
     /// modifies the current sync data, return null if you don't want to change it
     private fun modifyData(update: ((SyncAPI.AbstractSyncStatus) -> (SyncAPI.AbstractSyncStatus?))) =
         ioSafe {
+            val selected = selectedProvider.value?.lowercase()
             syncsMutex.withLock { syncs.toMap() }.amap { (prefix, id) ->
+                // Only touch the selected provider's entry when one is selected
+                if (selected != null && prefix != selected) {
+                    Log.i(TAG, "modifyData - skipping $prefix (selected: $selected)")
+                    return@amap
+                }
                 repos.firstOrNull { it.idPrefix == prefix }?.let { repo ->
                     val result =
                         update(repo.status(id).getOrNull() ?: return@let null) ?: return@let null
@@ -769,12 +778,20 @@ class SyncViewModel : ViewModel() {
         var lastError: Resource<SyncAPI.SyncResult> = Resource.Failure(false, "No data")
         val current = ArrayList(syncs.toList())
 
-        // shitty way to sort anilist first, as it has trailers while mal does not
-        if (syncs.containsKey(aniListApi.idPrefix)) {
+        // Prefer the selected provider's entry: its title/totalEpisodes must drive the
+        // panel (fixes S3 metadata showing on the S1/MAL tab)
+        val selectedPrefix = selectedProvider.value?.lowercase()
+        val pinnedPrefix = when {
+            selectedPrefix != null && current.any { it.first == selectedPrefix } -> selectedPrefix
+            // shitty way to sort anilist first, as it has trailers while mal does not
+            syncs.containsKey(aniListApi.idPrefix) -> aniListApi.idPrefix
+            else -> null
+        }
+        if (pinnedPrefix != null) {
             try { // swap can throw error
                 Collections.swap(
                     current,
-                    current.indexOfFirst { it.first == aniListApi.idPrefix },
+                    current.indexOfFirst { it.first == pinnedPrefix },
                     0
                 )
             } catch (t: Throwable) {
