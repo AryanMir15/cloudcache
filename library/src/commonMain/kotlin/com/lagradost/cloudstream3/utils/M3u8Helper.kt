@@ -215,7 +215,11 @@ object M3u8Helper2 {
         returnThis: Boolean = true
     ): List<M3u8Helper.M3u8Stream> {
         val list = mutableListOf<M3u8Helper.M3u8Stream>()
-        val response = app.get(m3u8.streamUrl, headers = m3u8.headers, verify = false).text
+        val playlistHttpResponse = app.get(m3u8.streamUrl, headers = m3u8.headers, verify = false)
+        if (playlistHttpResponse.code !in 200..299) {
+            throw ErrorLoadingException("HTTP ${playlistHttpResponse.code} for playlist")
+        }
+        val response = playlistHttpResponse.text
         val normalizedResponse = normalizeHlsTagPrefixes(response)
         val parsed = HlsPlaylistParser.parse(m3u8.streamUrl, normalizedResponse)
 
@@ -318,6 +322,12 @@ object M3u8Helper2 {
             val ts = allTsLinks[index]
 
             val tsResponse = app.get(ts.url, headers = headers, verify = false)
+            // verify=false lets error responses through — a rate-limited (403/429)
+            // body would otherwise be written into the video as a "segment",
+            // corrupting the file while every size check still passes
+            if (tsResponse.code !in 200..299) {
+                throw ErrorLoadingException("HTTP ${tsResponse.code} for segment ${ts.url}")
+            }
             val body = tsResponse.body
             val tsData = body.bytes()
             body.close()
@@ -346,12 +356,16 @@ object M3u8Helper2 {
             throw IllegalArgumentException()
         }
 
-        val playlistResponse =
+        val playlistHttpResponse =
             app.get(
                 playlistStream.streamUrl,
                 headers = playlistStream.headers,
                 verify = false
-            ).text
+            )
+        if (playlistHttpResponse.code !in 200..299) {
+            throw ErrorLoadingException("HTTP ${playlistHttpResponse.code} for playlist")
+        }
+        val playlistResponse = playlistHttpResponse.text
 
         val normalizedPlaylistResponse = normalizeHlsTagPrefixes(playlistResponse)
         val parsed = HlsPlaylistParser.parse(playlistStream.streamUrl, normalizedPlaylistResponse)
@@ -415,6 +429,9 @@ object M3u8Helper2 {
             encryptionIv = match[3].encodeToByteArray()
             val encryptionKeyResponse =
                 app.get(encryptionUrl, headers = playlistStream.headers, verify = false)
+            if (encryptionKeyResponse.code !in 200..299) {
+                throw ErrorLoadingException("HTTP ${encryptionKeyResponse.code} for encryption key")
+            }
             val body = encryptionKeyResponse.body
             encryptionData = body.bytes()
             body.close()
