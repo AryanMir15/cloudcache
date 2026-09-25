@@ -81,6 +81,11 @@ class SyncViewModel : ViewModel() {
     private var lastRequestedSyncs: Map<String, String> = emptyMap()
     // Queued refresh request: set when updateUserData is called while a fetch is in flight
     private val pendingUserDataRefresh = AtomicBoolean(false)
+    // Buffered date edits: setDates called while user data was Loading stores values here
+    // and they are merged into the status once the in-flight fetch completes
+    private var pendingStartDate: Long? = null
+    private var pendingEndDate: Long? = null
+    private var hasPendingDates = false
 
     
     // StateFlow for reactive sync updates
@@ -371,7 +376,10 @@ class SyncViewModel : ViewModel() {
             }
             _userDataResponse.postValue(Resource.Success(updatedUser))
         } else {
-            Log.w(TAG, "setDates - skipped, user data not loaded (${user?.javaClass?.simpleName ?: "null"}), triggering refresh")
+            Log.i(TAG, "setDates - user data not loaded (${user?.javaClass?.simpleName ?: "null"}), buffering dates and triggering refresh")
+            pendingStartDate = startDate
+            pendingEndDate = endDate
+            hasPendingDates = true
             updateUserData()
         }
     }
@@ -627,6 +635,42 @@ class SyncViewModel : ViewModel() {
             }
         }
 
+    // Merge buffered date edits into a freshly fetched status; clears the buffer on use
+    private fun applyPendingDates(status: SyncAPI.AbstractSyncStatus?): SyncAPI.AbstractSyncStatus? {
+        if (!hasPendingDates || status == null) return status
+        val start = pendingStartDate
+        val end = pendingEndDate
+        pendingStartDate = null
+        pendingEndDate = null
+        hasPendingDates = false
+        return when (status) {
+            is com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus -> {
+                com.lagradost.cloudstream3.syncproviders.providers.SimklApi.SimklSyncStatus(
+                    status = status.status,
+                    score = status.score,
+                    oldScore = status.oldScore,
+                    watchedEpisodes = status.watchedEpisodes,
+                    episodeConstructor = status.episodeConstructor,
+                    isFavorite = status.isFavorite,
+                    maxEpisodes = status.maxEpisodes,
+                    startDate = start ?: status.startDate,
+                    endDate = end ?: status.endDate,
+                    oldEpisodes = status.oldEpisodes,
+                    oldStatus = status.oldStatus
+                )
+            }
+            else -> SyncAPI.SyncStatus(
+                status = status.status ?: SyncWatchType.NONE,
+                score = status.score,
+                watchedEpisodes = status.watchedEpisodes,
+                isFavorite = status.isFavorite,
+                maxEpisodes = status.maxEpisodes,
+                startDate = start ?: status.startDate,
+                endDate = end ?: status.endDate
+            )
+        }
+    }
+
     fun updateUserData() {
         Log.i(TAG, "updateUserData - syncs size: ${syncs.size}, syncs: $syncs")
         
@@ -700,7 +744,8 @@ class SyncViewModel : ViewModel() {
             if (anySuccess && status == null) {
                 _userDataResponse.postValue(Resource.Success(com.lagradost.cloudstream3.syncproviders.SyncAPI.EmptySyncStatus))
             } else if (status != null) {
-                _userDataResponse.postValue(Resource.Success(status))
+                val mergedStatus = applyPendingDates(status) ?: status
+                _userDataResponse.postValue(Resource.Success(mergedStatus))
             } else {
                 _userDataResponse.postValue(Resource.Failure(false, "No data"))
             }

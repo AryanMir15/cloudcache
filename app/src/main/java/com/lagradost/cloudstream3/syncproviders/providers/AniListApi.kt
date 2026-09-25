@@ -496,6 +496,8 @@ class AniListApi : SyncAPI() {
                         progress
                         status
                         score (format: POINT_100)
+                        startedAt { year month day }
+                        completedAt { year month day }
                     }
                     title {
                         english
@@ -517,6 +519,8 @@ class AniListApi : SyncAPI() {
                 episodes = main.episodes,
                 score = main.mediaListEntry.score,
                 type = fromIntToAnimeStatus(aniListStatusString.indexOf(main.mediaListEntry.status)),
+                startedAt = main.mediaListEntry.startedAt,
+                completedAt = main.mediaListEntry.completedAt,
             )
         } else {
             return AniListTitleHolder(
@@ -1118,6 +1122,8 @@ class AniListApi : SyncAPI() {
         @JsonProperty("progress") val progress: Int?,
         @JsonProperty("status") val status: String?,
         @JsonProperty("score") val score: Int?,
+        @JsonProperty("startedAt") val startedAt: StartedAt? = null,
+        @JsonProperty("completedAt") val completedAt: CompletedAt? = null,
     )
 
     data class Nodes(

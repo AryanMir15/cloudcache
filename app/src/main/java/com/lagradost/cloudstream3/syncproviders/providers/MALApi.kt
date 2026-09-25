@@ -280,7 +280,7 @@ class MALApi : SyncAPI() {
 
         // https://myanimelist.net/apiconfig/references/api/v2#operation/anime_anime_id_get
         val url =
-            "$apiUrl/v2/anime/$id?fields=id,title,num_episodes,my_list_status"
+            "$apiUrl/v2/anime/$id?fields=id,title,num_episodes,my_list_status{start_date,finish_date,status,score,num_episodes_watched}"
         val data = app.get(
             url, headers = mapOf(
                 "Authorization" to "Bearer $auth"
