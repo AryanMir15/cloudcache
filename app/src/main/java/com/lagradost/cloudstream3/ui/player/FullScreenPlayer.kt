@@ -1151,6 +1151,10 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
 
             playerLockHolder.isGone = isGone
             playerVideoBar.isGone = isGone
+            // the bar is only faded out with a fillAfter animation, so without this it
+            // stays invisible-but-touchable and swallows taps over the double-tap
+            // pause zone at the bottom edge of the screen
+            bottomPlayerBar.isGone = isGone
 
             playerPausePlay.isGone = isGone
             // player_buffering?.isGone = isGone
@@ -1229,6 +1233,33 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
         } else {
             onClickChange()
         }
+    }
+
+    private var zoneTapCount = 0
+    private var zoneLastTapTime = 0L
+
+    /**
+     * Records a tap for the center-zone double-tap-to-pause. The zone spans the
+     * full height of the screen (top edge to bottom edge), only bounded left/right
+     * like before, and works no matter which view consumed the touch (empty screen
+     * area, gaps in the bottom control bar, control bar rows).
+     *
+     * @return true when a double-tap was detected and pause was dispatched
+     */
+    private fun registerZoneTap(x: Float): Boolean {
+        if (!doubleTapPauseEnabled || !isFullScreenPlayer || isLocked) return false
+        val w = screenWidthWithOrientation
+        val zone = DOUBLE_TAB_PAUSE_PERCENTAGE * w
+        if (x < w / 2 - zone || x > w / 2 + zone) return false
+        val now = System.currentTimeMillis()
+        zoneTapCount =
+            if (now - zoneLastTapTime < DOUBLE_TAB_MINIMUM_TIME_BETWEEN) zoneTapCount + 1 else 0
+        zoneLastTapTime = now
+        if (zoneTapCount < 1) return false
+        zoneTapCount = 0
+        currentDoubleTapIndex++ // cancel a pending single-tap UI toggle
+        player.handleEvent(CSPlayerEvent.PlayPauseToggle, PlayerEventSource.UI)
+        return true
     }
 
     private var isCurrentTouchValid = false
@@ -1833,10 +1864,16 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                                         }
 
                                         else -> {
-                                            player.handleEvent(
-                                                CSPlayerEvent.PlayPauseToggle,
-                                                PlayerEventSource.UI
-                                            )
+                                            // registerZoneTap pairs taps across views
+                                            // (e.g. first tap on empty area, second on the
+                                            // control bar); it dispatches pause itself when
+                                            // the pair completes
+                                            if (!registerZoneTap(currentTouch.x)) {
+                                                player.handleEvent(
+                                                    CSPlayerEvent.PlayPauseToggle,
+                                                    PlayerEventSource.UI
+                                                )
+                                            }
                                         }
                                     }
                                 } else if (doubleTapEnabled && isFullScreenPlayer) {
@@ -1850,7 +1887,9 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                         } else {
                             // is a valid click but not fast enough for seek
                             currentClickCount = 0
-                            if (!hasTriggeredSpeedUp) {
+                            // record center-zone taps so a second tap landing on the
+                            // control bars still completes the double-tap
+                            if (!registerZoneTap(currentTouch.x) && !hasTriggeredSpeedUp) {
                                 toggleShowDelayed()
                             }
                             // onClickChange()
@@ -2569,7 +2608,13 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
                 }
             }
 
+            // a double-tap on the visible pause button would toggle twice (net nothing);
+            // swallow the second click so it acts as a single pause like the zone does
+            var lastPauseButtonClick = 0L
             playerPausePlay.setOnClickListener {
+                val now = System.currentTimeMillis()
+                if (now - lastPauseButtonClick < DOUBLE_TAB_MINIMUM_TIME_BETWEEN) return@setOnClickListener
+                lastPauseButtonClick = now
                 autoHide()
                 if (currentPlayerStatus == CSPlayerLoading.IsEnded && isLayout(PHONE)) {
                     player.handleEvent(CSPlayerEvent.Restart)
@@ -2665,6 +2710,19 @@ open class FullScreenPlayer : AbstractPlayerFragment() {
             playerHolder.setOnTouchListener { callView, event ->
                 return@setOnTouchListener handleMotionEvent(callView, event)
             }
+
+            // route taps that land on the bottom controls (gaps, row padding, text)
+            // into the center-zone double-tap detection so the pause zone reaches
+            // the very bottom edge of the screen while the UI is visible;
+            // these listeners only fire when no child (seekbar/buttons) consumed the tap
+            val zoneTouchListener = View.OnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_UP) {
+                    registerZoneTap(event.rawX)
+                }
+                false
+            }
+            bottomPlayerBar.setOnTouchListener(zoneTouchListener)
+            playerControlsScroll.setOnTouchListener(zoneTouchListener)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                 playerControlsScroll.setOnScrollChangeListener { _, _, _, _, _ ->
