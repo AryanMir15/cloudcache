@@ -127,39 +127,59 @@ object DownloadButtonSetup {
                     // Never hand a partially written file to ExoPlayer — it fails to
                     // parse/decode it and the error surfaces as a confusing
                     // "No Links Found" toast. Trust the persisted download status,
-                    // fall back to the file-size ratio when status isn't available.
+                    // fall back to an exact size check when status isn't available.
                     val dlStatus = VideoDownloadManager.downloadStatus[id]
+                    val playFileInfo = VideoDownloadManager.getDownloadFileInfo(act, id)
                     val isComplete = when (dlStatus) {
                         VideoDownloadManager.DownloadType.IsDone -> true
                         null -> {
-                            val info = VideoDownloadManager.getDownloadFileInfo(act, id)
                             when {
-                                info == null -> false
+                                playFileInfo == null -> false
                                 // Size unknown (SAF content URIs report -1) — let the player decide
-                                info.totalBytes <= 0 || info.fileLength < 0 -> true
-                                else -> (info.fileLength.toFloat() / info.totalBytes.toFloat()) > 0.98f
+                                playFileInfo.totalBytes <= 0 || playFileInfo.fileLength < 0 -> true
+                                // HLS totals are estimates persisted mid-download and can
+                                // legitimately drift from the file size — skip the check
+                                isHlsEstimate(id) -> true
+                                // the old >0.98 ratio waved truncated files through (ep10:
+                                // 14 bytes short still passed) — require an exact match
+                                playFileInfo.fileLength == playFileInfo.totalBytes -> true
+                                else -> false
                             }
                         }
                         // IsPending/IsDownloading/IsPaused/IsFailed/IsStopped
                         else -> false
                     }
                     if (!isComplete) {
+                        android.util.Log.w(
+                            "DownloadButtonSetup",
+                            "PLAY_FILE blocked id=$id — incomplete file " +
+                                    "${playFileInfo?.fileLength}/${playFileInfo?.totalBytes} status=$dlStatus"
+                        )
                         showSnackbar(act, R.string.download_not_ready_toast, Snackbar.LENGTH_LONG)
                         return
                     }
 
                     // Content check: a full-size file can still start with garbage
                     // (error-page bytes written at chunk 0 — the downloader uses
-                    // verify=false), and ExoPlayer then fails with
+                    // verify=false) or a box that ExoPlayer's MP4 sniffer rejects
+                    // (NoDeclaredBrand), and the player then fails with
                     // ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED (3003) behind a
-                    // confusing "No Links Found" toast. Sniff the first bytes and
-                    // block obviously non-media files here.
-                    val playFileInfo = VideoDownloadManager.getDownloadFileInfo(act, id)
+                    // confusing "No Links Found" toast. Run media3's own box walk
+                    // and always log the first bytes so blocked files are diagnosable.
                     val head = MediaFileSniffer.readHead(act, playFileInfo?.path)
-                    if (!MediaFileSniffer.looksLikeMedia(head)) {
+                    android.util.Log.d(
+                        "DownloadButtonSetup",
+                        "PLAY_FILE id=$id first bytes: ${MediaFileSniffer.headToHex(head)}"
+                    )
+                    if (!MediaFileSniffer.looksLikePlayableMedia(
+                            act,
+                            playFileInfo?.path,
+                            playFileInfo?.fileLength
+                        )
+                    ) {
                         android.util.Log.w(
                             "DownloadButtonSetup",
-                            "PLAY_FILE blocked id=$id — first bytes: ${MediaFileSniffer.headToHex(head)}"
+                            "PLAY_FILE blocked id=$id — not playable media, first bytes: ${MediaFileSniffer.headToHex(head)}"
                         )
                         showSnackbar(act, R.string.download_corrupt_file_toast, Snackbar.LENGTH_LONG)
                         return
@@ -377,6 +397,19 @@ object DownloadButtonSetup {
                     )
                 }
             }
+        }
+    }
+
+    /** HLS downloads persist the resume segment index (and an estimated total) in extraInfo. */
+    private fun isHlsEstimate(id: Int): Boolean {
+        return try {
+            getKey<DownloadObjects.DownloadedFileInfo>(
+                VideoDownloadManager.KEY_DOWNLOAD_INFO,
+                id.toString()
+            )?.extraInfo != null
+        } catch (t: Throwable) {
+            logError(t)
+            false
         }
     }
 }

@@ -865,6 +865,15 @@ object VideoDownloadManager {
     }
 
 
+    /**
+     * Thrown by [LazyStreamDownloadData.resolve] when the stream dies mid-chunk.
+     * Carries [consumed] — the exact offset reached — so resolveSafe can resume
+     * there instead of re-handing already-written bytes to the file (the write
+     * queue only flushes contiguous offsets, so a rewind would stall it).
+     */
+    private class ChunkReadException(val consumed: Long, cause: Throwable) :
+        IOException("Chunk read failed at $consumed: ${cause.message}", cause)
+
     data class LazyStreamDownloadData(
         private val url: String,
         private val headers: Map<String, String>,
@@ -917,10 +926,29 @@ object VideoDownloadManager {
             if (request.code !in 200..299) {
                 throw IOException("HTTP ${request.code} while downloading chunk at byte $startByte")
             }
+            // Range consistency: our chunk layout was planned around the total from
+            // the probe/HEAD, so a 206 must start exactly where we asked and describe
+            // the same object. A 200 for a request beyond byte 0 means the server
+            // ignored our Range header (or a CDN edge served a different object) —
+            // writing that body at startByte would splice bytes from the wrong offset
+            // into the file. Both cases abort the chunk so it is retried/failed
+            // instead of silently corrupting the file.
+            if (request.code == 206) {
+                val (rangeStart, _, rangeTotal) = parseContentRange(request.headers["Content-Range"])
+                if (rangeStart != null && rangeStart != startByte) {
+                    throw IOException("Content-Range starts at $rangeStart, requested $startByte (HTTP 206 for a different range)")
+                }
+                if (rangeTotal != null && totalLength != null && rangeTotal != totalLength) {
+                    throw IOException("Content-Range total $rangeTotal != expected $totalLength (file changed mid-download)")
+                }
+            } else if (startByte > 0) {
+                throw IOException("HTTP ${request.code} ignored Range for chunk at byte $startByte")
+            }
             val requestStream = request.body.byteStream()
 
             val buffer = ByteArray(bufferSize)
             var read: Int
+            var streamError: Throwable? = null
 
             try {
                 while (requestStream.read(buffer, 0, bufferSize).also { read = it } >= 0) {
@@ -938,12 +966,33 @@ object VideoDownloadManager {
             } catch (e: CancellationException) {
                 throw e
             } catch (t: Throwable) {
-                logError(t)
+                // Don't swallow: report the exact offset reached so resolveSafe
+                // resumes the chunk there (this used to be logged and discarded,
+                // which made the last chunk report success on a dead stream).
+                streamError = t
             } finally {
                 requestStream.closeQuietly()
             }
 
+            streamError?.let { throw ChunkReadException(currentByte, it) }
             return@withContext currentByte
+        }
+
+        /**
+         * Parses `Content-Range: bytes 100-999/1234` into
+         * (start, endInclusive, total), or null when absent/malformed.
+         * total is null when the server reports the total as unknown ('*').
+         */
+        private fun parseContentRange(value: String?): Triple<Long?, Long?, Long?> {
+            val v = value?.trim()?.lowercase() ?: return Triple(null, null, null)
+            if (!v.startsWith("bytes")) return Triple(null, null, null)
+            val spec = v.substring(5).trim()
+            val rangePart = spec.substringBefore('/').trim()
+            val totalPart = spec.substringAfter('/', "").trim()
+            val start = rangePart.substringBefore('-').trim().toLongOrNull()
+            val end = rangePart.substringAfter('-', "").trim().toLongOrNull()
+            if (start == null || end == null) return Triple(null, null, null)
+            return Triple(start, end, totalPart.toLongOrNull())
         }
 
         /** retries the resolve n times and returns true if successful */
@@ -956,19 +1005,41 @@ object VideoDownloadManager {
             val end = chuckStartByte.getOrNull(index + 1)
 
             for (i in 0 until retries) {
+                val attemptStart = start
                 try {
-                    // in case
                     start = resolve(start, end, callback)
-                    // no end defined, so we don't care exactly where it ended
-                    if (end == null) return true
-                    // we have download more or exactly what we needed
+                    if (end == null) {
+                        // last chunk: a clean EOF is only success when the server
+                        // actually delivered the advertised size. This used to
+                        // return true unconditionally, so a stream that died N
+                        // bytes early (ep10: 14 bytes short) was marked IsDone and
+                        // later failed ExoPlayer sniffing with 3003. Retry from
+                        // where the server stopped; when no progress is possible
+                        // anymore, fail (keep the file so a resume can finish it).
+                        val expected = totalLength
+                        if (expected == null || start >= expected) return true
+                        if (start <= attemptStart) return false // EOF without a new byte
+                        continue // short read made progress — fetch the rest
+                    }
                     if (start >= end) return true
-                } catch (_: IllegalStateException) {
-                    return false
+                    // clean EOF before the chunk end — resolve resumes from `start`
                 } catch (_: CancellationException) {
                     return false
-                } catch (_: Throwable) {
-                    continue
+                } catch (_: IllegalStateException) {
+                    return false
+                } catch (e: ChunkReadException) {
+                    // resume exactly where the stream died
+                    logError(e)
+                    start = e.consumed
+                    if (end != null) {
+                        if (start >= end) return true
+                    } else {
+                        val expected = totalLength
+                        if (expected == null || start >= expected) return true
+                    }
+                } catch (t: Throwable) {
+                    // HTTP status/Range mismatch, network setup failure, ...
+                    logError(t)
                 }
             }
             return false
@@ -1334,13 +1405,30 @@ object VideoDownloadManager {
                 return@withContext DOWNLOAD_INVALID_INPUT
             }
 
+            // Exact size (video): the last chunk used to report success even when
+            // the server ended the stream short of the advertised length, so a
+            // truncated file could be marked IsDone and later fail in the player
+            // with ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED (3003) — or worse,
+            // die mid-playback when the moov box sits at the end. Fail instead
+            // of completing; the file is kept so a resume fetches the missing tail.
+            val expectedBytes = items.totalLength
+            if (validateContent && expectedBytes != null && metadata.bytesWritten != expectedBytes) {
+                Log.e(
+                    TAG,
+                    "downloadThing: size mismatch wrote=${metadata.bytesWritten} expected=$expectedBytes — failing for resume"
+                )
+                fileStream.closeQuietly()
+                metadata.type = DownloadType.IsFailed
+                return@withContext metadata.failedStatus()
+            }
+
             // Content validation: a full-size file can still start with garbage
             // (error-page bytes at chunk 0). ExoPlayer cannot sniff it and fails
             // with ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED (3003).
             if (validateContent) {
                 fileStream.closeQuietly()
                 val head = MediaFileSniffer.readHead(stream.file)
-                if (!MediaFileSniffer.looksLikeMedia(head)) {
+                if (!MediaFileSniffer.looksLikePlayableMedia(stream.file)) {
                     Log.e(TAG, "downloadThing: rejecting non-media file, first bytes: ${MediaFileSniffer.headToHex(head)}")
                     metadata.onDelete()
                     stream.delete()
@@ -1648,12 +1736,25 @@ object VideoDownloadManager {
                 return@withContext DOWNLOAD_STOPPED
             }
 
+            // every counted segment byte must have reached the file exactly once:
+            // a mismatch means the output has holes (or doubled bytes) even though
+            // all jobs reported success — never mark that IsDone
+            if (metadata.bytesDownloaded != metadata.bytesWritten || pendingData.isNotEmpty()) {
+                Log.e(
+                    TAG,
+                    "downloadHLS: accounting mismatch downloaded=${metadata.bytesDownloaded} written=${metadata.bytesWritten} pending=${pendingData.size} — failing"
+                )
+                fileStream.closeQuietly()
+                metadata.type = DownloadType.IsFailed
+                return@withContext metadata.failedStatus()
+            }
+
             // HLS output is concatenated MPEG-TS/fMP4 (saved as .mp4) — reject
             // anything that doesn't look like media (e.g. an error page fetched
             // for segment 0) instead of marking it IsDone.
             fileStream.closeQuietly()
             val head = MediaFileSniffer.readHead(stream.file)
-            if (!MediaFileSniffer.looksLikeMedia(head)) {
+            if (!MediaFileSniffer.looksLikePlayableMedia(stream.file)) {
                 Log.e(TAG, "downloadHLS: rejecting non-media output, first bytes: ${MediaFileSniffer.headToHex(head)}")
                 metadata.onDelete()
                 stream.delete()
