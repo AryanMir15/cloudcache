@@ -1,14 +1,20 @@
 package com.lagradost.cloudstream3.ui.player
 
+import android.net.Uri
 import android.util.Log
 import com.lagradost.cloudstream3.APIHolder.getApiFromNameNull
 import com.lagradost.cloudstream3.APIHolder.unixTime
+import com.lagradost.cloudstream3.CloudStreamApp.Companion.getKey
 import com.lagradost.cloudstream3.LoadResponse
+import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.ui.APIRepository
 import com.lagradost.cloudstream3.ui.result.ResultEpisode
 import com.lagradost.cloudstream3.utils.AppContextUtils.html
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
+import com.lagradost.cloudstream3.utils.downloader.DownloadPlaybackGate
+import com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager
 import kotlin.math.max
 import kotlin.math.min
 
@@ -50,6 +56,15 @@ class RepoLinkGenerator(
         isCasting: Boolean,
     ): Boolean {
         val current = getCurrent(offset) ?: return false
+
+        // Play from cache: if this episode's file already passed the download
+        // gate, skip the provider/extractor crawl entirely — clicking next on a
+        // cached episode starts instantly from disk (and works fully offline).
+        // Casting is excluded: Chromecast cannot read local files.
+        if (!isCasting && tryEmitCachedEpisode(current, callback, subtitleCallback)) {
+            Log.i(TAG, "CACHE_PLAY id=${current.id} ep=${current.episode} served from local file")
+            return true
+        }
 
         val currentCache = synchronized(cache) {
             cache[current.apiName to current.id] ?: Cache(
@@ -157,5 +172,52 @@ class RepoLinkGenerator(
         }
 
         return result
+    }
+
+    /**
+     * Returns true when [episode] was fully emitted as a local file. Any doubt
+     * (no file, incomplete, corrupt, unreadable) returns false so playback
+     * falls back to the normal online path — the gate can never trap the
+     * player on a broken local file.
+     */
+    private fun tryEmitCachedEpisode(
+        episode: ResultEpisode,
+        callback: (Pair<ExtractorLink?, ExtractorUri?>) -> Unit,
+        subtitleCallback: (SubtitleData) -> Unit,
+    ): Boolean {
+        val ctx = com.lagradost.cloudstream3.CloudStreamApp.context ?: return false
+        return try {
+            if (DownloadPlaybackGate.check(
+                    ctx, episode.id, "CACHE_PLAY"
+                ) != DownloadPlaybackGate.PlayableState.Ready
+            ) {
+                false
+            } else {
+                val stored = getKey<DownloadObjects.DownloadedFileInfo>(
+                    VideoDownloadManager.KEY_DOWNLOAD_INFO,
+                    episode.id.toString()
+                ) ?: return false
+                OfflinePlayback.emitLocalEpisode(
+                    ExtractorUri(
+                        uri = Uri.EMPTY, // resolved inside emitLocalEpisode
+                        name = episode.name ?: "Episode ${episode.episode}",
+                        basePath = stored.basePath,
+                        relativePath = stored.relativePath,
+                        displayName = stored.displayName,
+                        id = episode.id,
+                        parentId = episode.parentId,
+                        episode = episode.episode,
+                        season = episode.season,
+                        headerName = episode.headerName,
+                        tvType = episode.tvType,
+                    ),
+                    callback,
+                    subtitleCallback,
+                )
+            }
+        } catch (t: Throwable) {
+            logError(t)
+            false
+        }
     }
 }

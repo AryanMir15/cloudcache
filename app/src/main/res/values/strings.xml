@@ -376,6 +376,9 @@
     <string name="auto_download_queued_dubbed">%1$s - Episode %2$d (%3$s) has been added to your download queue</string>
     <string name="auto_download_network_title">Auto-download network preference</string>
     <string name="auto_download_network_summary">Choose which network types to use for auto-download</string>
+    <string name="auto_download_next_category">Auto-Cache Next Episode</string>
+    <string name="auto_download_next_title">Auto-cache next episode while watching</string>
+    <string name="auto_download_next_summary">When the episode you are watching is fully cached, download the next one ahead of time so it plays instantly from local storage</string>
     <string name="spoiler_prevention_title">Spoiler Prevention Mode</string>
     <string name="spoiler_prevention_summary">Protect against spoilers by hiding episode thumbnails and details</string>
     <string name="spoiler_prevention_key">spoiler_prevention_key</string>

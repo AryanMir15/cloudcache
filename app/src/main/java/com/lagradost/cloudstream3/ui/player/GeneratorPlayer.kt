@@ -134,6 +134,7 @@ import com.lagradost.cloudstream3.ui.player.loadAllCachedEpisodes
 import com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE
 import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
 import com.lagradost.cloudstream3.utils.downloader.DownloadUtils.getImageBitmapFromUrl
+import com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager
 import com.lagradost.cloudstream3.utils.setText
 import com.lagradost.cloudstream3.utils.txt
 import com.lagradost.cloudstream3.utils.videoskip.VideoSkipStamp
@@ -174,6 +175,19 @@ class GeneratorPlayer : FullScreenPlayer() {
     private var showMediaInfo = false
 
     private lateinit var viewModel: PlayerGeneratorViewModel //by activityViewModels()
+
+    /**
+     * One-ahead caching trigger: when the episode currently playing finishes
+     * its download (IsDone is only set after size + media3 sniff verification),
+     * queue the next episode for download. Registered in onCreateView /
+     * removed in onDestroyView so a closed player can't trigger downloads.
+     */
+    private val downloadStatusListener: (Pair<Int, VideoDownloadManager.DownloadType>) -> Unit =
+        { (id, status) ->
+            if (status == VideoDownloadManager.DownloadType.IsDone && id == viewModel.getId()) {
+                viewModel.maybeAutoQueueNextEpisode()
+            }
+        }
     private lateinit var sync: SyncViewModel
     private var currentLinks: Set<Pair<ExtractorLink?, ExtractorUri?>> = setOf()
     private var currentSubs: Set<SubtitleData> = setOf()
@@ -1628,6 +1642,9 @@ class GeneratorPlayer : FullScreenPlayer() {
 
         loadLink(chosen ?: links.first(), false)
         showPlayerMetadata()
+        // Already-cached episode: queue the next one right away (gate inside
+        // confirms the watched episode is fully on disk before doing anything)
+        viewModel.maybeAutoQueueNextEpisode()
     }
 
     private fun showPlayerMetadata() {
@@ -1842,6 +1859,7 @@ class GeneratorPlayer : FullScreenPlayer() {
 
         if (percentage >= PRELOAD_NEXT_EPISODE_PERCENTAGE) {
             viewModel.preLoadNextLinks()
+            viewModel.maybeAutoQueueNextEpisode()
         }
     }
 
@@ -1995,7 +2013,8 @@ class GeneratorPlayer : FullScreenPlayer() {
 
         playerBinding?.playerEpisodeFillerHolder?.isVisible = isFiller ?: false
         playerBinding?.playerVideoTitle?.text = playerVideoTitle
-        playerBinding?.offlinePin?.isVisible = lastUsedGenerator is DownloadFileGenerator
+        playerBinding?.offlinePin?.isVisible =
+            lastUsedGenerator is DownloadFileGenerator || currentSelectedLink?.second != null
     }
 
     @SuppressLint("SetTextI18n")
@@ -2122,6 +2141,7 @@ class GeneratorPlayer : FullScreenPlayer() {
         sync = ViewModelProvider(this)[SyncViewModel::class.java]
 
         viewModel.attachGenerator(lastUsedGenerator)
+        VideoDownloadManager.downloadStatusEvent += downloadStatusListener
         unwrapBundle(savedInstanceState)
         unwrapBundle(arguments)
 
@@ -2131,6 +2151,7 @@ class GeneratorPlayer : FullScreenPlayer() {
     }
 
     override fun onDestroyView() {
+        VideoDownloadManager.downloadStatusEvent -= downloadStatusListener
         binding = null
         super.onDestroyView()
     }
