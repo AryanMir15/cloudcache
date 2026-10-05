@@ -24,6 +24,9 @@ import com.lagradost.cloudstream3.utils.LinkedSourceManager
 import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
 import com.lagradost.cloudstream3.utils.downloader.DownloadPlaybackGate
 import com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlin.math.max
 import kotlin.math.min
 
@@ -131,25 +134,27 @@ class RepoLinkGenerator(
         // Shared merge handlers — used for BOTH the primary provider and a
         // linked secondary source so URL dedup and unique-name rules apply
         // uniformly across everything that streams into this episode's cache.
+        // The two sources run CONCURRENTLY, so each closure's ENTIRE body is
+        // guarded by the shared cache lock (dedup sets + suffix counters too).
         val onSubtitle: (SubtitleFile) -> Unit = sub@ { file ->
             Log.d(TAG, "Loaded SubtitleFile: $file")
-            val correctFile = PlayerSubtitleHelper.getSubtitleData(file)
-            if (correctFile.url.isBlank() || currentSubsUrls.contains(correctFile.url)) {
-                return@sub
-            }
-            currentSubsUrls.add(correctFile.url)
-
-            // this part makes sure that all names are unique for UX
-
-            val nameDecoded = correctFile.originalName.html().toString().trim() // decoded html → plain name
-
-            val suffixCount = lastCountedSuffix.getOrDefault(nameDecoded, 0u) +1u
-            lastCountedSuffix[nameDecoded] = suffixCount
-
-            val updatedFile =
-                correctFile.copy(originalName = nameDecoded, nameSuffix = "$suffixCount")
-
             synchronized(currentCache) {
+                val correctFile = PlayerSubtitleHelper.getSubtitleData(file)
+                if (correctFile.url.isBlank() || currentSubsUrls.contains(correctFile.url)) {
+                    return@sub
+                }
+                currentSubsUrls.add(correctFile.url)
+
+                // this part makes sure that all names are unique for UX
+
+                val nameDecoded = correctFile.originalName.html().toString().trim() // decoded html → plain name
+
+                val suffixCount = lastCountedSuffix.getOrDefault(nameDecoded, 0u) +1u
+                lastCountedSuffix[nameDecoded] = suffixCount
+
+                val updatedFile =
+                    correctFile.copy(originalName = nameDecoded, nameSuffix = "$suffixCount")
+
                 if (currentCache.subtitleCache.add(updatedFile)) {
                     subtitleCallback(updatedFile)
                     currentCache.lastCachedTimestamp = unixTime
@@ -159,12 +164,12 @@ class RepoLinkGenerator(
 
         val onLink: (ExtractorLink) -> Unit = link@ { link ->
             Log.d(TAG, "Loaded ExtractorLink: $link")
-            if (link.url.isBlank() || currentLinksUrls.contains(link.url)) {
-                return@link
-            }
-            currentLinksUrls.add(link.url)
-
             synchronized(currentCache) {
+                if (link.url.isBlank() || currentLinksUrls.contains(link.url)) {
+                    return@link
+                }
+                currentLinksUrls.add(link.url)
+
                 if (currentCache.linkCache.add(link)) {
                     if (sourceTypes.contains(link.type)) {
                         callback(Pair(link, null))
@@ -176,32 +181,38 @@ class RepoLinkGenerator(
             }
         }
 
-        val result = APIRepository(
-            getApiFromNameNull(current.apiName) ?: throw Exception("This provider does not exist")
-        ).loadLinks(
-            current.data,
-            isCasting = isCasting,
-            subtitleCallback = onSubtitle,
-            callback = onLink,
-        )
+        // Both sources load CONCURRENTLY: the linked source starts first so
+        // its entry resolution overlaps the primary crawl, and links from
+        // either stream live through the shared handlers — never batched.
+        return coroutineScope {
+            val linkedJob = async {
+                try {
+                    mergeLinkedSource(current, isCasting, onSubtitle, onLink)
+                } catch (t: Throwable) {
+                    if (t is CancellationException) throw t
+                    Log.e(TAG, "[LINKED_SRC] merge failed", t)
+                    false
+                }
+            }
 
-        // Also pull links from the entry linked on the result page (playback
-        // only). Runs AFTER the primary load so its links arrive late — the
-        // player tolerates that — and any failure falls back silently to the
-        // primary-only list.
-        val linkedResult = try {
-            mergeLinkedSource(current, isCasting, onSubtitle, onLink)
-        } catch (t: Throwable) {
-            Log.e(TAG, "[LINKED_SRC] merge failed", t)
-            false
+            val result = APIRepository(
+                getApiFromNameNull(current.apiName) ?: throw Exception("This provider does not exist")
+            ).loadLinks(
+                current.data,
+                isCasting = isCasting,
+                subtitleCallback = onSubtitle,
+                callback = onLink,
+            )
+
+            val linkedResult = linkedJob.await()
+
+            synchronized(currentCache) {
+                currentCache.saturated = currentCache.linkCache.isNotEmpty()
+                currentCache.lastCachedTimestamp = unixTime
+            }
+
+            result || linkedResult
         }
-
-        synchronized(currentCache) {
-            currentCache.saturated = currentCache.linkCache.isNotEmpty()
-            currentCache.lastCachedTimestamp = unixTime
-        }
-
-        return result || linkedResult
     }
 
     /**
