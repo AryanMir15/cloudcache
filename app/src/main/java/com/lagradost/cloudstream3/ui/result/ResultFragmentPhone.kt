@@ -92,6 +92,7 @@ import com.lagradost.cloudstream3.utils.BatteryOptimizationChecker.openBatteryOp
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ImageLoader.loadImage
+import com.lagradost.cloudstream3.utils.LinkedSourceManager
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showBottomDialog
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showBottomDialogInstant
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showDialog
@@ -1026,6 +1027,127 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         }
     }
 
+    /**
+     * Long-press on the title: keeps the old "Copy title" behavior and adds
+     * linked-source management (a second provider whose episode links are
+     * merged during playback — see LinkedSourceManager).
+     */
+    private fun showTitleOptionsSheet() {
+        val act = activity ?: return
+        val response = viewModel.currentResponse ?: return
+        val titleText = resultBinding?.resultTitle?.text?.toString() ?: response.name
+        val linked = LinkedSourceManager.get(response.apiName, response.url)
+
+        val options = mutableListOf(
+            getString(R.string.linked_source_copy_title),
+            getString(
+                if (linked == null) R.string.linked_source_add
+                else R.string.linked_source_change
+            ),
+        )
+        if (linked != null) options += getString(R.string.linked_source_remove)
+
+        act.showBottomDialogInstant(
+            options,
+            getString(R.string.linked_source_title),
+            { }
+        ) { index ->
+            when {
+                index == 0 -> clipboardHelper(
+                    com.lagradost.cloudstream3.utils.txt(R.string.title),
+                    titleText
+                )
+                index == 1 -> startLinkSourceFlow()
+                linked != null && index == 2 -> {
+                    LinkedSourceManager.remove(response.apiName, response.url)
+                    showToast(act, R.string.linked_source_removed)
+                    refreshLinkedSourceChip()
+                }
+            }
+        }
+    }
+
+    /**
+     * Provider picker bottom sheet → QuickSearch pre-filled with this entry's
+     * name restricted to the picked provider → the selected result is saved as
+     * the linked source and we pop back. No metadata is touched — only the
+     * functional (apiName, url) pair of the secondary entry is stored.
+     */
+    private fun startLinkSourceFlow() {
+        val act = activity ?: return
+        val response = viewModel.currentResponse ?: return
+        val providerNames =
+            synchronized(com.lagradost.cloudstream3.APIHolder.apis) {
+                com.lagradost.cloudstream3.APIHolder.apis.map { it.name }
+            }.filter { !it.equals(response.apiName, ignoreCase = true) }
+        if (providerNames.isEmpty()) return
+
+        act.showBottomDialogInstant(
+            providerNames,
+            getString(R.string.linked_source_pick_provider),
+            { }
+        ) { index ->
+            val provider = providerNames[index]
+            com.lagradost.cloudstream3.ui.quicksearch.QuickSearchFragment.clickCallback = { cb ->
+                if (cb.action == com.lagradost.cloudstream3.ui.search.SEARCH_ACTION_LOAD) {
+                    LinkedSourceManager.set(
+                        LinkedSourceManager.LinkedSource(
+                            primaryApiName = response.apiName,
+                            primaryUrl = response.url,
+                            secondaryApiName = cb.card.apiName,
+                            secondaryUrl = cb.card.url,
+                            secondaryName = cb.card.name,
+                        )
+                    )
+                    refreshLinkedSourceChip()
+                    act.popCurrentPage()
+                }
+            }
+            com.lagradost.cloudstream3.ui.quicksearch.QuickSearchFragment.pushSearch(
+                activity = act,
+                autoSearch = response.name,
+                providers = arrayOf(provider),
+                isLinkSource = true,
+            )
+        }
+    }
+
+    private fun showManageLinkedSourceSheet(linked: LinkedSourceManager.LinkedSource) {
+        val act = activity ?: return
+        val options = listOf(
+            getString(R.string.linked_source_change),
+            getString(R.string.linked_source_remove),
+        )
+        act.showBottomDialogInstant(
+            options,
+            linked.secondaryName ?: linked.secondaryApiName,
+            { }
+        ) { index ->
+            when (index) {
+                0 -> startLinkSourceFlow()
+                1 -> {
+                    LinkedSourceManager.remove(linked.primaryApiName, linked.primaryUrl)
+                    showToast(act, R.string.linked_source_removed)
+                    refreshLinkedSourceChip()
+                }
+            }
+        }
+    }
+
+    /** Shows/hides the linked-source chip next to the site chip. */
+    private fun refreshLinkedSourceChip() {
+        val binding = resultBinding ?: return
+        val response = viewModel.currentResponse
+        val linked = response?.let { LinkedSourceManager.get(it.apiName, it.url) }
+        binding.resultMetaLinkedSite.isVisible = linked != null
+        if (linked != null) {
+            binding.resultMetaLinkedSite.text = linked.secondaryApiName
+            binding.resultMetaLinkedSite.setOnClickListener {
+                showManageLinkedSourceSheet(linked)
+            }
+        }
+    }
+
     private fun openSearchForMetadata(providerName: String) {
         android.util.Log.d("swapfix", "===== openSearchForMetadata START =====")
         android.util.Log.d("swapfix", "openSearchForMetadata - provider: $providerName")
@@ -1224,6 +1346,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         afterPluginsLoadedEvent += ::reloadViewModel
         activity?.setNavigationBarColorCompat(R.attr.primaryBlackBackground)
         super.onResume()
+        refreshLinkedSourceChip()
         android.util.Log.d("[GESTURE_DEBUG]", "onResume - adding gesture regions listener")
         PanelsChildGestureRegionObserver.Provider.get()
             .addGestureRegionsUpdateListener(gestureRegionsListener)
@@ -2505,6 +2628,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         resultNoEpisodes.setText(d.noEpisodesFoundText)
                         resultTitle.setText(d.titleText)
                         resultMetaSite.setText(d.apiName)
+                        refreshLinkedSourceChip()
                         resultMetaType.setText(d.typeText)
                         resultMetaYear.setText(d.yearText)
                         resultMetaDuration.setText(d.durationText)
@@ -2729,10 +2853,7 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     resultReloadConnectionOpenInBrowser.isVisible = data is Resource.Failure
 
                     resultTitle.setOnLongClickListener {
-                        clipboardHelper(
-                            com.lagradost.cloudstream3.utils.txt(R.string.title),
-                            resultTitle.text
-                        )
+                        showTitleOptionsSheet()
                         true
                     }
                 }

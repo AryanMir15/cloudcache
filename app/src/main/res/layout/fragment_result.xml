@@ -379,14 +379,22 @@
                                 android:layout_height="wrap_content"
                                 app:itemSpacing="10dp">
 
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/result_meta_site"
-                                    style="@style/SmallBlackButton"
-                                    android:layout_gravity="center_vertical"
-                                    tools:text="Gogoanime" />
+                                  <com.google.android.material.button.MaterialButton
+                                      android:id="@+id/result_meta_site"
+                                      style="@style/SmallBlackButton"
+                                      android:layout_gravity="center_vertical"
+                                      tools:text="Gogoanime" />
 
-                                <com.google.android.material.button.MaterialButton
-                                    android:id="@+id/result_meta_content_rating"
+                                  <com.google.android.material.button.MaterialButton
+                                      android:id="@+id/result_meta_linked_site"
+                                      style="@style/SmallBlackButton"
+                                      android:layout_gravity="center_vertical"
+                                      android:visibility="gone"
+                                      tools:text="StreamPlay Anime"
+                                      tools:visibility="visible" />
+
+                                  <com.google.android.material.button.MaterialButton
+                                      android:id="@+id/result_meta_content_rating"
                                     style="@style/SmallBlackButton"
                                     android:layout_gravity="center_vertical"
                                     tools:text="PG-13" />

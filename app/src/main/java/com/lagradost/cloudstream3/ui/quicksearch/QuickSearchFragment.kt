@@ -91,7 +91,8 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
             providers: Array<String>? = null,
             isMetadataSwap: Boolean = false,
             originalResponseName: String? = null,
-            originalResponseUrl: String? = null
+            originalResponseUrl: String? = null,
+            isLinkSource: Boolean = false
         ) {
             android.util.Log.d("MetadataSwap", "QuickSearchFragment.pushSearch called - autoSearch: $autoSearch, providers: ${providers?.toList()}, isMetadataSwap: $isMetadataSwap, originalResponseName: $originalResponseName")
             activity?.let { ctx ->
@@ -108,6 +109,7 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                         putStringArray(PROVIDER_KEY, providers)
                     }
                     putBoolean("is_metadata_swap", isMetadataSwap)
+                    putBoolean("is_link_source", isLinkSource)
                     putString("original_response_name", originalResponseName)
                     putString("original_response_url", originalResponseUrl)
                     android.util.Log.d("MetadataSwap", "QuickSearchFragment.pushSearch - bundle created with keys: ${keySet().toList()}")
@@ -241,10 +243,11 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                     // Invoke clickCallback first for metadata swap handling
                     android.util.Log.d("MetadataSwap", "QuickSearchFragment - invoking clickCallback, is null: ${clickCallback == null}")
                     val isMetadataSwap = arguments?.getBoolean("is_metadata_swap") == true
+                    val isLinkSource = arguments?.getBoolean("is_link_source") == true
                     clickCallback?.invoke(callback)
-                    android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked, isMetadataSwap: $isMetadataSwap")
-                    // Only call normal navigation if NOT metadata swap (metadata swap handles its own navigation)
-                    if (!isMetadataSwap) {
+                    android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked, isMetadataSwap: $isMetadataSwap, isLinkSource: $isLinkSource")
+                    // Only call normal navigation if NOT metadata swap / linked source (both handle their own navigation)
+                    if (!isMetadataSwap && !isLinkSource) {
                         android.util.Log.d("MetadataSwap", "QuickSearchFragment - calling SearchHelper.handleSearchClickCallback (normal navigation)")
                         SearchHelper.handleSearchClickCallback(callback)
                     } else {
@@ -269,10 +272,11 @@ class QuickSearchFragment : BaseFragment<QuickSearchBinding>(
                         // Invoke clickCallback first for metadata swap handling
                         android.util.Log.d("MetadataSwap", "QuickSearchFragment - invoking clickCallback, is null: ${clickCallback == null}")
                         val isMetadataSwap = arguments?.getBoolean("is_metadata_swap") == true
+                        val isLinkSource = arguments?.getBoolean("is_link_source") == true
                         clickCallback?.invoke(callback)
-                        android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked, isMetadataSwap: $isMetadataSwap")
-                        // Only call normal navigation if NOT metadata swap (metadata swap handles its own navigation)
-                        if (!isMetadataSwap) {
+                        android.util.Log.d("MetadataSwap", "QuickSearchFragment - clickCallback invoked, isMetadataSwap: $isMetadataSwap, isLinkSource: $isLinkSource")
+                        // Only call normal navigation if NOT metadata swap / linked source (both handle their own navigation)
+                        if (!isMetadataSwap && !isLinkSource) {
                             android.util.Log.d("MetadataSwap", "QuickSearchFragment - calling SearchHelper.handleSearchClickCallback (normal navigation)")
                             SearchHelper.handleSearchClickCallback(callback)
                         } else {
