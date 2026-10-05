@@ -12,13 +12,11 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.app.NotificationCompat
 import androidx.core.app.PendingIntentCompat
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.core.content.edit
 import androidx.preference.PreferenceManager
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.BuildConfig
 import com.lagradost.cloudstream3.CommonActivity.showToast
-import com.lagradost.cloudstream3.MainActivity.Companion.deleteFileOnExit
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mvvm.logError
@@ -32,10 +30,10 @@ import com.lagradost.cloudstream3.utils.AppContextUtils.createNotificationChanne
 import com.lagradost.cloudstream3.utils.AppContextUtils.setDefaultFocus
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
+import com.lagradost.cloudstream3.utils.DataStore.getKey
 import com.lagradost.cloudstream3.utils.GitInfo.currentCommitHash
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import okio.BufferedSink
 import okio.buffer
 import okio.sink
 import java.io.BufferedReader
@@ -49,6 +47,10 @@ object InAppUpdater {
 
     private const val PRERELEASE_PACKAGE_NAME = "com.lagradost.cloudcache.prerelease"
     private const val LOG_TAG = "InAppUpdater"
+
+    /** MainActivity action that finishes a staged/downloaded update. */
+    const val ACTION_INSTALL_UPDATE = "com.lagradost.cloudstream3.INSTALL_UPDATE"
+    const val EXTRA_UPDATE_VERSION = "EXTRA_UPDATE_VERSION"
 
     private data class GithubAsset(
         @JsonProperty("name") val name: String?,
@@ -82,19 +84,20 @@ object InAppUpdater {
         @JsonProperty("updateVersion") val updateVersion: String?,
         @JsonProperty("changelog") val changelog: String?,
         @JsonProperty("updateNodeId") val updateNodeId: String?,
+        @JsonProperty("updateSize") val updateSize: Long?,
     )
 
     private suspend fun Activity.getAppUpdate(installPrerelease: Boolean): Update {
         return try {
             when {
                 // No updates on debug version
-                BuildConfig.DEBUG -> Update(false, null, null, null, null)
+                BuildConfig.DEBUG -> Update(false, null, null, null, null, null)
                 BuildConfig.FLAVOR == "prerelease" || installPrerelease -> getPreReleaseUpdate()
                 else -> getReleaseUpdate()
             }
         } catch (e: Exception) {
             Log.e(LOG_TAG, Log.getStackTraceString(e))
-            Update(false, null, null, null, null)
+            Update(false, null, null, null, null, null)
         }
     }
 
@@ -109,7 +112,7 @@ object InAppUpdater {
             null
         }
         if (response.isNullOrEmpty()) {
-            return Update(false, null, null, null, null)
+            return Update(false, null, null, null, null, null)
         }
 
         val versionRegex = Regex("""(.*?((\d+)\.(\d+)\.(\d+)).*\.apk)""")
@@ -131,7 +134,7 @@ object InAppUpdater {
         val foundVersion = foundAsset?.name?.let { versionRegex.find(it) }
 
         if (foundVersion == null || foundAsset?.browserDownloadUrl.isNullOrBlank()) {
-            return Update(false, null, null, null, null)
+            return Update(false, null, null, null, null, null)
         }
 
         val currentVersion = packageName?.let {
@@ -152,7 +155,8 @@ object InAppUpdater {
             foundAsset!!.browserDownloadUrl,
             foundVersion.groupValues[2],
             found.body,
-            found.nodeId
+            found.nodeId,
+            foundAsset.size?.toLong()
         )
     }
 
@@ -169,7 +173,7 @@ object InAppUpdater {
             null
         }
         if (response.isNullOrEmpty()) {
-            return Update(false, null, null, null, null)
+            return Update(false, null, null, null, null, null)
         }
 
         val found = response.lastOrNull { rel ->
@@ -179,7 +183,7 @@ object InAppUpdater {
         val foundAsset = found?.assets?.firstOrNull { it.contentType == "application/vnd.android.package-archive" }
 
         if (foundAsset == null || foundAsset.browserDownloadUrl.isNullOrBlank()) {
-            return Update(false, null, null, null, null)
+            return Update(false, null, null, null, null, null)
         }
 
         val tagResponse = try {
@@ -190,7 +194,7 @@ object InAppUpdater {
         }
         val updateCommitHash = tagResponse?.githubObject?.sha?.trim()?.take(7)
         if (updateCommitHash.isNullOrBlank()) {
-            return Update(false, null, null, null, null)
+            return Update(false, null, null, null, null, null)
         }
         Log.d(LOG_TAG, "Fetched GitHub tag: $updateCommitHash (installed: ${currentCommitHash()})")
 
@@ -199,7 +203,8 @@ object InAppUpdater {
             foundAsset.browserDownloadUrl,
             updateCommitHash,
             found.body,
-            found.nodeId
+            found.nodeId,
+            foundAsset.size?.toLong()
         )
     }
 
@@ -232,48 +237,125 @@ object InAppUpdater {
         }
     }
 
-    private suspend fun Activity.downloadUpdate(url: String): Boolean {
-        try {
-            Log.d(LOG_TAG, "Downloading update: $url")
-            val appUpdateName = "CloudStream"
-            val appUpdateSuffix = "apk"
+    // ---------------------------------------------------------------------
+    // Durable update storage
+    //
+    // APKs live in filesDir/updates (FileProvider already covers files-path).
+    // They are intentionally NOT registered with deleteFileOnExit: a staged
+    // update must survive process death so the install can be re-offered.
+    // Interrupted downloads go to a `.part` file and only get renamed to the
+    // final name once the full size is on disk.
+    // ---------------------------------------------------------------------
 
-            // Delete all old updates
-            this.cacheDir.listFiles()?.filter {
-                it.name.startsWith(appUpdateName) && it.extension == appUpdateSuffix
-            }?.forEach { deleteFileOnExit(it) }
+    private fun updatesDir(context: Context): File = File(context.filesDir, "updates")
 
-            val downloadedFile = File.createTempFile(appUpdateName, ".$appUpdateSuffix")
-            val sink: BufferedSink = downloadedFile.sink().buffer()
+    internal fun updateApkFile(context: Context, version: String?): File =
+        File(updatesDir(context), "update-${version ?: "unknown"}.apk")
 
-            updateLock.withLock {
-                sink.writeAll(app.get(url).body.source())
-                sink.close()
-                // Only report success if the install prompt could actually be opened
-                return openApk(this, Uri.fromFile(downloadedFile))
-            }
-        } catch (e: Exception) {
-            logError(e)
-            return false
+    /** The already-downloaded APK for [version], verified against [expectedSize]. */
+    internal fun downloadedUpdateFile(
+        context: Context, version: String?, expectedSize: Long?
+    ): File? {
+        val file = updateApkFile(context, version)
+        if (!file.isFile) return null
+        return if (expectedSize == null || expectedSize <= 0L) {
+            if (file.length() > 0L) file else null
+        } else {
+            if (file.length() == expectedSize) file else null
         }
     }
 
-    private fun openApk(context: Context, uri: Uri): Boolean = try {
-        val path = uri.path ?: return false
-        val contentUri = FileProvider.getUriForFile(
-            context, BuildConfig.APPLICATION_ID + ".provider", File(path)
-        )
-        val installIntent = Intent(Intent.ACTION_VIEW).apply {
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-            data = contentUri
+    /** Deletes interrupted downloads and every cached APK except [keepVersion]. */
+    internal fun cleanupUpdateFiles(context: Context, keepVersion: String?) {
+        try {
+            val keep = keepVersion?.let { "update-$it.apk" }
+            updatesDir(context).listFiles()?.forEach { file ->
+                val isPart = file.extension == "part"
+                val isUpdateApk =
+                    file.extension == "apk" && file.name.startsWith("update-")
+                if (isPart || (isUpdateApk && file.name != keep)) {
+                    file.delete()
+                }
+            }
+        } catch (e: Exception) {
+            logError(e)
         }
-        context.startActivity(installIntent)
-        true
-    } catch (e: Exception) {
-        logError(e)
-        false
+    }
+
+    /**
+     * Returns the APK for this update, downloading it to [updatesDir] first if
+     * it is not already fully on disk. Returns null on any failure — callers
+     * must not fall back to a partially written file.
+     */
+    internal suspend fun ensureDownloaded(
+        context: Context,
+        url: String,
+        version: String?,
+        expectedSize: Long?,
+        onProgress: (downloaded: Long, total: Long) -> Unit = { _, _ -> }
+    ): File? {
+        downloadedUpdateFile(context, version, expectedSize)?.let { return it }
+        val target = updateApkFile(context, version)
+        val temp = File(target.parentFile, "${target.name}.part")
+        return try {
+            updateLock.withLock {
+                // Another caller may have finished while we waited on the lock
+                downloadedUpdateFile(context, version, expectedSize)
+                    ?: run {
+                        Log.d(LOG_TAG, "Downloading update: $url")
+                        temp.delete()
+                        val body = app.get(url).body
+                        val total =
+                            expectedSize?.takeIf { it > 0 } ?: body.contentLength()
+                        var downloaded = 0L
+                        target.parentFile?.mkdirs()
+                        temp.sink().buffer().use { sink ->
+                            body.byteStream().use { input ->
+                                val buffer = ByteArray(8 * 1024)
+                                while (true) {
+                                    val read = input.read(buffer)
+                                    if (read < 0) break
+                                    downloaded += read
+                                    sink.write(buffer, 0, read)
+                                    onProgress(downloaded, total)
+                                }
+                            }
+                        }
+                        if ((total > 0 && downloaded != total) || !temp.renameTo(target)) {
+                            temp.delete()
+                            null
+                        } else {
+                            // A newer APK finished — drop any older cached builds
+                            cleanupUpdateFiles(context, version)
+                            target
+                        }
+                    }
+            }
+        } catch (e: Exception) {
+            logError(e)
+            temp.delete()
+            null
+        }
+    }
+
+    /**
+     * Attempts to finish a staged update without touching the network:
+     * in-memory delayed session, then the persisted session id (survives
+     * process death), then falls back to starting [PackageInstallerService]
+     * which resolves the durable APK via [ensureDownloaded].
+     */
+    fun Activity.tryInstallPendingUpdate(): Boolean {
+        if (ApkInstaller.startPendingInstallation(this)) {
+            showToast(R.string.update_started, Toast.LENGTH_LONG)
+            return true
+        }
+        val url = getKey<String>(ApkInstaller.PENDING_UPDATE_URL) ?: return false
+        val version = getKey<String>(ApkInstaller.PENDING_UPDATE_VERSION)
+        val size = getKey<Long>(ApkInstaller.PENDING_UPDATE_SIZE)
+        ContextCompat.startForegroundService(
+            this, PackageInstallerService.Companion.getIntent(this, url, version, size)
+        )
+        return true
     }
 
     fun Activity.installPreReleaseIfNeeded() = ioSafe {
@@ -322,6 +404,13 @@ object InAppUpdater {
             return false
         }
 
+        // Drop stale .part files and APKs for any other (older) version
+        cleanupUpdateFiles(this, update.updateVersion)
+
+        // If this exact build is already on disk the button installs instantly
+        val alreadyDownloaded =
+            downloadedUpdateFile(this, update.updateVersion, update.updateSize) != null
+
         runOnUiThread {
             safe {
                 val currentVersion = packageName?.let {
@@ -342,22 +431,16 @@ object InAppUpdater {
 
                 builder.setMessage(sanitizedChangelog)
                 builder.apply {
-                    setPositiveButton(R.string.update) { _, _ ->
-                        // Forcefully start any delayed installations.
-                        // If a leftover session from a previous update exists, commit it
-                        // but tell the user what is happening instead of silently swallowing
-                        // the new download.
-                        if (ApkInstaller.delayedInstaller?.startInstallation() == true) {
-                            showToast(R.string.update_started, Toast.LENGTH_LONG)
-                            showUpdateNotification(
-                                this@runAutoUpdate,
-                                getString(R.string.update_notification_installing),
-                                getString(R.string.update_started)
-                            )
+                    setPositiveButton(
+                        if (alreadyDownloaded) R.string.install else R.string.update
+                    ) { _, _ ->
+                        // Installing via session or ACTION_VIEW both require the
+                        // "install unknown apps" permission. Ask for it up front
+                        // instead of failing silently mid-install.
+                        if (!packageManager.canRequestPackageInstalls()) {
+                            showInstallPermissionDialog(this@runAutoUpdate)
                             return@setPositiveButton
                         }
-
-                        showToast(R.string.download_started, Toast.LENGTH_LONG)
 
                         // Check if the setting hasn't been changed
                         if (settingsManager.getInt(
@@ -372,41 +455,35 @@ object InAppUpdater {
                             }
                         }
 
-                        val currentInstaller = settingsManager.getInt(
-                            getString(R.string.apk_installer_key), 1
-                        )
-
-                        // Installing via session or ACTION_VIEW both require the
-                        // "install unknown apps" permission. Ask for it up front
-                        // instead of failing silently mid-install.
-                        if (!packageManager.canRequestPackageInstalls()) {
-                            showInstallPermissionDialog(this@runAutoUpdate)
+                        // Forcefully start any delayed or persisted installation
+                        // first — a leftover staged session installs instantly.
+                        if (tryInstallPendingUpdate()) {
+                            showUpdateNotification(
+                                this@runAutoUpdate,
+                                getString(R.string.update_notification_installing),
+                                getString(R.string.update_started)
+                            )
                             return@setPositiveButton
                         }
 
-                        when (currentInstaller) {
-                            // New method
-                            0 -> {
-                                val intent = PackageInstallerService.Companion.getIntent(
-                                    this@runAutoUpdate, update.updateURL
-                                )
-                                ContextCompat.startForegroundService(
-                                    this@runAutoUpdate, intent
-                                )
-                            }
-                            // Legacy
-                            1 -> {
-                                ioSafe {
-                                    if (!downloadUpdate(update.updateURL)) {
-                                        runOnUiThread {
-                                            showToast(
-                                                R.string.download_failed, Toast.LENGTH_LONG
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        showToast(
+                            if (alreadyDownloaded) R.string.update_started
+                            else R.string.download_started,
+                            Toast.LENGTH_LONG
+                        )
+
+                        // Single path for both installers: the service resolves
+                        // the durable file (no network if already downloaded),
+                        // then stages a session or fires ACTION_VIEW.
+                        ContextCompat.startForegroundService(
+                            this@runAutoUpdate,
+                            PackageInstallerService.Companion.getIntent(
+                                this@runAutoUpdate,
+                                update.updateURL,
+                                update.updateVersion,
+                                update.updateSize
+                            )
+                        )
                     }
 
                     setNegativeButton(R.string.cancel) { _, _ -> }
@@ -418,6 +495,8 @@ object InAppUpdater {
                                     getString(R.string.skip_update_key), update.updateNodeId ?: ""
                                 )
                             }
+                            // Don't keep installing what the user asked to skip
+                            updateApkFile(this@runAutoUpdate, update.updateVersion).delete()
                         }
                     }
                 }

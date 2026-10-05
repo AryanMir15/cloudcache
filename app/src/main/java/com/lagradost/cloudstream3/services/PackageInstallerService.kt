@@ -10,18 +10,20 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.PendingIntentCompat
+import androidx.core.content.FileProvider
+import androidx.preference.PreferenceManager
+import com.lagradost.cloudstream3.BuildConfig
 import com.lagradost.cloudstream3.MainActivity
-import com.lagradost.cloudstream3.MainActivity.Companion.deleteFileOnExit
 import com.lagradost.cloudstream3.R
-import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.utils.ApkInstaller
 import com.lagradost.cloudstream3.utils.AppContextUtils.createNotificationChannel
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
+import com.lagradost.cloudstream3.utils.DataStore.setKey
+import com.lagradost.cloudstream3.utils.InAppUpdater
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import java.io.File
 import kotlin.math.roundToInt
 
 class PackageInstallerService : Service() {
@@ -56,56 +58,72 @@ class PackageInstallerService : Service() {
         else startForeground(UPDATE_NOTIFICATION_ID, baseNotification.build())
     }
 
-    private val updateLock = Mutex()
-
-    private suspend fun downloadUpdate(url: String): Boolean {
+    private suspend fun downloadUpdate(url: String, version: String?, size: Long?) {
         try {
-            Log.d("PackageInstallerService", "Downloading update: $url")
+            updateNotificationProgress(0f, ApkInstaller.InstallProgressStatus.Downloading)
 
-            // Delete all old updates
-            ioSafe {
-                val appUpdateName = "CloudStream"
-                val appUpdateSuffix = "apk"
-
-                this@PackageInstallerService.cacheDir.listFiles()?.filter {
-                    it.name.startsWith(appUpdateName) && it.extension == appUpdateSuffix
-                }?.forEach {
-                    deleteFileOnExit(it)
-                }
-            }
-
-            updateLock.withLock {
-                updateNotificationProgress(
-                    0f,
-                    ApkInstaller.InstallProgressStatus.Downloading
-                )
-
-                val body = app.get(url).body
-                val inputStream = body.byteStream()
-                installer = ApkInstaller(this)
-                val totalSize = body.contentLength()
-                var currentSize = 0
-
-                installer?.installApk(this, inputStream, totalSize, {
-                    currentSize += it
-                    // Prevent div 0
-                    if (totalSize == 0L) return@installApk
-
-                    val percentage = currentSize / totalSize.toFloat()
+            // One download path for both installers: resolve the durable APK
+            // first — if this exact build is already fully on disk this
+            // returns instantly with no network traffic.
+            val file = InAppUpdater.ensureDownloaded(
+                this, url, version, size
+            ) { downloaded, total ->
+                if (total > 0) {
                     updateNotificationProgress(
-                        percentage,
+                        downloaded / total.toFloat(),
                         ApkInstaller.InstallProgressStatus.Downloading
                     )
-                }) { status ->
-                    updateNotificationProgress(0f, status)
                 }
             }
-            return true
+
+            if (file == null) {
+                updateNotificationProgress(0f, ApkInstaller.InstallProgressStatus.Failed)
+                return
+            }
+
+            val useLegacyInstaller = PreferenceManager
+                .getDefaultSharedPreferences(this)
+                .getInt(getString(R.string.apk_installer_key), 1) != 0
+
+            if (useLegacyInstaller) {
+                if (!openApk(file)) {
+                    updateNotificationProgress(0f, ApkInstaller.InstallProgressStatus.Failed)
+                }
+            } else {
+                updateNotificationProgress(0f, ApkInstaller.InstallProgressStatus.Installing)
+                installer = ApkInstaller(this)
+                installer?.installApk(
+                    this,
+                    file.inputStream(),
+                    file.length(),
+                    {},
+                    { status -> updateNotificationProgress(0f, status) },
+                    version
+                )
+            }
         } catch (e: Exception) {
             logError(e)
             updateNotificationProgress(0f, ApkInstaller.InstallProgressStatus.Failed)
-            return false
         }
+    }
+
+    /** Legacy install: hand the APK to the system package installer UI. */
+    private fun openApk(file: File): Boolean = try {
+        val contentUri = FileProvider.getUriForFile(
+            this, BuildConfig.APPLICATION_ID + ".provider", file
+        )
+        val installIntent = Intent(Intent.ACTION_VIEW).apply {
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            // Service context requires NEW_TASK to launch an activity
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+            data = contentUri
+        }
+        startActivity(installIntent)
+        true
+    } catch (e: Exception) {
+        logError(e)
+        false
     }
 
     private fun updateNotificationProgress(
@@ -145,8 +163,17 @@ class PackageInstallerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val url = intent?.getStringExtra(EXTRA_URL) ?: return START_NOT_STICKY
+        val version = intent.getStringExtra(EXTRA_VERSION)
+        val size = intent.getLongExtra(EXTRA_SIZE, -1L).takeIf { it > 0 }
+
+        // Persist what is being installed so the Install action can rebuild
+        // this service call after process death.
+        setKey(ApkInstaller.PENDING_UPDATE_URL, url)
+        if (version != null) setKey(ApkInstaller.PENDING_UPDATE_VERSION, version)
+        if (size != null) setKey(ApkInstaller.PENDING_UPDATE_SIZE, size)
+
         ioSafe {
-            downloadUpdate(url)
+            downloadUpdate(url, version, size)
             // Close the service after the update is done
             // If no sleep then the install prompt may not appear and the notification
             // will disappear instantly
@@ -172,6 +199,8 @@ class PackageInstallerService : Service() {
 
     companion object {
         private const val EXTRA_URL = "EXTRA_URL"
+        private const val EXTRA_VERSION = "EXTRA_VERSION"
+        private const val EXTRA_SIZE = "EXTRA_SIZE"
 
         const val UPDATE_CHANNEL_ID = "cloudstream3.updates"
         const val UPDATE_CHANNEL_NAME = "App Updates"
@@ -181,9 +210,13 @@ class PackageInstallerService : Service() {
         fun getIntent(
             context: Context,
             url: String,
+            version: String? = null,
+            size: Long? = null,
         ): Intent {
             return Intent(context, PackageInstallerService::class.java)
                 .putExtra(EXTRA_URL, url)
+                .putExtra(EXTRA_VERSION, version)
+                .putExtra(EXTRA_SIZE, size ?: -1L)
         }
     }
 }

@@ -156,7 +156,9 @@ import com.lagradost.cloudstream3.utils.DataStoreHelper.accounts
 import com.lagradost.cloudstream3.utils.DataStoreHelper.migrateResumeWatching
 import com.lagradost.cloudstream3.utils.Event
 import com.lagradost.cloudstream3.utils.ImageLoader.loadImage
+import com.lagradost.cloudstream3.utils.InAppUpdater
 import com.lagradost.cloudstream3.utils.InAppUpdater.runAutoUpdate
+import com.lagradost.cloudstream3.utils.InAppUpdater.tryInstallPendingUpdate
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showBottomDialog
 import com.lagradost.cloudstream3.utils.SnackbarHelper.showSnackbar
 import com.lagradost.cloudstream3.utils.TvChannelUtils
@@ -733,6 +735,12 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
 
     private fun handleAppIntent(intent: Intent?) {
         if (intent == null) return
+        // Install action from the "Update downloaded" notification — commits
+        // the staged session, or re-resolves the durable APK if it was GC'd.
+        if (intent.action == InAppUpdater.ACTION_INSTALL_UPDATE) {
+            tryInstallPendingUpdate()
+            return
+        }
         val str = intent.dataString
         loadCache()
 

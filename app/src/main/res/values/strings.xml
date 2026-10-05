@@ -673,6 +673,8 @@
     <string name="apk_installer_legacy">Legacy</string>
     <string name="apk_installer_package_installer">PackageInstaller</string>
     <string name="delayed_update_notice">App will be updated upon exit</string>
+    <string name="update_downloaded">Update downloaded</string>
+    <string name="install">Install</string>
     <string name="sort_by">Sort by</string>
     <string name="sort">Sort</string>
     <string name="sort_rating_desc">Rating (High to Low)</string>
