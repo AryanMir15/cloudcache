@@ -129,6 +129,12 @@
             android:entries="@array/download_audio_entries"
             android:entryValues="@array/download_audio_values" />
 
+        <Preference
+            android:icon="@drawable/ic_baseline_subtitles_24"
+            android:key="download_subtitle_languages_key"
+            android:title="@string/subs_download_languages"
+            android:summary="@string/download_subtitle_languages_summary" />
+
     </PreferenceCategory>
 
     <PreferenceCategory android:title="Auto-Download (Subscribed)">

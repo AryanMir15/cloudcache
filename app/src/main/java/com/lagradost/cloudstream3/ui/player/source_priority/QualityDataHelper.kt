@@ -238,6 +238,12 @@ object QualityDataHelper {
         val current = getFavoriteSources().toMutableSet()
         if (isFavorite) {
             current.add(name)
+            // Starring also opts the source in for preferred downloads
+            val selected = getSelectedSources().toMutableList()
+            if (!selected.contains(name)) {
+                selected.add(name)
+                setSelectedSources(selected)
+            }
         } else {
             current.remove(name)
             // Also remove from selected if unfavorited

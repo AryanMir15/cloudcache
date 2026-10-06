@@ -60,7 +60,6 @@ import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.M3u8Helper
 import com.lagradost.cloudstream3.utils.M3u8Helper2
-import com.lagradost.cloudstream3.utils.SubtitleHelper.fromTagToEnglishLanguageName
 import com.lagradost.cloudstream3.utils.SubtitleUtils.deleteMatchingSubtitles
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
 import com.lagradost.cloudstream3.utils.downloader.DownloadFileManagement.getBasePath
@@ -2329,19 +2328,27 @@ object VideoDownloadManager {
                     try {
                         val downloadList = SubtitlesFragment.getDownloadSubsLanguageTagIETF()
 
-                        subs?.filter { subtitle ->
+                        val matchingSubs = subs?.filter { subtitle ->
+                            // Resolve to a real IETF tag (languageCode first, then name)
+                            // so unlabeled or mislabeled subs cannot slip through.
+                            val tag = subtitle.getIETF_tag() ?: return@filter false
                             downloadList.any { langTagIETF ->
-                                subtitle.languageCode == langTagIETF ||
-                                        subtitle.originalName.contains(
-                                            fromTagToEnglishLanguageName(
-                                                langTagIETF
-                                            ) ?: langTagIETF
-                                        )
+                                tag == langTagIETF ||
+                                        tag.startsWith("$langTagIETF-") ||
+                                        langTagIETF.startsWith("$tag-")
                             }
-                        }
-                            ?.map { ExtractorSubtitleLink(it.name, it.url, "", it.headers) }
-                            ?.take(3) // max subtitles download hardcoded (?_?)
-                            ?.forEach { link ->
+                        }?.distinctBy { it.name } ?: emptyList()
+
+                        android.util.Log.d(
+                            "EpisodeDownloadInstance",
+                            "[SUB_DL] ${matchingSubs.size} subtitles match $downloadList: " +
+                                    matchingSubs.joinToString { it.name }
+                        )
+
+                        matchingSubs
+                            .map { ExtractorSubtitleLink(it.name, it.url, "", it.headers) }
+                            .take(5) // download every variant of the language, capped at 5
+                            .forEach { link ->
                                 val fileName = getFileName(context, meta)
                                 downloadSubtitle(context, link, fileName, folder)
                             }

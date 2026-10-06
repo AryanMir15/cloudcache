@@ -34,6 +34,8 @@ import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.setPadd
 import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.setToolBarScrollFlags
 import com.lagradost.cloudstream3.ui.settings.SettingsFragment.Companion.setUpToolbar
 import com.lagradost.cloudstream3.ui.settings.utils.getChooseFolderLauncher
+import com.lagradost.cloudstream3.ui.subtitles.SUBTITLE_DOWNLOAD_KEY
+import com.lagradost.cloudstream3.ui.subtitles.SubtitlesFragment
 import com.lagradost.cloudstream3.utils.BatteryOptimizationChecker.isAppRestricted
 import com.lagradost.cloudstream3.utils.BatteryOptimizationChecker.showBatteryOptimizationDialog
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showBottomDialog
@@ -438,6 +440,43 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
                 R.style.AlertDialogCustom
             ).show()
             return@setOnPreferenceClickListener true
+        }
+
+        // Download subtitle languages — same key/dialog as the subtitles settings page
+        findPreference<androidx.preference.Preference>("download_subtitle_languages_key")?.let { pref ->
+            fun updateSummary() {
+                pref.summary = SubtitlesFragment.getDownloadSubsLanguageTagIETF()
+                    .mapNotNull { SubtitleHelper.getNameNextToFlagEmoji(it) }
+                    .joinToString(", ")
+                    .ifBlank { null }
+                    ?: getString(R.string.download_subtitle_languages_summary)
+            }
+            updateSummary()
+
+            pref.setOnPreferenceClickListener {
+                val languagesTagName = SubtitleHelper.languages
+                    .map { Pair(it.IETF_tag, it.nameNextToFlagEmoji()) }
+                    .sortedBy {
+                        it.second.substringAfter(" ").lowercase()
+                    } // name ignoring flag emoji
+
+                val (langTagsIETF, langNames) = languagesTagName.unzip()
+
+                val selectedLanguages = SubtitlesFragment.getDownloadSubsLanguageTagIETF()
+                    .map { langTagsIETF.indexOf(it) }
+                    .filter { it >= 0 }
+
+                activity?.showMultiDialog(
+                    langNames,
+                    selectedLanguages,
+                    getString(R.string.subs_download_languages),
+                    {}
+                ) { indexList ->
+                    setKey(SUBTITLE_DOWNLOAD_KEY, indexList.map { langTagsIETF[it] }.toList())
+                    updateSummary()
+                }
+                return@setOnPreferenceClickListener true
+            }
         }
 
         // Cache Management
