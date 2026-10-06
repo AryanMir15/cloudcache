@@ -113,6 +113,7 @@ import com.lagradost.cloudstream3.ui.result.LinearListLayout
 import com.lagradost.cloudstream3.ui.result.ResultViewModel2
 import com.lagradost.cloudstream3.ui.result.START_ACTION_RESUME_LATEST
 import com.lagradost.cloudstream3.ui.result.SyncViewModel
+import com.lagradost.cloudstream3.ui.schedule.WeeklyScheduleManager
 import com.lagradost.cloudstream3.ui.search.SearchFragment
 import com.lagradost.cloudstream3.ui.search.SearchResultBuilder
 import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
@@ -1400,6 +1401,14 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
         }
 
         ioSafe { SafeFile.check(this@MainActivity) }
+
+        // Warm the weekly schedule cache in the background so the Schedule tab
+        // opens with data already on disk instead of fetching on first view.
+        ioSafe {
+            if (!WeeklyScheduleManager.isCacheValid()) {
+                WeeklyScheduleManager.fetchFreshSchedule()
+            }
+        }
 
         if (PluginManager.checkSafeModeFile()) {
             safe {

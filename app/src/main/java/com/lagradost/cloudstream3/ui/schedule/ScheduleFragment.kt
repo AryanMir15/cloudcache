@@ -37,6 +37,7 @@ class ScheduleFragment : Fragment() {
     private val viewModel: ScheduleViewModel by viewModels()
 
     private var selectedDay: DayOfWeek = LocalDate.now().dayOfWeek
+    private var didAutoSelectDay = false
     private var cardAdapter: ScheduleCardAdapter? = null
 
     private lateinit var dayPillMap: Map<DayOfWeek, TextView>
@@ -101,7 +102,12 @@ class ScheduleFragment : Fragment() {
                     "airing=${Instant.ofEpochMilli(it.airingAt).atZone(ZoneId.systemDefault()).toLocalDate().dayOfWeek} " +
                     "banner=${shortUrl(it.scheduleBannerUrl)} poster=${shortUrl(it.schedulePosterUrl)} logo=${shortUrl(it.scheduleLogoUrl)}")
             }
-            autoSelectDay(items)
+            // Only auto-pick a day on the first non-empty emission — a later
+            // background refresh must not yank the user's manual day selection.
+            if (!didAutoSelectDay && items.isNotEmpty()) {
+                didAutoSelectDay = true
+                autoSelectDay(items)
+            }
             updateContent(selectedDay)
         }
 
