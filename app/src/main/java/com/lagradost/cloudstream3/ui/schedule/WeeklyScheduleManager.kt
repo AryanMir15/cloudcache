@@ -390,8 +390,6 @@ object WeeklyScheduleManager {
                         "ID=$mediaId | english=[$rawEnglish] romaji=[$rawRomaji] native=[$rawNative] → resolved=[$title]"
                     )
 
-                    if (episode > 100) continue
-
                     val coverObj = media.optJSONObject("coverImage")
                     val poster = coverObj?.optString("extraLarge")
                         ?: coverObj?.optString("large")
@@ -785,31 +783,26 @@ object WeeklyScheduleManager {
         return try {
             val url = "$TMDB_BASE_URL/tv/$showId?api_key=$apiKey&language=en-US"
             val response = app.get(url, timeout = 5000)
-            val text = response.text
+            val json = JSONObject(response.text)
 
-            val nextAirMatch = Regex(""""air_date"\s*:\s*"([^"]+)"""").find(text)
-            val nextAirDate = nextAirMatch?.groupValues?.get(1)
+            // Must read next_episode_to_air.air_date — a raw "air_date" regex would
+            // match last_episode_to_air first and drop/misfile the show.
+            val nextAirDate = json.optJSONObject("next_episode_to_air")
+                ?.optString("air_date", "")
+                ?.takeIf { it.isNotBlank() && it != "null" }
+                ?: return null
 
-            val posterMatch = Regex(""""poster_path"\s*:\s*"([^"]+)"""").find(text)
-            val posterPath = posterMatch?.groupValues?.get(1)
+            fun String?.clean() = this?.takeIf { it.isNotBlank() && it != "null" }
 
-            val backdropMatch = Regex(""""backdrop_path"\s*:\s*"([^"]+)"""").find(text)
-            val backdropPath = backdropMatch?.groupValues?.get(1)
-
-            val nameMatch = Regex(""""name"\s*:\s*"([^"]+)"""").find(text)
-            val name = nameMatch?.groupValues?.get(1)
-
-            if (nextAirDate != null) {
-                TmdbOnAirResult(
-                    id = showId,
-                    name = name,
-                    title = name,
-                    posterPath = posterPath,
-                    backdropPath = backdropPath,
-                    firstAirDate = nextAirDate,
-                    voteAverage = null
-                )
-            } else null
+            TmdbOnAirResult(
+                id = showId,
+                name = json.optString("name").clean(),
+                title = json.optString("name").clean(),
+                posterPath = json.optString("poster_path").clean(),
+                backdropPath = json.optString("backdrop_path").clean(),
+                firstAirDate = nextAirDate,
+                voteAverage = null
+            )
         } catch (e: Exception) {
             logError(e)
             null
