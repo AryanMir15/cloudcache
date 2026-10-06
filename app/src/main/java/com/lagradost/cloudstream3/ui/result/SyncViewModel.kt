@@ -555,13 +555,13 @@ class SyncViewModel : ViewModel() {
             
             // Show success message only for providers that succeeded
             if (successfulProviders.isNotEmpty()) {
-                val animeName = (metadata.value as? Resource.Success)?.value?.title ?: "anime"
+                val entryName = (metadata.value as? Resource.Success)?.value?.title ?: "entry"
                 val syncProviders = successfulProviders.joinToString(", ")
-                _successMessage.postValue("Synced to $syncProviders for $animeName")
+                _successMessage.postValue("Synced to $syncProviders for $entryName")
             } else if (failedProviders.isNotEmpty()) {
-                val animeName = (metadata.value as? Resource.Success)?.value?.title ?: "anime"
+                val entryName = (metadata.value as? Resource.Success)?.value?.title ?: "entry"
                 val syncProviders = failedProviders.joinToString(", ")
-                _successMessage.postValue("Failed to sync to $syncProviders for $animeName")
+                _successMessage.postValue("Failed to sync to $syncProviders for $entryName")
             }
         } finally {
             _isSyncing.postValue(false)

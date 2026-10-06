@@ -824,7 +824,7 @@ class SimklApi : SyncAPI() {
                 val totalEpisodesCount: Int?
 
                 fun getIds(): ShowMetadata.Show.Ids
-                fun toLibraryItem(): SyncAPI.LibraryItem
+                fun toLibraryItem(type: TvType): SyncAPI.LibraryItem
             }
 
             data class MovieMetadata(
@@ -840,13 +840,16 @@ class SimklApi : SyncAPI() {
                     return this.movie.ids
                 }
 
-                override fun toLibraryItem(): SyncAPI.LibraryItem {
+                override fun toLibraryItem(type: TvType): SyncAPI.LibraryItem {
+                    // Movies have no episode counts; a completed movie is 1/1
+                    val watched = watchedEpisodesCount
+                        ?: if (status == SimklListStatusType.Completed.originalName) 1 else 0
                     return SyncAPI.LibraryItem(
                         this.movie.title,
-                        "https://simkl.com/tv/${movie.ids.simkl}",
+                        "https://simkl.com/movies/${movie.ids.simkl}",
                         movie.ids.simkl.toString(),
-                        this.watchedEpisodesCount,
-                        this.totalEpisodesCount,
+                        watched,
+                        this.totalEpisodesCount ?: 1,
                         Score.from10(this.userRating),
                         getUnixTime(lastWatchedAt) ?: 0,
                         "Simkl",
@@ -873,7 +876,7 @@ class SimklApi : SyncAPI() {
                     return this.show.ids
                 }
 
-                override fun toLibraryItem(): SyncAPI.LibraryItem {
+                override fun toLibraryItem(type: TvType): SyncAPI.LibraryItem {
                     return SyncAPI.LibraryItem(
                         this.show.title,
                         "https://simkl.com/tv/${show.ids.simkl}",
@@ -883,7 +886,7 @@ class SimklApi : SyncAPI() {
                         Score.from10(this.userRating),
                         getUnixTime(lastWatchedAt) ?: 0,
                         "Simkl",
-                        TvType.Anime,
+                        type,
                         this.show.poster?.let { getPosterUrl(it) },
                         null,
                         null,
@@ -1101,6 +1104,10 @@ class SimklApi : SyncAPI() {
         }
 
         if (foundItem != null) {
+            // Movies have no episode counts in the Simkl payload — map a
+            // completed movie to 1/1 instead of showing 0/0.
+            val isMovie = searchResult.type == "movie"
+            val movieWatched = if (foundItem.status == "completed") 1 else 0
             return SimklSyncStatus(
                 status = foundItem.status?.let {
                     SyncWatchType.fromInternalId(
@@ -1111,10 +1118,10 @@ class SimklApi : SyncAPI() {
                 }
                     ?: return null,
                 score = Score.from10(foundItem.userRating),
-                watchedEpisodes = foundItem.watchedEpisodesCount,
-                maxEpisodes = searchResult.totalEpisodes,
+                watchedEpisodes = if (isMovie) movieWatched else foundItem.watchedEpisodesCount,
+                maxEpisodes = if (isMovie) 1 else searchResult.totalEpisodes,
                 episodeConstructor = episodeConstructor,
-                oldEpisodes = foundItem.watchedEpisodesCount ?: 0,
+                oldEpisodes = if (isMovie) movieWatched else foundItem.watchedEpisodesCount ?: 0,
                 oldScore = foundItem.userRating,
                 oldStatus = foundItem.status
             )
@@ -1123,7 +1130,7 @@ class SimklApi : SyncAPI() {
                 status = SyncWatchType.fromInternalId(SimklListStatusType.None.value),
                 score = null,
                 watchedEpisodes = 0,
-                maxEpisodes = if (searchResult.type == "movie") 0 else searchResult.totalEpisodes,
+                maxEpisodes = if (searchResult.type == "movie") 1 else searchResult.totalEpisodes,
                 episodeConstructor = episodeConstructor,
                 oldEpisodes = 0,
                 oldStatus = null,
@@ -1271,8 +1278,8 @@ class SimklApi : SyncAPI() {
         val simklId = id.toIntOrNull() ?: return null
         return try {
             rateLimiter.acquire()
-            // Detail endpoints are /tv/{id} and /anime/{id}; the sync ID alone
-            // doesn't encode the media type, so try TV first, then anime.
+            // Detail endpoints are /tv/{id}, /anime/{id} and /movies/{id}; the sync
+            // ID alone doesn't encode the media type, so try TV, anime, then movies.
             val summary = run {
                 val tv = app.get(
                     "https://api.simkl.com/tv/$simklId",
@@ -1282,10 +1289,19 @@ class SimklApi : SyncAPI() {
                     tv
                 } else {
                     rateLimiter.acquire()
-                    app.get(
+                    val anime = app.get(
                         "https://api.simkl.com/anime/$simklId",
                         params = mapOf("client_id" to CLIENT_ID)
                     ).parsedSafe<SimklSummary>()
+                    if (anime != null && anime.title != null) {
+                        anime
+                    } else {
+                        rateLimiter.acquire()
+                        app.get(
+                            "https://api.simkl.com/movies/$simklId",
+                            params = mapOf("client_id" to CLIENT_ID)
+                        ).parsedSafe<SimklSummary>()
+                    }
                 }
             } ?: return null
 
@@ -1298,11 +1314,12 @@ class SimklApi : SyncAPI() {
                 synopsis = summary.overview,
                 airStatus = when (summary.status?.lowercase()) {
                     "airing" -> ShowStatus.Ongoing
-                    "ended" -> ShowStatus.Completed
+                    "ended", "released" -> ShowStatus.Completed
                     else -> null
                 },
                 posterUrl = summary.poster?.let { getPosterUrl(it) },
-                startDate = parseSimklDate(summary.firstAired),
+                // Movies expose "released" instead of first_aired/last_aired
+                startDate = parseSimklDate(summary.firstAired ?: summary.released),
                 endDate = parseSimklDate(summary.lastAired),
             )
         } catch (e: Exception) {
@@ -1327,6 +1344,7 @@ class SimklApi : SyncAPI() {
         @JsonProperty("total_episodes") val totalEpisodes: Int? = null,
         @JsonProperty("first_aired") val firstAired: String? = null,
         @JsonProperty("last_aired") val lastAired: String? = null,
+        @JsonProperty("released") val released: String? = null,
         @JsonProperty("ratings") val ratings: SimklRatings? = null,
     ) {
         data class SimklRatings(
@@ -1418,16 +1436,21 @@ class SimklApi : SyncAPI() {
                     it.stringRes to emptyList<SyncAPI.LibraryItem>()
                 }
 
-        val syncMap = listOf(list.anime, list.movies, list.shows)
-            .flatten()
-            .groupBy {
-                it.status
-            }
+        // Pair each entry with its real media type — the API splits lists into
+        // anime / movies / shows(TV), so tagging everything Anime was wrong.
+        val itemsWithType = buildList {
+            list.anime.forEach { add(it to TvType.Anime) }
+            list.movies.forEach { add(it to TvType.Movie) }
+            list.shows.forEach { add(it to TvType.TvSeries) }
+        }
+
+        val syncMap = itemsWithType
+            .groupBy({ it.first.status }, { it })
             .mapNotNull { (status, list) ->
                 val stringRes =
                     status?.let { SimklListStatusType.fromString(it)?.stringRes }
                         ?: return@mapNotNull null
-                val libraryList = list.map { it.toLibraryItem() }
+                val libraryList = list.map { (meta, type) -> meta.toLibraryItem(type) }
                 stringRes to libraryList
             }.toMap()
 
