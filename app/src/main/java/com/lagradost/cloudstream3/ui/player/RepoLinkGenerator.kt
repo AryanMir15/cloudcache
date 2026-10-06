@@ -57,6 +57,9 @@ class RepoLinkGenerator(
     override val hasCache = true
     override val canSkipLoading = true
 
+    /** Secondary LoadResponse cache for [mergeLinkedSource] — url → (response, unixTime). */
+    private val linkedResponseCache = HashMap<String, Pair<LoadResponse, Long>>()
+
     // this is a simple array that is used to instantly load links if they are already loaded
     //var linkCache = Array<Set<ExtractorLink>>(size = episodes.size, init = { setOf() })
     //var subsCache = Array<Set<SubtitleData>>(size = episodes.size, init = { setOf() })
@@ -75,8 +78,11 @@ class RepoLinkGenerator(
         // Play from cache: if this episode's file already passed the download
         // gate, skip the provider/extractor crawl entirely — clicking next on a
         // cached episode starts instantly from disk (and works fully offline).
-        // Casting is excluded: Chromecast cannot read local files.
-        if (!isCasting && tryEmitCachedEpisode(current, callback, subtitleCallback)) {
+        // Casting is excluded: Chromecast cannot read local files. A manual
+        // reload (clearCache) skips the shortcut so online links can be forced.
+        if (!isCasting && !clearCache &&
+            tryEmitCachedEpisode(current, callback, subtitleCallback)
+        ) {
             Log.i(TAG, "CACHE_PLAY id=${current.id} ep=${current.episode} served from local file")
             return true
         }
@@ -138,7 +144,10 @@ class RepoLinkGenerator(
         // guarded by the shared cache lock (dedup sets + suffix counters too).
         val onSubtitle: (SubtitleFile) -> Unit = sub@ { file ->
             Log.d(TAG, "Loaded SubtitleFile: $file")
-            synchronized(currentCache) {
+            // Mutate under the lock, emit outside it — the player callbacks do
+            // UI/link work that must not serialize both sources on the cache
+            // lock (or risk reentrant deadlock).
+            val updatedFile = synchronized(currentCache) {
                 val correctFile = PlayerSubtitleHelper.getSubtitleData(file)
                 if (correctFile.url.isBlank() || currentSubsUrls.contains(correctFile.url)) {
                     return@sub
@@ -152,33 +161,31 @@ class RepoLinkGenerator(
                 val suffixCount = lastCountedSuffix.getOrDefault(nameDecoded, 0u) +1u
                 lastCountedSuffix[nameDecoded] = suffixCount
 
-                val updatedFile =
+                val candidate =
                     correctFile.copy(originalName = nameDecoded, nameSuffix = "$suffixCount")
 
-                if (currentCache.subtitleCache.add(updatedFile)) {
-                    subtitleCallback(updatedFile)
+                if (currentCache.subtitleCache.add(candidate)) {
                     currentCache.lastCachedTimestamp = unixTime
-                }
-            }
+                    candidate
+                } else null
+            } ?: return@sub
+            subtitleCallback(updatedFile)
         }
 
         val onLink: (ExtractorLink) -> Unit = link@ { link ->
             Log.d(TAG, "Loaded ExtractorLink: $link")
-            synchronized(currentCache) {
+            val emit = synchronized(currentCache) {
                 if (link.url.isBlank() || currentLinksUrls.contains(link.url)) {
                     return@link
                 }
                 currentLinksUrls.add(link.url)
 
                 if (currentCache.linkCache.add(link)) {
-                    if (sourceTypes.contains(link.type)) {
-                        callback(Pair(link, null))
-                    }
-
-                    currentCache.linkCache.add(link)
                     currentCache.lastCachedTimestamp = unixTime
-                }
+                    sourceTypes.contains(link.type)
+                } else false
             }
+            if (emit) callback(Pair(link, null))
         }
 
         // Both sources load CONCURRENTLY: the linked source starts first so
@@ -247,11 +254,25 @@ class RepoLinkGenerator(
             return false
         }
         val repo = APIRepository(api)
-        val secondary = when (val res = repo.load(linked.secondaryUrl)) {
-            is Resource.Success -> res.value
-            else -> {
-                Log.w(TAG, "[LINKED_SRC] entry load failed: $res")
-                return false
+        // Full page loads are expensive — reuse the secondary LoadResponse for
+        // the link-cache TTL (20min) so every episode doesn't re-fetch it.
+        val responseCacheKey = "${linked.secondaryApiName}|${linked.secondaryUrl}"
+        val secondary = synchronized(linkedResponseCache) {
+            linkedResponseCache[responseCacheKey]
+                ?.takeIf { unixTime - it.second < 60 * 20 }
+                ?.first
+        } ?: run {
+            when (val res = repo.load(linked.secondaryUrl)) {
+                is Resource.Success -> res.value.also { loaded ->
+                    synchronized(linkedResponseCache) {
+                        linkedResponseCache[responseCacheKey] = loaded to unixTime
+                    }
+                }
+
+                else -> {
+                    Log.w(TAG, "[LINKED_SRC] entry load failed: $res")
+                    return false
+                }
             }
         }
 
@@ -304,7 +325,11 @@ class RepoLinkGenerator(
             val ambiguous = matched.mapNotNull { it.second }.distinct().size > 1
             matched.forEach { (ep, status) ->
                 variants += ep.data to
-                        (if (ambiguous) (if (status == DubStatus.Subbed) "Sub" else "Dub") else null)
+                        (if (ambiguous) when (status) {
+                            DubStatus.Subbed -> "Sub"
+                            DubStatus.Dubbed -> "Dub"
+                            else -> null
+                        } else null)
             }
         }
 

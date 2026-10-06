@@ -1859,7 +1859,17 @@ class GeneratorPlayer : FullScreenPlayer() {
 
         if (percentage >= PRELOAD_NEXT_EPISODE_PERCENTAGE) {
             viewModel.preLoadNextLinks()
-            viewModel.maybeAutoQueueNextEpisode()
+        }
+
+        // One-ahead caching: start caching the next episode once this one is
+        // fully fetched — bufferedPosition reaching duration means the stream
+        // has nothing left to load (large-buffer configs fetch the whole file
+        // early). The 80% point is the fallback for configs that cannot hold
+        // the entire episode in buffer.
+        if ((player.getBufferedPosition() ?: 0L) >= duration ||
+            percentage >= PRELOAD_NEXT_EPISODE_PERCENTAGE
+        ) {
+            viewModel.maybeAutoQueueNextEpisode(currentStreamFullyLoaded = true)
         }
     }
 

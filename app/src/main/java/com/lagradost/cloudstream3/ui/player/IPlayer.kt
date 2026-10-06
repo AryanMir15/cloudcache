@@ -236,6 +236,8 @@ interface IPlayer {
     fun getDuration(): Long?
     /** Current player position in milliseconds */
     fun getPosition(): Long?
+    /** Buffered position in milliseconds — equals duration once the whole stream is fetched */
+    fun getBufferedPosition(): Long?
 
     fun seekTime(time: Long, source: PlayerEventSource = PlayerEventSource.UI)
     fun seekTo(time: Long, source: PlayerEventSource = PlayerEventSource.UI)

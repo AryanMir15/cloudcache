@@ -26,8 +26,10 @@ import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
 import com.lagradost.cloudstream3.utils.downloader.DownloadPlaybackGate
 import com.lagradost.cloudstream3.utils.downloader.DownloadQueueManager
+import com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager
 import com.lagradost.cloudstream3.utils.videoskip.SkipAPI
 import com.lagradost.cloudstream3.utils.videoskip.VideoSkipStamp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -134,21 +136,24 @@ class PlayerGeneratorViewModel : ViewModel() {
     private val autoQueuedEpisodeIds = mutableSetOf<Int>()
 
     /**
-     * One-ahead caching: once the episode being watched is fully on disk,
+     * One-ahead caching: once the episode being watched is fully fetched,
      * enqueue the next one through the normal download queue (the queue
      * service resolves the links itself and applies the quality/language
      * download preferences).
      *
-     * Triggered from GeneratorPlayer at play start, when the watched
-     * episode's download hits IsDone, and at the 80% preload point. Runs on
-     * the main dispatcher so the gate's disk reads and the dedup set stay
-     * single-threaded; repeated calls are cheap no-ops after the first queue.
+     * "Fully fetched" means the stream buffered to the end or playback passed
+     * the preload threshold ([currentStreamFullyLoaded] signalled by
+     * GeneratorPlayer), OR the file is verified on disk via the playback gate.
+     * Triggered from GeneratorPlayer at play start, when the watched episode's
+     * download hits IsDone, when the stream buffers to the end, and at the 80%
+     * preload point. Runs on IO since the gate does disk reads; repeated calls
+     * are cheap no-ops after the first queue.
      */
-    fun maybeAutoQueueNextEpisode() {
-        viewModelScope.launch { autoQueueNextEpisode() }
+    fun maybeAutoQueueNextEpisode(currentStreamFullyLoaded: Boolean = false) {
+        viewModelScope.launch(Dispatchers.IO) { autoQueueNextEpisode(currentStreamFullyLoaded) }
     }
 
-    private suspend fun autoQueueNextEpisode() {
+    private suspend fun autoQueueNextEpisode(currentStreamFullyLoaded: Boolean) {
         try {
             if (!DataStoreHelper.autoDownloadNextEpisode) return
             if (generator?.hasNext() != true) return
@@ -158,10 +163,12 @@ class PlayerGeneratorViewModel : ViewModel() {
             val ctx = CloudStreamApp.context ?: return
             val page = getLoadResponse() ?: return
 
-            // Trigger: the episode being watched must be fully cached. The gate
-            // re-verifies status + exact size + media3 sniff, so even a bogus
+            // Trigger: the episode being watched must be fully fetched. A
+            // verified local file counts even without a player signal — the
+            // gate re-checks status + exact size + media3 sniff, so a bogus
             // IsDone (filename-scan re-marks) cannot start the chain.
-            if (DownloadPlaybackGate.check(ctx, currentId, AUTO_NEXT_LOG) !=
+            if (!currentStreamFullyLoaded &&
+                DownloadPlaybackGate.check(ctx, currentId, AUTO_NEXT_LOG) !=
                 DownloadPlaybackGate.PlayableState.Ready
             ) {
                 return
@@ -176,6 +183,14 @@ class PlayerGeneratorViewModel : ViewModel() {
 
             // Terminal for this session: cached / queued / downloading already
             if (!autoQueuedEpisodeIds.add(next.id)) return
+            // An in-flight or user-paused download for the next episode must
+            // not be re-queued (the gate reports those as NotReady).
+            when (VideoDownloadManager.downloadStatus[next.id]) {
+                VideoDownloadManager.DownloadType.IsPending,
+                VideoDownloadManager.DownloadType.IsDownloading,
+                VideoDownloadManager.DownloadType.IsPaused -> return
+                else -> {}
+            }
             if (DownloadPlaybackGate.check(ctx, next.id, AUTO_NEXT_LOG) !=
                 DownloadPlaybackGate.PlayableState.NotReady
             ) {
