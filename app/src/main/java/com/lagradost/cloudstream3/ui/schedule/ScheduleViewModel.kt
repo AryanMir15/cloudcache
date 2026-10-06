@@ -68,7 +68,11 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
 
             val fresh = withContext(Dispatchers.IO) {
                 try {
-                    WeeklyScheduleManager.fetchFreshSchedule()
+                    WeeklyScheduleManager.fetchFreshSchedule { enriched ->
+                        // TMDB backdrops/logos resolved — swap in enriched items
+                        allItems = enriched
+                        applyFilter()
+                    }
                 } catch (e: Exception) {
                     null
                 }
@@ -112,7 +116,10 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
 
             val fresh = withContext(Dispatchers.IO) {
                 try {
-                    WeeklyScheduleManager.fetchFreshSchedule()
+                    WeeklyScheduleManager.fetchFreshSchedule { enriched ->
+                        allItems = enriched
+                        applyFilter()
+                    }
                 } catch (e: Exception) {
                     null
                 }

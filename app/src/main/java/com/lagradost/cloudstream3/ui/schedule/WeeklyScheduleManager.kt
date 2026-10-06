@@ -8,11 +8,19 @@ import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
 import com.lagradost.cloudstream3.utils.AppUtils.tryParseJson
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.DayOfWeek
@@ -65,6 +73,9 @@ object WeeklyScheduleManager {
     private const val TMDB_BACKDROP_BASE = "https://image.tmdb.org/t/p/original"
 
     private val enrichMutex = Mutex()
+
+    /** Detached scope for TMDB enrichment — must outlive the caller so banners/logos keep resolving after the UI gets its items. */
+    private val enrichScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private const val CACHE_PREFS = "weekly_schedule_cache"
     private const val KEY_SCHEDULE_JSON = "schedule_json"
@@ -249,17 +260,33 @@ object WeeklyScheduleManager {
         return System.currentTimeMillis() - timestamp <= CACHE_TTL_MS
     }
 
-    suspend fun fetchFreshSchedule(): List<WeeklyScheduleItem> {
-        return enrichMutex.withLock {
+    /**
+     * Fetch a fresh schedule. Returns as soon as the AniList/TMDB schedule lists
+     * are fetched and cached — TMDB image enrichment runs detached and invokes
+     * [onEnriched] with the reloaded (backdrop/logo-enriched) items when done.
+     */
+    suspend fun fetchFreshSchedule(
+        onEnriched: (suspend (List<WeeklyScheduleItem>) -> Unit)? = null
+    ): List<WeeklyScheduleItem> {
+        val fresh = enrichMutex.withLock {
             android.util.Log.d("SCHEDULE_BACKDROP", "fetchFreshSchedule called, fetching items...")
-            val fresh = fetchAllSchedule()
-            android.util.Log.d("SCHEDULE_BACKDROP", "Fetched ${fresh.size} items, saving to cache and starting enrichment...")
-            saveToCache(fresh)
-            enrichWithTmdbBackdrops(fresh)
-            // Reload from cache so items have enriched backdrop URLs
-            android.util.Log.d("SCHEDULE_BACKDROP", "Reloading items from cache with enriched backdrops...")
-            loadFromCache()
+            val items = fetchAllSchedule()
+            android.util.Log.d("SCHEDULE_BACKDROP", "Fetched ${items.size} items, saving to cache and starting enrichment...")
+            saveToCache(items)
+            items
         }
+
+        // Items already carry AniList banners/posters, so the caller renders now;
+        // enrichment updates the backdrop/logo caches and re-emits afterwards.
+        enrichScope.launch {
+            enrichMutex.withLock {
+                enrichWithTmdbBackdrops(fresh)
+                android.util.Log.d("SCHEDULE_BACKDROP", "Enrichment done, reloading enriched items")
+                onEnriched?.invoke(loadFromCache())
+            }
+        }
+
+        return loadFromCache()
     }
 
     private suspend fun fetchAllSchedule(): List<WeeklyScheduleItem> {
@@ -727,10 +754,12 @@ object WeeklyScheduleManager {
      */
     suspend fun fetchTvSchedule(apiKey: String): List<WeeklyScheduleItem> {
         return try {
-            val allItems = mutableListOf<WeeklyScheduleItem>()
             val today = LocalDate.now()
             val weekEnd = today.plusDays(7)
 
+            // Collect on_the_air pages first — the per-show detail calls below
+            // run in parallel, so page fetches stay sequential but cheap.
+            val candidates = mutableListOf<TmdbOnAirResult>()
             for (page in 1..3) {
                 val url = "$TMDB_BASE_URL/tv/on_the_air?api_key=$apiKey&page=$page&language=en-US"
                 val response = app.get(url, timeout = 8000)
@@ -738,41 +767,49 @@ object WeeklyScheduleManager {
 
                 val results = parsed.results ?: break
                 if (results.isEmpty()) break
-
-                for (result in results) {
-                    val id = result.id ?: continue
-                    val name = result.name ?: result.title ?: continue
-
-                    val details = fetchTvShowDetails(apiKey, id) ?: continue
-                    val nextAir = details.firstAirDate ?: continue
-
-                    val airDate = try {
-                        LocalDate.parse(nextAir)
-                    } catch (e: Exception) {
-                        continue
-                    }
-
-                    if (airDate.isBefore(today) || airDate.isAfter(weekEnd)) continue
-
-                    val posterUrl = details.posterPath?.let { "$TMDB_IMAGE_BASE$it" }
-                    val bannerUrl = details.backdropPath?.let { "$TMDB_BACKDROP_BASE$it" }
-
-                    allItems.add(
-                        WeeklyScheduleItem(
-                            scheduleId = id,
-                            scheduleName = name,
-                            schedulePosterUrl = posterUrl,
-                            scheduleBannerUrl = bannerUrl,
-                            scheduleLogoUrl = null,
-                            episodeNumber = null,
-                            airingAt = airDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
-                            scheduleType = ScheduleType.TV
-                        )
-                    )
-                }
+                candidates.addAll(results)
             }
 
-            allItems.sortedBy { it.airingAt }
+            // Bounded-parallel detail fetch: TMDB allows ~40 req/10s, 6 at a
+            // time stays well under while cutting the fetch to seconds.
+            val detailSemaphore = Semaphore(6)
+            val items = coroutineScope {
+                candidates.map { result ->
+                    async {
+                        detailSemaphore.withPermit {
+                            val id = result.id ?: return@withPermit null
+                            val name = result.name ?: result.title ?: return@withPermit null
+
+                            val details = fetchTvShowDetails(apiKey, id) ?: return@withPermit null
+                            val nextAir = details.firstAirDate ?: return@withPermit null
+
+                            val airDate = try {
+                                LocalDate.parse(nextAir)
+                            } catch (e: Exception) {
+                                return@withPermit null
+                            }
+
+                            if (airDate.isBefore(today) || airDate.isAfter(weekEnd)) return@withPermit null
+
+                            val posterUrl = details.posterPath?.let { "$TMDB_IMAGE_BASE$it" }
+                            val bannerUrl = details.backdropPath?.let { "$TMDB_BACKDROP_BASE$it" }
+
+                            WeeklyScheduleItem(
+                                scheduleId = id,
+                                scheduleName = name,
+                                schedulePosterUrl = posterUrl,
+                                scheduleBannerUrl = bannerUrl,
+                                scheduleLogoUrl = null,
+                                episodeNumber = null,
+                                airingAt = airDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+                                scheduleType = ScheduleType.TV
+                            )
+                        }
+                    }
+                }.awaitAll().filterNotNull()
+            }
+
+            items.sortedBy { it.airingAt }
         } catch (e: Exception) {
             logError(e)
             emptyList()
