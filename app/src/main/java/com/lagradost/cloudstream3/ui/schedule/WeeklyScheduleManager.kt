@@ -199,9 +199,9 @@ object WeeklyScheduleManager {
                 prefs.edit().clear().putInt(KEY_SCHEDULE_CACHE_VERSION, SCHEDULE_CACHE_VERSION).apply()
                 return emptyList()
             }
-            val timestamp = prefs.getLong(KEY_CACHE_TIMESTAMP, 0)
-            if (System.currentTimeMillis() - timestamp > CACHE_TTL_MS) return emptyList()
-
+            // TTL is intentionally not checked here — callers decide freshness via
+            // isCacheValid(). Returning stale items enables stale-while-revalidate:
+            // show the old schedule instantly, refresh in the background.
             val json = prefs.getString(KEY_SCHEDULE_JSON, null) ?: return emptyList()
             val jsonArray = JSONArray(json)
             val items = mutableListOf<WeeklyScheduleItem>()
