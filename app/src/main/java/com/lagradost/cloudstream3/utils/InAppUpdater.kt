@@ -265,15 +265,19 @@ object InAppUpdater {
         }
     }
 
-    /** Deletes interrupted downloads and every cached APK except [keepVersion]. */
+    /** Deletes stale partials and every cached APK except [keepVersion]. */
     internal fun cleanupUpdateFiles(context: Context, keepVersion: String?) {
         try {
             val keep = keepVersion?.let { "update-$it.apk" }
+            // Keep the pending version's .part — a killed download resumes it
+            val keepPart = keepVersion?.let { "update-$it.apk.part" }
             updatesDir(context).listFiles()?.forEach { file ->
                 val isPart = file.extension == "part"
                 val isUpdateApk =
                     file.extension == "apk" && file.name.startsWith("update-")
-                if (isPart || (isUpdateApk && file.name != keep)) {
+                if ((isPart && file.name != keepPart) ||
+                    (isUpdateApk && file.name != keep)
+                ) {
                     file.delete()
                 }
             }
@@ -282,10 +286,83 @@ object InAppUpdater {
         }
     }
 
+    private const val UPDATE_DOWNLOAD_ATTEMPTS = 4
+
+    /**
+     * Streams [url] into [temp], resuming an existing partial via HTTP Range.
+     * A server that ignores Range (200 instead of 206) makes the file restart
+     * from byte 0 so mismatched bytes are never spliced. Connection failures
+     * retry — one dropped socket at 99% used to throw away the whole update.
+     */
+    private suspend fun streamUpdateToFile(
+        url: String,
+        temp: File,
+        expectedSize: Long?,
+        onProgress: (downloaded: Long, total: Long) -> Unit
+    ): Boolean {
+        repeat(UPDATE_DOWNLOAD_ATTEMPTS) { attempt ->
+            val existing = if (temp.isFile) temp.length() else 0L
+            // A previous attempt may have every byte but died before rename
+            if (expectedSize != null && expectedSize > 0 && existing >= expectedSize) {
+                return true
+            }
+            try {
+                val response = app.get(
+                    url,
+                    headers = if (existing > 0) mapOf("Range" to "bytes=$existing-")
+                    else emptyMap()
+                )
+                if (response.code !in 200..299) {
+                    Log.w(
+                        LOG_TAG,
+                        "Update download HTTP ${response.code} (attempt ${attempt + 1})"
+                    )
+                    return@repeat
+                }
+                // 206 = range honored → append. Anything else → the server sent
+                // the whole body, so truncate and write from scratch.
+                val resuming = existing > 0 && response.code == 206 &&
+                        run {
+                            val start = response.headers["Content-Range"]
+                                ?.removePrefix("bytes ")
+                                ?.substringBefore("-")
+                                ?.toLongOrNull()
+                            start == null || start == existing
+                        }
+                var downloaded = if (resuming) existing else 0L
+                // On a 206 the body only carries the remaining bytes — add the
+                // part already on disk so `total` means the full file size
+                val total = expectedSize?.takeIf { it > 0 }
+                    ?: (response.body.contentLength() + if (resuming) existing else 0L)
+                temp.sink(append = resuming).buffer().use { sink ->
+                    response.body.byteStream().use { input ->
+                        val buffer = ByteArray(8 * 1024)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            downloaded += read
+                            sink.write(buffer, 0, read)
+                            onProgress(downloaded, total)
+                        }
+                    }
+                }
+                if (total <= 0 || downloaded == total) return true
+                Log.w(
+                    LOG_TAG,
+                    "Update download short: $downloaded/$total (attempt ${attempt + 1})"
+                )
+            } catch (e: Exception) {
+                Log.w(LOG_TAG, "Update download attempt ${attempt + 1} failed: ${e.message}")
+            }
+        }
+        return false
+    }
+
     /**
      * Returns the APK for this update, downloading it to [updatesDir] first if
      * it is not already fully on disk. Returns null on any failure — callers
-     * must not fall back to a partially written file.
+     * must not fall back to a partially written file. The .part is kept so a
+     * later attempt resumes where this one stopped.
      */
     internal suspend fun ensureDownloaded(
         context: Context,
@@ -303,25 +380,11 @@ object InAppUpdater {
                 downloadedUpdateFile(context, version, expectedSize)
                     ?: run {
                         Log.d(LOG_TAG, "Downloading update: $url")
-                        temp.delete()
-                        val body = app.get(url).body
-                        val total =
-                            expectedSize?.takeIf { it > 0 } ?: body.contentLength()
-                        var downloaded = 0L
                         target.parentFile?.mkdirs()
-                        temp.sink().buffer().use { sink ->
-                            body.byteStream().use { input ->
-                                val buffer = ByteArray(8 * 1024)
-                                while (true) {
-                                    val read = input.read(buffer)
-                                    if (read < 0) break
-                                    downloaded += read
-                                    sink.write(buffer, 0, read)
-                                    onProgress(downloaded, total)
-                                }
-                            }
+                        if (!streamUpdateToFile(url, temp, expectedSize, onProgress)) {
+                            return@run null
                         }
-                        if ((total > 0 && downloaded != total) || !temp.renameTo(target)) {
+                        if (!temp.renameTo(target)) {
                             temp.delete()
                             null
                         } else {
@@ -333,7 +396,6 @@ object InAppUpdater {
             }
         } catch (e: Exception) {
             logError(e)
-            temp.delete()
             null
         }
     }
