@@ -495,6 +495,7 @@ class ResultViewModel2 : ViewModel() {
         currentSync = null
         // Don't clear justUnsubscribedId here - it needs to persist across the reload cycle
         _isMetadataSwapMode.postValue(false)
+        _recommendations.postValue(emptyList())
         _page.postValue(null)
     }
 
@@ -5274,6 +5275,10 @@ class ResultViewModel2 : ViewModel() {
         ioSafe {
             _page.postValue(Resource.Loading(url))
             _episodes.postValue(Resource.Loading())
+            // Drop the previous page's recommendations immediately — they
+            // otherwise render on the new page until the fresh/cached list
+            // arrives, then visibly vanish.
+            _recommendations.postValue(emptyList())
 
             preferDubStatus = dubStatus
             currentShowFillers = showFillers
