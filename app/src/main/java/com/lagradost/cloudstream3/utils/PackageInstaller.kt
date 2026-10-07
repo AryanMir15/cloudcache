@@ -144,20 +144,31 @@ class ApkInstaller(private val service: PackageInstallerService) {
                     // Session-level failure — the staged session is dead, but
                     // keep the URL/version keys so the durable APK can retry.
                     context.removeKey(PENDING_SESSION_ID)
+                    val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -1)
+                    val message = intent.getStringExtra(
+                        PackageInstaller.EXTRA_STATUS_MESSAGE
+                    ) ?: "install status $status"
+                    Log.e(TAG, "Install session failed: $message")
+                    installStatusCallback?.invoke(
+                        InstallProgressStatus.Failed, message.take(200)
+                    )
                 }
             }
         }
     }
+
+    private var installStatusCallback: ((InstallProgressStatus, String?) -> Unit)? = null
 
     fun installApk(
         context: Context,
         inputStream: InputStream,
         size: Long,
         installProgress: (bytesRead: Int) -> Unit,
-        installProgressStatus: (InstallProgressStatus) -> Unit,
+        installProgressStatus: (InstallProgressStatus, String?) -> Unit,
         version: String? = null
     ) {
-        installProgressStatus.invoke(InstallProgressStatus.Preparing)
+        installProgressStatus.invoke(InstallProgressStatus.Preparing, null)
+        installStatusCallback = installProgressStatus
         var activeSession: Int? = null
 
         try {
@@ -167,12 +178,12 @@ class ApkInstaller(private val service: PackageInstallerService) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 installParams.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
             }
-
-            activeSession = packageInstaller.createSession(installParams)
             installParams.setSize(size)
 
+            activeSession = packageInstaller.createSession(installParams)
+
             val session = packageInstaller.openSession(activeSession)
-            installProgressStatus.invoke(InstallProgressStatus.Downloading)
+            installProgressStatus.invoke(InstallProgressStatus.Downloading, null)
 
             session.openWrite(context.packageName, 0, size)
                 .use { outputStream ->
@@ -222,14 +233,14 @@ class ApkInstaller(private val service: PackageInstallerService) {
                 // Also post a notification so the pending install is visible if the app exits
                 showDelayedInstallNotification(context, version)
             } else {
-                installProgressStatus.invoke(InstallProgressStatus.Installing)
+                installProgressStatus.invoke(InstallProgressStatus.Installing, null)
                 session.commit(intentSender)
             }
         } catch (e: Exception) {
             logError(e)
 
             service.unregisterReceiver(installActionReceiver)
-            installProgressStatus.invoke(InstallProgressStatus.Failed)
+            installProgressStatus.invoke(InstallProgressStatus.Failed, e.message)
 
             activeSession?.let { sessionId ->
                 packageInstaller.abandonSession(sessionId)

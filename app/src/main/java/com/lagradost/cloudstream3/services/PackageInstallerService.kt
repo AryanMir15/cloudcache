@@ -77,7 +77,11 @@ class PackageInstallerService : Service() {
             }
 
             if (file == null) {
-                updateNotificationProgress(0f, ApkInstaller.InstallProgressStatus.Failed)
+                updateNotificationProgress(
+                    0f,
+                    ApkInstaller.InstallProgressStatus.Failed,
+                    getString(R.string.download_failed)
+                )
                 return
             }
 
@@ -85,30 +89,49 @@ class PackageInstallerService : Service() {
                 .getDefaultSharedPreferences(this)
                 .getInt(getString(R.string.apk_installer_key), 1) != 0
 
+            if (useLegacyInstaller && openApk(file) == null) {
+                // System package installer UI took over
+                updateNotificationProgress(
+                    0f,
+                    ApkInstaller.InstallProgressStatus.Installing
+                )
+                return
+            }
+            // Reaching here means either the session installer was selected,
+            // or ACTION_VIEW could not hand off the APK (no resolver found,
+            // FileProvider error, ...) — fall back to the session installer
+            // instead of failing outright.
             if (useLegacyInstaller) {
-                if (!openApk(file)) {
-                    updateNotificationProgress(0f, ApkInstaller.InstallProgressStatus.Failed)
-                }
-            } else {
-                updateNotificationProgress(0f, ApkInstaller.InstallProgressStatus.Installing)
-                installer = ApkInstaller(this)
-                installer?.installApk(
-                    this,
-                    file.inputStream(),
-                    file.length(),
-                    {},
-                    { status -> updateNotificationProgress(0f, status) },
-                    version
+                Log.w(
+                    "PackageInstallerService",
+                    "ACTION_VIEW install failed, falling back to session installer"
                 )
             }
+            updateNotificationProgress(0f, ApkInstaller.InstallProgressStatus.Installing)
+            installer = ApkInstaller(this)
+            installer?.installApk(
+                this,
+                file.inputStream(),
+                file.length(),
+                {},
+                { status, detail -> updateNotificationProgress(0f, status, detail) },
+                version
+            )
         } catch (e: Exception) {
             logError(e)
-            updateNotificationProgress(0f, ApkInstaller.InstallProgressStatus.Failed)
+            updateNotificationProgress(
+                0f,
+                ApkInstaller.InstallProgressStatus.Failed,
+                e.message
+            )
         }
     }
 
-    /** Legacy install: hand the APK to the system package installer UI. */
-    private fun openApk(file: File): Boolean = try {
+    /**
+     * Legacy install: hand the APK to the system package installer UI.
+     * Returns null on success, or a short failure reason to surface.
+     */
+    private fun openApk(file: File): String? = try {
         val contentUri = FileProvider.getUriForFile(
             this, BuildConfig.APPLICATION_ID + ".provider", file
         )
@@ -117,18 +140,22 @@ class PackageInstallerService : Service() {
             // Service context requires NEW_TASK to launch an activity
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
-            data = contentUri
+            // Without an explicit type the resolver must deduce it through
+            // FileProvider.getType() — some installers/ROMs never resolve
+            // the bare content URI, making the intent throw.
+            setDataAndType(contentUri, "application/vnd.android.package-archive")
         }
         startActivity(installIntent)
-        true
+        null
     } catch (e: Exception) {
         logError(e)
-        false
+        e.message ?: e.javaClass.simpleName
     }
 
     private fun updateNotificationProgress(
         percentage: Float,
-        state: ApkInstaller.InstallProgressStatus
+        state: ApkInstaller.InstallProgressStatus,
+        detail: String? = null
     ) {
 //        Log.d(LOG_TAG, "Downloading app update progress $percentage | $state")
         val text = when (state) {
@@ -143,6 +170,9 @@ class PackageInstallerService : Service() {
                 if (state == ApkInstaller.InstallProgressStatus.Failed) {
                     setSmallIcon(R.drawable.rderror)
                     setAutoCancel(true)
+                    if (!detail.isNullOrBlank()) {
+                        setContentText(detail.take(200))
+                    }
                 } else {
                     setProgress(
                         10000, (10000 * percentage).roundToInt(),
