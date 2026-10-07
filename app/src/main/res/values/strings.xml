@@ -377,9 +377,6 @@
     <string name="auto_download_network_title">Auto-download network preference</string>
     <string name="auto_download_network_summary">Choose which network types to use for auto-download</string>
     <string name="download_subtitle_languages_summary">Subtitle languages to download with each episode (all variants, max 5 per language)</string>
-    <string name="auto_download_next_category">Auto-Cache Next Episode</string>
-    <string name="auto_download_next_title">Auto-cache next episode while watching</string>
-    <string name="auto_download_next_summary">When the episode you are watching is fully cached, download the next one ahead of time so it plays instantly from local storage</string>
     <string name="linked_source_title">Playback sources</string>
     <string name="linked_source_copy_title">Copy title</string>
     <string name="linked_source_add">Link another source</string>

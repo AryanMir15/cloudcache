@@ -165,17 +165,6 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="@string/auto_download_next_category">
-
-        <SwitchPreference
-            android:icon="@drawable/netflix_download"
-            android:key="auto_download_next_episode"
-            android:title="@string/auto_download_next_title"
-            android:summary="@string/auto_download_next_summary"
-            android:defaultValue="true" />
-
-    </PreferenceCategory>
-
     <PreferenceCategory android:title="Library Management">
 
         <Preference

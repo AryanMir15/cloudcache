@@ -136,8 +136,6 @@ object DataStoreHelper {
     var subscriptionDownloadRetryDelaySeconds by UserPreferenceDelegate("subscription_dl_retry_delay", 60)
     // Network preference for auto-download: "wifi_only", "data_only", "both"
     var autoDownloadNetworkPreference by UserPreferenceDelegate("auto_download_network_pref", "wifi_only")
-    // One-ahead caching: when the watched episode is fully cached, queue the next one
-    var autoDownloadNextEpisode by UserPreferenceDelegate("auto_download_next_episode", true)
 
     // Spoiler prevention mode
     var spoilerPreventionMode by UserPreferenceDelegate(SPOILER_PREV_KEY, SPOILER_MODE_OFF)

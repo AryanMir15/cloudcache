@@ -554,19 +554,6 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
             }
         }
 
-        // Auto-cache next episode while watching (one episode ahead)
-        findPreference<androidx.preference.SwitchPreference>("auto_download_next_episode")?.let { pref ->
-            pref.isChecked = com.lagradost.cloudstream3.utils.DataStoreHelper.autoDownloadNextEpisode
-            pref.setOnPreferenceChangeListener { _, newValue ->
-                com.lagradost.cloudstream3.utils.DataStoreHelper.autoDownloadNextEpisode = newValue as Boolean
-                android.util.Log.d(
-                    "SettingsGeneral",
-                    "Auto-cache next episode: ${com.lagradost.cloudstream3.utils.DataStoreHelper.autoDownloadNextEpisode}"
-                )
-                true
-            }
-        }
-
         // Auto-download retry count - selectable dialog
         findPreference<androidx.preference.Preference>("subscription_dl_retry_count")?.setOnPreferenceClickListener {
             val retryOptions = arrayOf("No retries (0)", "1 attempt", "2 attempts", "3 attempts", "5 attempts", "10 attempts")

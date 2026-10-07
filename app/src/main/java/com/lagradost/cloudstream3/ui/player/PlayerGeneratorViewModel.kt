@@ -1,42 +1,28 @@
 package com.lagradost.cloudstream3.ui.player
 
-import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.util.Log
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.LoadResponse
-import com.lagradost.cloudstream3.LoadResponse.Companion.isMovie
-import com.lagradost.cloudstream3.isLiveStream
 import com.lagradost.cloudstream3.mvvm.Resource
 import com.lagradost.cloudstream3.mvvm.launchSafe
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.mvvm.safeApiCall
 import com.lagradost.cloudstream3.ui.result.ResultEpisode
-import com.lagradost.cloudstream3.ui.result.getId
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
-import com.lagradost.cloudstream3.utils.DataStoreHelper
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
-import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
-import com.lagradost.cloudstream3.utils.downloader.DownloadPlaybackGate
-import com.lagradost.cloudstream3.utils.downloader.DownloadQueueManager
-import com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager
 import com.lagradost.cloudstream3.utils.videoskip.SkipAPI
 import com.lagradost.cloudstream3.utils.videoskip.VideoSkipStamp
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class PlayerGeneratorViewModel : ViewModel() {
     companion object {
         const val TAG = "PlayViewGen"
-        private const val AUTO_NEXT_LOG = "AUTO_NEXT_DL"
     }
 
     private var generator: IGenerator? = null
@@ -129,113 +115,6 @@ class PlayerGeneratorViewModel : ViewModel() {
                     currentLoadingEpisodeId = null
                 }
             }
-        }
-    }
-
-    /** Episode ids already considered for one-ahead caching this session. */
-    private val autoQueuedEpisodeIds = mutableSetOf<Int>()
-
-    /**
-     * One-ahead caching: once the episode being watched is fully fetched,
-     * enqueue the next one through the normal download queue (the queue
-     * service resolves the links itself and applies the quality/language
-     * download preferences).
-     *
-     * "Fully fetched" means the stream buffered to the end or playback passed
-     * the preload threshold ([currentStreamFullyLoaded] signalled by
-     * GeneratorPlayer), OR the file is verified on disk via the playback gate.
-     * Triggered from GeneratorPlayer at play start, when the watched episode's
-     * download hits IsDone, when the stream buffers to the end, and at the 80%
-     * preload point. Runs on IO since the gate does disk reads; repeated calls
-     * are cheap no-ops after the first queue.
-     */
-    fun maybeAutoQueueNextEpisode(currentStreamFullyLoaded: Boolean = false) {
-        viewModelScope.launch(Dispatchers.IO) { autoQueueNextEpisode(currentStreamFullyLoaded) }
-    }
-
-    private suspend fun autoQueueNextEpisode(currentStreamFullyLoaded: Boolean) {
-        try {
-            if (!DataStoreHelper.autoDownloadNextEpisode) return
-            if (generator?.hasNext() != true) return
-            val next = getNextMeta() as? ResultEpisode ?: return
-            if (next.tvType.isLiveStream()) return
-            val currentId = getId() ?: return
-            val ctx = CloudStreamApp.context ?: return
-            val page = getLoadResponse() ?: return
-
-            // Trigger: the episode being watched must be fully fetched. A
-            // verified local file counts even without a player signal — the
-            // gate re-checks status + exact size + media3 sniff, so a bogus
-            // IsDone (filename-scan re-marks) cannot start the chain.
-            if (!currentStreamFullyLoaded &&
-                DownloadPlaybackGate.check(ctx, currentId, AUTO_NEXT_LOG) !=
-                DownloadPlaybackGate.PlayableState.Ready
-            ) {
-                return
-            }
-
-            // Honor the shared auto-download network preference (wifi_only by
-            // default). Not terminal: a later trigger still queues it.
-            if (!isNetworkAllowedForAutoDownload(ctx)) {
-                Log.i(TAG, "$AUTO_NEXT_LOG deferred ep ${next.episode} — network not allowed")
-                return
-            }
-
-            // Terminal for this session: cached / queued / downloading already
-            if (!autoQueuedEpisodeIds.add(next.id)) return
-            // An in-flight or user-paused download for the next episode must
-            // not be re-queued (the gate reports those as NotReady).
-            when (VideoDownloadManager.downloadStatus[next.id]) {
-                VideoDownloadManager.DownloadType.IsPending,
-                VideoDownloadManager.DownloadType.IsDownloading,
-                VideoDownloadManager.DownloadType.IsPaused -> return
-                else -> {}
-            }
-            if (DownloadPlaybackGate.check(ctx, next.id, AUTO_NEXT_LOG) !=
-                DownloadPlaybackGate.PlayableState.NotReady
-            ) {
-                return
-            }
-
-            DownloadQueueManager.addToQueue(
-                DownloadObjects.DownloadQueueItem(
-                    next,
-                    page.isMovie(),
-                    page.name,
-                    page.type,
-                    page.posterUrl,
-                    page.apiName,
-                    page.getId(),
-                    page.url,
-                    dubStatus = next.dubStatus,
-                ).toWrapper()
-            )
-            Log.i(
-                TAG,
-                "$AUTO_NEXT_LOG queued ep ${next.episode} id=${next.id} for '${page.name}'"
-            )
-        } catch (t: Throwable) {
-            logError(t)
-        }
-    }
-
-    /** Mirrors EpisodeCheckWorkManager's guard; preference defaults to wifi_only. */
-    private fun isNetworkAllowedForAutoDownload(ctx: Context): Boolean {
-        return try {
-            val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val active = cm.activeNetwork ?: return false
-            val caps = cm.getNetworkCapabilities(active) ?: return false
-            val isWifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
-            val isMobile = caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
-            when (DataStoreHelper.autoDownloadNetworkPreference) {
-                "wifi_only" -> isWifi
-                "data_only" -> isMobile
-                "both" -> isWifi || isMobile
-                else -> isWifi
-            }
-        } catch (t: Throwable) {
-            logError(t)
-            false
         }
     }
 

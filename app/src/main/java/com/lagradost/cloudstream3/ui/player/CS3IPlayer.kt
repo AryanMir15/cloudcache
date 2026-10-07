@@ -199,7 +199,6 @@ class CS3IPlayer : IPlayer {
 
     override fun getDuration(): Long? = exoPlayer?.duration
     override fun getPosition(): Long? = exoPlayer?.currentPosition
-    override fun getBufferedPosition(): Long? = exoPlayer?.bufferedPosition
     override fun getIsPlaying(): Boolean = isPlaying
     override fun getPlaybackSpeed(): Float = playBackSpeed
 
