@@ -1420,7 +1420,17 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             root.isGone = false
             root.post {
                 rec?.let { list ->
-                    (resultRecommendationsList.adapter as? SearchAdapter)?.submitList(list.filter { it.apiName == matchAgainst })
+                    // Default view shows every unique title — filtering to the
+                    // first entry's apiName hid all other provider groups
+                    // behind the filter chip. The chip still narrows to one
+                    // provider when picked. First occurrence wins so entries
+                    // carrying a real provider URL beat rewritten sync copies.
+                    val visible = if (validApiName != null) {
+                        list.filter { it.apiName == matchAgainst }
+                    } else {
+                        list.distinctBy { it.name.trim().lowercase() to it.type }
+                    }
+                    (resultRecommendationsList.adapter as? SearchAdapter)?.submitList(visible)
                 }
             }
         }

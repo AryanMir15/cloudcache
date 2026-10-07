@@ -5039,7 +5039,12 @@ class ResultViewModel2 : ViewModel() {
                     override var tags: List<String>? = null
                 }
             } ?: emptyList()
-            _recommendations.postValue(cachedRecommendations)
+            // Only post when the cache actually holds recommendations —
+            // an empty post here wiped entries already loaded from the API
+            // on the metadata-only reload path (same guard as postPage).
+            if (cachedHeader.recommendations != null) {
+                _recommendations.postValue(cachedRecommendations)
+            }
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Loaded ${cachedRecommendations.size} recommendations from cache")
             
             android.util.Log.d("CacheFlow", "loadOfflineEpisodes - Initialized state - currentDubStatus: $currentDubStatus, currentSeasons: $currentSeasons, currentId: $currentId")
