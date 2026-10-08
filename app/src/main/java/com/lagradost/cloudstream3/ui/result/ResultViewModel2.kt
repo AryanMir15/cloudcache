@@ -2885,7 +2885,20 @@ class ResultViewModel2 : ViewModel() {
                                 actors = actorsToSave,
                                 tags = mergedResponse.tags,
                                 cacheTime = System.currentTimeMillis(),
-                                metadataOnlyMode = false
+                                metadataOnlyMode = false,
+                                // Preserve recs — a metadata refresh used to wipe
+                                // the cached recommendations, leaving the panel
+                                // empty on every subsequent cache-first load.
+                                recommendations = preRefreshCachedHeader?.recommendations
+                                    ?: mergedResponse.recommendations?.map { rec ->
+                                        DownloadObjects.CachedSearchResponse(
+                                            name = rec.name,
+                                            url = rec.url,
+                                            apiName = rec.apiName,
+                                            posterUrl = rec.posterUrl,
+                                            type = rec.type ?: TvType.Movie
+                                        )
+                                    }
                             ) ?: DownloadObjects.DownloadHeaderCached(
                                 apiName = mergedResponse.apiName,
                                 url = mergedResponse.url,
@@ -2904,7 +2917,16 @@ class ResultViewModel2 : ViewModel() {
                                 tags = mergedResponse.tags,
                                 id = id,
                                 cacheTime = System.currentTimeMillis(),
-                                metadataOnlyMode = false
+                                metadataOnlyMode = false,
+                                recommendations = mergedResponse.recommendations?.map { rec ->
+                                    DownloadObjects.CachedSearchResponse(
+                                        name = rec.name,
+                                        url = rec.url,
+                                        apiName = rec.apiName,
+                                        posterUrl = rec.posterUrl,
+                                        type = rec.type ?: TvType.Movie
+                                    )
+                                }
                             )
                         )
                     }
@@ -4269,7 +4291,24 @@ class ResultViewModel2 : ViewModel() {
                     headers = trailer.headers
                 )
             }?.toMutableList() ?: mutableListOf(),
-            recommendations = null,
+            // Restore cached recommendations — postPage only posts when the
+            // response carries them, so a null here leaves the recommendations
+            // panel empty on every cache-first load (loadOfflineEpisodes can
+            // also return early for metadata-only headers before it posts).
+            recommendations = cachedHeader.recommendations?.map { rec ->
+                object : SearchResponse {
+                    override val name: String = rec.name
+                    override val url: String = rec.url
+                    override val apiName: String = rec.apiName
+                    override var posterUrl: String? = rec.posterUrl
+                    override var posterHeaders: Map<String, String>? = null
+                    override var id: Int? = null
+                    override var type: TvType? = rec.type
+                    override var score: Score? = null
+                    override var quality: SearchQuality? = null
+                    override var tags: List<String>? = null
+                }
+            },
             actors = actors,
             comingSoon = cachedHeader.comingSoon ?: false,
             // FIX: Restore syncData from cached header
