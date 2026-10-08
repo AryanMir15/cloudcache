@@ -14,6 +14,7 @@ import com.lagradost.cloudstream3.CloudStreamApp.Companion.setKey
 import com.lagradost.cloudstream3.CloudStreamApp.Companion.setKeyClass
 import com.lagradost.cloudstream3.CommonActivity.showToast
 import com.lagradost.cloudstream3.DubStatus
+import com.lagradost.cloudstream3.Episode
 import com.lagradost.cloudstream3.EpisodeResponse
 import com.lagradost.cloudstream3.MainActivity
 import com.lagradost.cloudstream3.R
@@ -902,6 +903,12 @@ object DataStoreHelper {
  */
 fun EpisodeResponse.getAiredLatestEpisodes(): Map<DubStatus, Int?> {
     val now = System.currentTimeMillis()
+    // Latest aired episode encoded as season * 1_000_000 + episode (season
+    // defaults to 1). The encoding keeps the value monotonic ACROSS seasons,
+    // so a per-season-numbered show (S1: 1-25, S2: 1-12) reports S2E1 > S1E25
+    // and a new season actually notifies. Absolute-numbered shows (constant or
+    // null season) are unaffected. Decode for display: episode = value % 1_000_000.
+    fun encoded(ep: Episode): Int = (ep.season ?: 1) * 1_000_000 + (ep.episode ?: 0)
     return when (this) {
         is AnimeLoadResponse -> {
             this.episodes.map { (status, episodes) ->
@@ -910,12 +917,7 @@ fun EpisodeResponse.getAiredLatestEpisodes(): Map<DubStatus, Int?> {
                     d == null || d <= now
                 }
                 val considered = if (aired.isEmpty()) episodes else aired
-                val maxSeason = considered.maxOfOrNull { it.season ?: Int.MIN_VALUE }
-                    .takeUnless { it == Int.MIN_VALUE }
-                status to considered
-                    .filter { it.season == maxSeason }
-                    .maxOfOrNull { it.episode ?: Int.MIN_VALUE }
-                    .takeUnless { it == Int.MIN_VALUE }
+                status to considered.maxOfOrNull { encoded(it) }
             }.toMap()
         }
         is TvSeriesLoadResponse -> {
@@ -924,14 +926,7 @@ fun EpisodeResponse.getAiredLatestEpisodes(): Map<DubStatus, Int?> {
                 d == null || d <= now
             }
             val considered = if (aired.isEmpty()) this.episodes else aired
-            val maxSeason = considered.maxOfOrNull { it.season ?: Int.MIN_VALUE }
-                .takeUnless { it == Int.MIN_VALUE }
-            mapOf(
-                DubStatus.None to considered
-                    .filter { it.season == maxSeason }
-                    .maxOfOrNull { it.episode ?: Int.MIN_VALUE }
-                    .takeUnless { it == Int.MIN_VALUE }
-            )
+            mapOf(DubStatus.None to considered.maxOfOrNull { encoded(it) })
         }
         else -> emptyMap()
     }

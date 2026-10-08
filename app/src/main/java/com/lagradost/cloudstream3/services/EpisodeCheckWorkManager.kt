@@ -29,6 +29,7 @@ import com.lagradost.cloudstream3.utils.downloader.DownloadObjects
 import com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached
 import com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE
 import com.lagradost.cloudstream3.utils.DOWNLOAD_EPISODE_CACHE
+import com.lagradost.cloudstream3.utils.EPISODE_PARENT_INDEX
 import com.lagradost.cloudstream3.DubStatus
 import com.lagradost.cloudstream3.AnimeLoadResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
@@ -245,7 +246,10 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             return CheckResult.ApiFailure("No response from ${subscription.apiName}")
         }
         
-        // Get latest episode counts per dub status, ignoring unaired/planned episodes
+        // Get latest episode counts per dub status, ignoring unaired/planned episodes.
+        // Values are encoded (season * 1_000_000 + episode) so per-season-numbered
+        // shows stay monotonic across seasons — a new season's episode 1 must
+        // compare greater than the previous season's episode 25.
         val latestEpisodes = response.getAiredLatestEpisodes()
         val lastSeen = subscription.lastSeenEpisodeCount
         
@@ -264,14 +268,18 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             }
         }
         
-        // Update cache with fresh episode count (for offline mode support)
-        updateCachedEpisodeCount(id, latestEpisodes)
+        // Renew the cached entry while the fresh data is in hand — header count,
+        // season metadata, per-episode cache and the parent index, so the
+        // offline/cached view shows the new episodes without a force-refresh.
+        updateCachedEpisodeCount(id, response, newEpisodesByStatus.keys)
         
         if (newEpisodesByStatus.isEmpty()) return CheckResult.NoChange
         
-        // Notify or auto-download for each dub status with new episodes
+        // Notify or auto-download for each dub status with new episodes.
+        // The displayed/looked-up episode is the RAW number, not the encoded value.
         var allHandled = true
-        newEpisodesByStatus.forEach { (status, latestEpisode) ->
+        newEpisodesByStatus.forEach { (status, latest) ->
+            val latestEpisode = latestAiredEpisodeNumber(response, status) ?: (latest % 1_000_000)
             val handled = handleNewEpisodes(subscription, response, status, latestEpisode)
             if (!handled) allHandled = false
         }
@@ -284,28 +292,149 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
         return CheckResult.NewEpisodes(newEpisodesByStatus.values.sum())
     }
 
-    private fun updateCachedEpisodeCount(id: Int, latestEpisodes: Map<DubStatus, Int?>) {
-        // Calculate total episode count (sum across all dub statuses, or max)
-        val totalEpisodes = latestEpisodes.values.filterNotNull().maxOrNull() ?: return
-        
-        // Update the cached header
+    /** Raw episode number of the latest aired episode for [status] — what the
+     *  notification shows and the auto-download looks up. Mirrors the encoding
+     *  used by getAiredLatestEpisodes without exposing the encoded value. */
+    private fun latestAiredEpisodeNumber(
+        response: EpisodeResponse,
+        status: DubStatus
+    ): Int? {
+        val list = when (response) {
+            is AnimeLoadResponse -> response.episodes[status].orEmpty()
+            is TvSeriesLoadResponse -> response.episodes
+            else -> return null
+        }
+        val now = System.currentTimeMillis()
+        val aired = list.filter { ep ->
+            val d = ep.date
+            d == null || d <= now
+        }
+        val considered = if (aired.isEmpty()) list else aired
+        return considered.maxByOrNull {
+            (it.season ?: 1) * 1_000_000 + (it.episode ?: 0)
+        }?.episode
+    }
+
+    /**
+     * Renews the cached entry for a subscribed show while fresh data is present:
+     * header episode count, per-season metadata, per-episode cache entries and
+     * the parent index — so the offline/cached result view reflects the new
+     * episodes without the user having to force-refresh.
+     */
+    private fun updateCachedEpisodeCount(
+        id: Int,
+        response: EpisodeResponse,
+        newStatuses: Set<DubStatus>
+    ) {
         val cacheKey = CloudStreamApp.getKeys(DOWNLOAD_HEADER_CACHE)
             ?.find { key ->
                 val header = CloudStreamApp.getKey<DownloadHeaderCached>(key)
                 header?.id == id
-            }
-        
-        cacheKey?.let { key ->
-            val existing = CloudStreamApp.getKey<DownloadHeaderCached>(key)
-            existing?.let { header ->
-                val updated = header.copy(
-                    episodeCount = totalEpisodes,
-                    cacheTime = System.currentTimeMillis()
-                )
-                CloudStreamApp.setKey(DOWNLOAD_HEADER_CACHE, key, updated)
-                android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_CACHE] Updated cache for ${header.name}: $totalEpisodes episodes")
-            }
+            } ?: return
+        val existing = CloudStreamApp.getKey<DownloadHeaderCached>(cacheKey) ?: return
+
+        // Total listed episode count — matches the result-page cache semantics
+        val episodeCount = when (response) {
+            is AnimeLoadResponse -> response.episodes.values.flatten().size
+            is TvSeriesLoadResponse -> response.episodes.size
+            else -> null
         }
+
+        val seasonMeta = existing.seasonMetadata?.toMutableMap() ?: mutableMapOf()
+        val newIds = mutableListOf<String>()
+        fun mergeSeason(season: Int?, episodeNumber: Int) {
+            val key = season ?: 1
+            seasonMeta[key] = seasonMeta[key]?.let { meta ->
+                meta.copy(
+                    episodeCount = maxOf(meta.episodeCount, episodeNumber),
+                    episodes = (meta.episodes + episodeNumber).distinct().sorted()
+                )
+            } ?: DownloadObjects.SeasonMetadata(
+                episodeCount = episodeNumber,
+                episodes = listOf(episodeNumber)
+            )
+        }
+
+        when (response) {
+            is AnimeLoadResponse -> response.episodes.forEach { (dubStatus, list) ->
+                if (newStatuses.isNotEmpty() && dubStatus !in newStatuses) return@forEach
+                list.forEachIndexed { index, ep ->
+                    val episodeNumber = ep.episode ?: (index + 1)
+                    val epId = id + episodeNumber + dubStatus.id * 1_000_000 +
+                            (ep.season?.times(10_000) ?: 0)
+                    writeEpisodeCache(id, epId, ep, episodeNumber, dubStatus.name, response)
+                    newIds += epId.toString()
+                    mergeSeason(ep.season, episodeNumber)
+                }
+            }
+
+            is TvSeriesLoadResponse -> {
+                if (newStatuses.isEmpty() || DubStatus.None in newStatuses) {
+                    response.episodes.forEachIndexed { index, ep ->
+                        val episodeNumber = ep.episode ?: (index + 1)
+                        val epId = id + (ep.season?.times(100_000) ?: 0) + episodeNumber + 1
+                        writeEpisodeCache(id, epId, ep, episodeNumber, "None", response)
+                        newIds += epId.toString()
+                        mergeSeason(ep.season, episodeNumber)
+                    }
+                }
+            }
+
+            else -> {}
+        }
+
+        if (newIds.isNotEmpty()) {
+            val indexKey = "${EPISODE_PARENT_INDEX}_$id"
+            val currentIds = CloudStreamApp.getKey<Set<String>>(indexKey) ?: emptySet()
+            CloudStreamApp.setKey(indexKey, currentIds + newIds)
+        }
+
+        val updated = existing.copy(
+            episodeCount = episodeCount ?: existing.episodeCount,
+            totalSeasons = seasonMeta.keys.maxOrNull()?.let { maxSeason ->
+                maxOf(existing.totalSeasons ?: 0, maxSeason)
+            } ?: existing.totalSeasons,
+            seasonMetadata = seasonMeta.ifEmpty { existing.seasonMetadata },
+            cacheTime = System.currentTimeMillis()
+        )
+        CloudStreamApp.setKey(DOWNLOAD_HEADER_CACHE, cacheKey, updated)
+        android.util.Log.d(
+            "EpisodeCheck",
+            "[EPISODE_CHECK_CACHE] Renewed cache for ${existing.name}: $episodeCount episodes, " +
+                    "${newIds.size} episodes cached, ${seasonMeta.size} seasons"
+        )
+    }
+
+    private fun writeEpisodeCache(
+        parentId: Int,
+        id: Int,
+        episode: Episode,
+        episodeNumber: Int,
+        dubStatus: String,
+        response: EpisodeResponse
+    ) {
+        val seasonData = response.seasonNames?.firstOrNull { it.season == episode.season }
+        val episodeCached = DownloadObjects.DownloadEpisodeCached(
+            name = episode.name,
+            poster = episode.posterUrl,
+            episode = episodeNumber,
+            season = episode.season,
+            id = id,
+            parentId = parentId,
+            score = episode.score,
+            description = episode.description,
+            date = episode.date,
+            cacheTime = System.currentTimeMillis(),
+            dubStatus = dubStatus,
+            data = episode.data,
+            totalEpisodeIndex = episode.season?.let {
+                response.getTotalEpisodeIndex(episodeNumber, it)
+            },
+            displaySeason = seasonData?.displaySeason ?: episode.season,
+            runTime = episode.runTime,
+            isFiller = null
+        )
+        CloudStreamApp.setKey(DOWNLOAD_EPISODE_CACHE, id.toString(), episodeCached)
     }
 
     private suspend fun handleNewEpisodes(
@@ -321,7 +450,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             autoDownloadEpisode(subscription, response, dubStatus, latestEpisode)
         } else {
             android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_NOTIFY] Showing notification for ${subscription.name} ep $latestEpisode")
-            showNotification(subscription, latestEpisode, dubStatus)  // Pass dubStatus
+            showNotification(subscription, response, latestEpisode, dubStatus)  // Pass dubStatus
             true // Notifications are always "successful"
         }
     }
@@ -336,19 +465,19 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             // Check safeguards before auto-downloading
             if (!hasEnoughStorage()) {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Not enough storage available")
-                showNotification(subscription, episodeNumber, dubStatus)
+                showNotification(subscription, response, episodeNumber, dubStatus)
                 return true // Handled via notification fallback
             }
             
             if (!isDownloadPathConfigured()) {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Download path not configured")
-                showNotification(subscription, episodeNumber, dubStatus)
+                showNotification(subscription, response, episodeNumber, dubStatus)
                 return true // Handled via notification fallback
             }
             
             if (!isNetworkAllowedForAutoDownload()) {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Network type not allowed for auto-download")
-                showNotification(subscription, episodeNumber, dubStatus)
+                showNotification(subscription, response, episodeNumber, dubStatus)
                 return true // Handled via notification fallback
             }
             
@@ -412,14 +541,18 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             // Check storage availability
             if (!hasEnoughStorageForEstimatedSize()) {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] Insufficient storage for download")
-                showNotification(subscription, episodeNumber, dubStatus)
+                showNotification(subscription, response, episodeNumber, dubStatus)
                 return true // Handled via notification fallback
             }
             
+            // Prefer the fresh response's name/poster over the subscribe-time copy
+            val displayName = (response as? LoadResponse)?.name ?: subscription.name
+            val displayPoster = (response as? LoadResponse)?.posterUrl ?: subscription.posterUrl
+
             val resultEpisode = ResultEpisode(
-                headerName = subscription.name,
+                headerName = displayName,
                 name = targetEpisode.name,
-                poster = targetEpisode.posterUrl ?: subscription.posterUrl,
+                poster = targetEpisode.posterUrl ?: displayPoster,
                 episode = episodeNumber,
                 seasonIndex = null,
                 season = targetEpisode.season,
@@ -447,7 +580,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             
             if (preferredLinks.isEmpty()) {
                 android.util.Log.w("EpisodeCheck", "[AUTO_DOWNLOAD_SKIP] No links matched download preferences for episode $episodeNumber")
-                showNotification(subscription, episodeNumber, dubStatus)
+                showNotification(subscription, response, episodeNumber, dubStatus)
                 return true // Handled via notification fallback
             }
             
@@ -457,9 +590,9 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             val queueItem = DownloadObjects.DownloadQueueItem(
                 episode = resultEpisode,
                 isMovie = subscription.type == com.lagradost.cloudstream3.TvType.Movie,
-                resultName = subscription.name,
+                resultName = displayName,
                 resultType = subscription.type ?: com.lagradost.cloudstream3.TvType.TvSeries,
-                resultPoster = subscription.posterUrl,
+                resultPoster = displayPoster,
                 apiName = api.name,
                 resultId = subscription.id ?: 0,
                 resultUrl = subscription.url,
@@ -474,26 +607,32 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             android.util.Log.i("EpisodeCheck", "[AUTO_DOWNLOAD_QUEUED] Episode $episodeNumber of ${subscription.name} added to queue")
             
             // Show notification that download was queued
-            showAutoDownloadNotification(subscription, episodeNumber, dubStatus)
+            showAutoDownloadNotification(subscription, response, episodeNumber, dubStatus)
             return true // Successfully queued
             
         } catch (t: Throwable) {
             android.util.Log.e("EpisodeCheck", "[AUTO_DOWNLOAD_ERROR] Failed to auto-download ${subscription.name} ep $episodeNumber", t)
             // Still show notification so user knows there's a new episode
-            showNotification(subscription, episodeNumber, dubStatus)
+            showNotification(subscription, response, episodeNumber, dubStatus)
             return true // Handled via notification fallback
         }
     }
 
-    private fun showNotification(subscription: SubscribedData, episodeNumber: Int, dubStatus: DubStatus? = null) {
+    private fun showNotification(
+        subscription: SubscribedData,
+        response: EpisodeResponse,
+        episodeNumber: Int,
+        dubStatus: DubStatus? = null
+    ) {
         try {
-            val updateHeader = subscription.name
+            // Prefer the fresh response's name over the subscribe-time copy
+            val updateHeader = (response as? LoadResponse)?.name ?: subscription.name
             
             // Build description with dub status if available
             val updateDescription = if (dubStatus != null && dubStatus != DubStatus.None) {
-                txt(R.string.subscription_episode_released_dubbed, episodeNumber, subscription.name, dubStatus.name).asString(context)
+                txt(R.string.subscription_episode_released_dubbed, episodeNumber, updateHeader, dubStatus.name).asString(context)
             } else {
-                txt(R.string.subscription_episode_released, episodeNumber, subscription.name).asString(context)
+                txt(R.string.subscription_episode_released, episodeNumber, updateHeader).asString(context)
             }
 
             val intent = Intent(context, MainActivity::class.java).apply {
@@ -506,10 +645,10 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
 
             // Load poster bitmap - use synchronous approach since we're not in a coroutine
             val poster = try {
-                subscription.posterUrl?.let { url ->
+                ((response as? LoadResponse)?.posterUrl ?: subscription.posterUrl)?.let { url ->
                     context.getImageBitmapFromUrl(
                         url,
-                        subscription.posterHeaders
+                        (response as? LoadResponse)?.posterHeaders ?: subscription.posterHeaders
                     )
                 }
             } catch (e: Throwable) {
@@ -537,22 +676,28 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             val notificationId = subscription.id ?: episodeNumber
             notificationManager.notify(notificationId, updateNotification)
             
-            android.util.Log.d("EpisodeCheck", "[NOTIFICATION_SHOWN] Notification shown for ${subscription.name} ep $episodeNumber")
+            android.util.Log.d("EpisodeCheck", "[NOTIFICATION_SHOWN] Notification shown for $updateHeader ep $episodeNumber")
             
         } catch (t: Throwable) {
             android.util.Log.e("EpisodeCheck", "[NOTIFICATION_ERROR] Failed to show notification", t)
         }
     }
 
-    private fun showAutoDownloadNotification(subscription: SubscribedData, episodeNumber: Int, dubStatus: DubStatus? = null) {
+    private fun showAutoDownloadNotification(
+        subscription: SubscribedData,
+        response: EpisodeResponse,
+        episodeNumber: Int,
+        dubStatus: DubStatus? = null
+    ) {
         try {
             val title = txt(R.string.auto_download_queued_title).asString(context)
+            val displayName = (response as? LoadResponse)?.name ?: subscription.name
             
             // Build description
             val description = if (dubStatus != null && dubStatus != DubStatus.None) {
-                txt(R.string.auto_download_queued_dubbed, subscription.name, episodeNumber, dubStatus.name).asString(context)
+                txt(R.string.auto_download_queued_dubbed, displayName, episodeNumber, dubStatus.name).asString(context)
             } else {
-                txt(R.string.auto_download_queued, subscription.name, episodeNumber).asString(context)
+                txt(R.string.auto_download_queued, displayName, episodeNumber).asString(context)
             }
 
             val intent = Intent(context, MainActivity::class.java).apply {
@@ -573,7 +718,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             val notificationId = (subscription.id ?: 0) + 1000000 // Offset to avoid collision with episode notifications
             notificationManager.notify(notificationId, notification)
             
-            android.util.Log.d("EpisodeCheck", "[AUTO_DOWNLOAD_NOTIFICATION_SHOWN] Queued notification for ${subscription.name} ep $episodeNumber")
+            android.util.Log.d("EpisodeCheck", "[AUTO_DOWNLOAD_NOTIFICATION_SHOWN] Queued notification for $displayName ep $episodeNumber")
             
         } catch (t: Throwable) {
             android.util.Log.e("EpisodeCheck", "[AUTO_DOWNLOAD_NOTIFICATION_ERROR] Failed to show notification", t)
