@@ -63,8 +63,13 @@ object DownloadPreferences {
 
     /**
      * Determines if an ExtractorLink matches the preferred DubStatus.
-     * Uses link name heuristic: "dub"/"dubbed" in name = Dubbed, "sub"/"subbed" in name = Subbed.
-     * Returns true if the link matches the preference, or if preference is ANY.
+     * A link that names its audio ("dub"/"dubbed"/"sub"/"subbed") is
+     * authoritative for itself — the episode's dubStatus is the primary
+     * provider's view and can conflict with merged secondary links (e.g. the
+     * primary lists Dubbed while the user wants SUB, or a Sub+Dub pool where
+     * the episode status is None). Only links with no name signal fall back to
+     * the episode's dubStatus. Returns true if the preference is ANY or the
+     * link is genuinely unidentifiable.
      */
     fun matchesAudioPreference(
         link: com.lagradost.cloudstream3.utils.ExtractorLink,
@@ -73,7 +78,20 @@ object DownloadPreferences {
     ): Boolean {
         if (preferredAudio == AudioPref.ANY) return true
 
-        // If the episode has a known dub status, use it directly
+        // Link-name signal first — per-link truth, especially for merged
+        // secondary sources that tag variants "(Sub)"/"(Dub)".
+        val linkName = link.name.lowercase()
+        val hasDubIndicator = linkName.contains("dub") || linkName.contains("dubbed")
+        val hasSubIndicator = linkName.contains("sub") || linkName.contains("subbed")
+        if (hasDubIndicator || hasSubIndicator) {
+            return when (preferredAudio) {
+                AudioPref.DUB -> hasDubIndicator
+                AudioPref.SUB -> hasSubIndicator
+                AudioPref.ANY -> true
+            }
+        }
+
+        // No name signal: fall back to the episode's known dub status
         if (episodeDubStatus != null && episodeDubStatus != DubStatus.None) {
             return when (preferredAudio) {
                 AudioPref.DUB -> episodeDubStatus == DubStatus.Dubbed
@@ -82,19 +100,8 @@ object DownloadPreferences {
             }
         }
 
-        // Heuristic: scan link name for dub/sub indicators
-        val linkName = link.name.lowercase()
-        val hasDubIndicator = linkName.contains("dub") || linkName.contains("dubbed")
-        val hasSubIndicator = linkName.contains("sub") || linkName.contains("subbed")
-
-        // If no indicators found, assume it matches (don't filter out unknown links)
-        if (!hasDubIndicator && !hasSubIndicator) return true
-
-        return when (preferredAudio) {
-            AudioPref.DUB -> hasDubIndicator
-            AudioPref.SUB -> hasSubIndicator
-            AudioPref.ANY -> true
-        }
+        // Unknown — assume it matches (don't filter out unknown links)
+        return true
     }
 
     /**
@@ -162,6 +169,15 @@ object DownloadPreferences {
             return if (index < 0) Int.MAX_VALUE else index
         }
 
-        return ordered.sortedBy(::sourcePriority)
+        // Tie-break within the same source: audio-matching links first, so a
+        // DUB link listed above a SUB link in the provider pool can never win
+        // over the user's chosen audio when both are otherwise equal.
+        fun audioPriority(link: com.lagradost.cloudstream3.utils.ExtractorLink): Int {
+            return if (matchesAudioPreference(link, preferredAudio, episodeDubStatus)) 0 else 1
+        }
+
+        return ordered.sortedWith(
+            compareBy(::sourcePriority).thenBy(::audioPriority)
+        )
     }
 }
