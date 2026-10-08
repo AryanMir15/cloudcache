@@ -90,6 +90,8 @@ import com.lagradost.cloudstream3.utils.BackPressedCallbackHelper.attachBackPres
 import com.lagradost.cloudstream3.utils.BackPressedCallbackHelper.detachBackPressedCallback
 import com.lagradost.cloudstream3.utils.BatteryOptimizationChecker.openBatteryOptimizationSettings
 import com.lagradost.cloudstream3.utils.Coroutines.ioSafe
+import com.lagradost.cloudstream3.utils.DataStoreHelper.getSyncProvider
+import com.lagradost.cloudstream3.utils.DataStoreHelper.setSyncProvider
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ImageLoader.loadImage
 import com.lagradost.cloudstream3.utils.LinkedSourceManager
@@ -120,8 +122,6 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     companion object {
         // Tag key for tracking panel listener registration on the view
         private const val PANEL_LISTENER_TAG_KEY = "panel_listener_registered"
-        // Last user-selected sync provider (survives restarts; panel no longer resets to MAL)
-        private const val SYNC_SELECTED_PROVIDER_KEY = "result_sync_selected_provider"
     }
 
     // FIX: Track registration state to prevent infinite loops
@@ -2930,12 +2930,12 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                                     val selectedPrefix = providerPrefixes[position]
                                     android.util.Log.d("[SYNC_PROVIDER_DEBUG]", "Setting selectedProvider to: $selectedPrefix")
                                     syncModel.setSelectedProvider(selectedPrefix)
-                                    // Persist user selection — skip for programmatic (fallback) selections
+                                    // Persist user selection per-entry (like season/episode/dub)
+                                    // — skip for programmatic (fallback) selections
                                     if (position != programmaticSpinnerIndex) {
-                                        androidx.preference.PreferenceManager.getDefaultSharedPreferences(requireContext())
-                                            .edit()
-                                            .putString(SYNC_SELECTED_PROVIDER_KEY, selectedPrefix)
-                                            .apply()
+                                        viewModel.currentResponse?.getId()?.let { id ->
+                                            setSyncProvider(id, selectedPrefix)
+                                        }
                                     }
                                 }
                                 
@@ -2951,10 +2951,11 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
                             spinner.adapter = adapter
 
-                            // Restore last used provider instead of always landing on MAL
-                            val savedProvider = androidx.preference.PreferenceManager
-                                .getDefaultSharedPreferences(requireContext())
-                                .getString(SYNC_SELECTED_PROVIDER_KEY, null)
+                            // Restore this entry's last used provider instead of
+                            // always landing on MAL or the previous show's choice
+                            val savedProvider = viewModel.currentResponse?.getId()?.let { id ->
+                                getSyncProvider(id)
+                            }
                             val savedIndex = savedProvider?.let { providerPrefixes.indexOf(it) } ?: -1
                             if (savedIndex > 0 && spinner.selectedItemPosition != savedIndex) {
                                 spinner.setSelection(savedIndex)

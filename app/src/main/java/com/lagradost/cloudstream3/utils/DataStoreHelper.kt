@@ -51,6 +51,7 @@ const val RESULT_RESUME_WATCHING_HAS_MIGRATED = "result_resume_watching_migrated
 const val RESULT_EPISODE = "result_episode"
 const val RESULT_SEASON = "result_season"
 const val RESULT_DUB = "result_dub"
+const val RESULT_SYNC_PROVIDER = "result_sync_provider"
 const val KEY_RESULT_SORT = "result_sort"
 const val USER_PINNED_PROVIDERS = "user_pinned_providers" //key for pinned user set
 
@@ -860,6 +861,20 @@ object DataStoreHelper {
 
     fun setResultEpisode(id: Int, value: Int?) {
         setKey("$currentAccount/$RESULT_EPISODE", id.toString(), value)
+    }
+
+    /** Last sync-panel provider selected for this entry — remembered per-entry
+     * (like season/episode/dub), not carried over to every other show. */
+    fun getSyncProvider(id: Int): String? {
+        return getKey("$currentAccount/$RESULT_SYNC_PROVIDER", id.toString(), null)
+    }
+
+    fun setSyncProvider(id: Int, provider: String?) {
+        if (provider == null) {
+            removeKey("$currentAccount/$RESULT_SYNC_PROVIDER", id.toString())
+        } else {
+            setKey("$currentAccount/$RESULT_SYNC_PROVIDER", id.toString(), provider)
+        }
     }
 
     fun addSync(id: Int, idPrefix: String, url: String) {

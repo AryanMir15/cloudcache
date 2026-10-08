@@ -739,8 +739,12 @@ object VideoDownloadManager {
         }
 
         override fun close() {
-            // as we may need to resume hls downloads, we save the current written index
-            if (isHLS || totalBytes == null) {
+            // as we may need to resume hls downloads, we save the current written index.
+            // Skipped when stopped: the delete path already removed the file and
+            // its keys — re-persisting fileInfo here resurrects a ghost entry.
+            if ((isHLS || totalBytes == null) &&
+                internalType != DownloadType.IsStopped
+            ) {
                 updateFileInfo()
             }
             if (id != null) {
@@ -1435,6 +1439,11 @@ object VideoDownloadManager {
                 }
             }
 
+            // Normalize the recorded total to the exact bytes on disk before the
+            // final event — a HEAD that lied about content-length (or a resumed
+            // range response) otherwise leaves the completed file at <100% in
+            // the downloads list and starves the IsDone icon.
+            metadata.totalBytes = metadata.bytesWritten
             metadata.type = DownloadType.IsDone
             return@withContext DOWNLOAD_SUCCESS
         } catch (e: IOException) {
@@ -1760,6 +1769,10 @@ object VideoDownloadManager {
                 return@withContext DOWNLOAD_INVALID_INPUT
             }
 
+            // HLS totals are segment-count estimates that can drift above the
+            // actual bytes — normalize to the exact file size so the downloads
+            // list shows 100% and the completed icon appears.
+            metadata.totalBytes = metadata.bytesWritten
             metadata.type = DownloadType.IsDone
             return@withContext DOWNLOAD_SUCCESS
         } catch (t: Throwable) {
@@ -1951,6 +1964,9 @@ object VideoDownloadManager {
 
         if (isFileDeleted) {
             deleteMatchingSubtitles(context, info)
+            // Drop any queued/active instance — otherwise a pending queue item
+            // re-downloads the episode the user just deleted.
+            DownloadQueueManager.cancelDownload(id)
             downloadEvent.invoke(id to DownloadActionType.Stop)
             downloadProgressEvent.invoke(Triple(id, 0, 0))
             downloadStatusEvent.invoke(id to DownloadType.IsStopped)
@@ -2211,9 +2227,24 @@ object VideoDownloadManager {
                 } else if (downloadQueueWrapper.downloadItem != null && downloadQueueWrapper.downloadItem.links.isNullOrEmpty()) {
                     downloadEpisodeWithoutLinks()
                 } else if (downloadQueueWrapper.downloadItem?.links != null) {
+                    val item = downloadQueueWrapper.downloadItem
+                    val allLinks = sortUrls(item.links.toSet())
+                    // Same preferred-source ordering as the link-less queue path —
+                    // sortUrls only orders by quality, so a direct first-click
+                    // download used to ignore the user's preferred sources.
+                    val preferredLinks = try {
+                        DownloadPreferences.selectBestLinks(
+                            context,
+                            allLinks,
+                            item.dubStatus
+                        )
+                    } catch (e: Exception) {
+                        Log.e(TAG, "selectBestLinks failed, falling back to all links", e)
+                        allLinks
+                    }
                     downloadEpisodeWithLinks(
-                        sortUrls(downloadQueueWrapper.downloadItem.links.toSet()),
-                        downloadQueueWrapper.downloadItem.subs
+                        if (preferredLinks.isEmpty()) allLinks else preferredLinks,
+                        item.subs
                     )
                 }
             }

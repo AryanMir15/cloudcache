@@ -5135,13 +5135,22 @@ class ResultViewModel2 : ViewModel() {
             _selectedSorting.postValue(txt(R.string.sort_button_episode, ""))
             _selectedSortingIndex.postValue(0)
             
-            // Restore saved season from DataStore, fall back to season 1, then first available
+            // Restore saved season/dub/episode from DataStore, fall back to
+            // season 1, then first available. The dub matters — two versions of
+            // the same season (Sub/Dub) are distinct indexers.
             val savedSeason = getResultSeason(parentId)
+            val savedDub = getDub(parentId)
+            val savedEpisode = getResultEpisode(parentId)
             val preferredSeason = savedSeason ?: 1
-            val savedIndexer = rangesFromMetadata.keys.find { it.season == preferredSeason }
+            val savedIndexer = rangesFromMetadata.keys.find {
+                it.season == preferredSeason && (savedDub == null || it.dubStatus == savedDub)
+            } ?: rangesFromMetadata.keys.find { it.season == preferredSeason }
                 ?: rangesFromMetadata.keys.find { it.season == 1 }
             val firstRange = if (savedIndexer != null) {
-                rangesFromMetadata[savedIndexer]?.firstOrNull()
+                val seasonRanges = rangesFromMetadata[savedIndexer].orEmpty()
+                savedEpisode?.let { ep ->
+                    seasonRanges.find { it.startEpisode == ep }
+                } ?: seasonRanges.firstOrNull()
             } else {
                 rangesFromMetadata.values.flatten().firstOrNull()
             }

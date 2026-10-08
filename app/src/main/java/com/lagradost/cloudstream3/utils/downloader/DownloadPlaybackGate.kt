@@ -39,8 +39,11 @@ object DownloadPlaybackGate {
         val fileInfo = VideoDownloadManager.getDownloadFileInfo(context, id)
 
         val isComplete = when (dlStatus) {
-            VideoDownloadManager.DownloadType.IsDone -> true
-            null -> when {
+            // A stale IsDone (persisted status after the file was deleted, or a
+            // download that finished writing to a deleted fd) must not wave a
+            // missing file through — fileInfo resolves to null when the file is
+            // gone, so require it before trusting the status.
+            VideoDownloadManager.DownloadType.IsDone, null -> when {
                 fileInfo == null -> false
                 // Size unknown (SAF content URIs report -1) — let the player decide
                 fileInfo.totalBytes <= 0 || fileInfo.fileLength < 0 -> true
