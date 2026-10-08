@@ -46,15 +46,23 @@ class RepoLinkGenerator(
         val cache: HashMap<Pair<String, Int>, Cache> =
             hashMapOf()
 
+        /**
+         * Secondary LoadResponse cache for [mergeLinkedSource] — key `apiName|url`
+         * → (response, unixTime), TTL matching the link cache (20 min).
+         *
+         * Shared across ALL generator instances (playback, downloads, and
+         * subscription checks each build their own generator): a full secondary
+         * page load is the dominant cost of the merge, and per-instance caching
+         * meant every newly queued episode re-fetched the whole secondary page.
+         */
+        private val linkedResponseCache = HashMap<String, Pair<LoadResponse, Long>>()
+
         /** Don't re-tag a link whose name already declares its variant. */
         private val DUB_SUB_WORD = Regex("""\b(dub|sub)\b""", RegexOption.IGNORE_CASE)
     }
 
     override val hasCache = true
     override val canSkipLoading = true
-
-    /** Secondary LoadResponse cache for [mergeLinkedSource] — url → (response, unixTime). */
-    private val linkedResponseCache = HashMap<String, Pair<LoadResponse, Long>>()
 
     // this is a simple array that is used to instantly load links if they are already loaded
     //var linkCache = Array<Set<ExtractorLink>>(size = episodes.size, init = { setOf() })
@@ -244,13 +252,18 @@ class RepoLinkGenerator(
             return false
         }
         val repo = APIRepository(api)
-        // Full page loads are expensive — reuse the secondary LoadResponse for
-        // the link-cache TTL (20min) so every episode doesn't re-fetch it.
+        // Full page loads are expensive — the secondary LoadResponse is cached
+        // SHARED across all generators (companion) for the link-cache TTL (20min),
+        // so playback of the next episode, queued downloads, and subscription
+        // checks all reuse the same page instead of each re-fetching it.
         val responseCacheKey = "${linked.secondaryApiName}|${linked.secondaryUrl}"
-        val secondary = synchronized(linkedResponseCache) {
+        val cachedSecondary = synchronized(linkedResponseCache) {
             linkedResponseCache[responseCacheKey]
                 ?.takeIf { unixTime - it.second < 60 * 20 }
                 ?.first
+        }
+        val secondary = cachedSecondary?.also {
+            Log.d(TAG, "[LINKED_SRC] secondary response cache hit ($responseCacheKey)")
         } ?: run {
             when (val res = repo.load(linked.secondaryUrl)) {
                 is Resource.Success -> res.value.also { loaded ->
@@ -324,18 +337,24 @@ class RepoLinkGenerator(
             }
         }
 
-        var anyLoaded = false
-        for ((data, tag) in variants) {
-            val ok = repo.loadLinks(
-                data,
-                isCasting = isCasting,
-                subtitleCallback = onSubtitle,
-                callback = { link -> onLink(tagVariant(link, tag)) },
-            )
-            anyLoaded = anyLoaded || ok
-            Log.i(TAG, "[LINKED_SRC] loadLinks ok=$ok tag=$tag data=$data")
+        // Load every matching variant (Sub + Dub) concurrently — a sequential
+        // loop doubled the wait whenever both variants exist. The shared
+        // onLink/onSubtitle handlers are already concurrency-safe (they
+        // synchronize on the cache and emit outside the lock).
+        return coroutineScope {
+            variants.map { (data, tag) ->
+                async {
+                    val ok = repo.loadLinks(
+                        data,
+                        isCasting = isCasting,
+                        subtitleCallback = onSubtitle,
+                        callback = { link -> onLink(tagVariant(link, tag)) },
+                    )
+                    Log.i(TAG, "[LINKED_SRC] loadLinks ok=$ok tag=$tag data=$data")
+                    ok
+                }
+            }.map { it.await() }.any { it }
         }
-        return anyLoaded
     }
 
     /**
