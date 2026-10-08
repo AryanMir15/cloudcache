@@ -11,6 +11,7 @@ import com.lagradost.cloudstream3.LoadResponse.Companion.isMovie
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.SubtitleFile
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
+import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.mvvm.Resource
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.ui.APIRepository
@@ -220,16 +221,22 @@ class RepoLinkGenerator(
         onSubtitle: (SubtitleFile) -> Unit,
         onLink: (ExtractorLink) -> Unit,
     ): Boolean {
-        val page = this.page ?: return false
-        val linked = LinkedSourceManager.get(page.apiName, page.url) ?: return false
-        if (linked.secondaryApiName.equals(page.apiName, ignoreCase = true) &&
+        // Player path: full page. Download path: no page — resolve through the
+        // episode's provider + the queued result URL, which is the same
+        // LinkedSourceManager key (primaryApiName|primaryUrl). Without this,
+        // link-less downloads only ever see native provider links and the
+        // preferred source (from a merged secondary provider) never appears.
+        val linked = page?.let { LinkedSourceManager.get(it.apiName, it.url) }
+            ?: resultUrl?.let { LinkedSourceManager.get(current.apiName, it) }
+            ?: return false
+        if (page != null && linked.secondaryApiName.equals(page.apiName, ignoreCase = true) &&
             linked.secondaryUrl == page.url
         ) {
             return false
         }
         Log.i(
             TAG,
-            "[LINKED_SRC] ${page.apiName} -> ${linked.secondaryApiName}" +
+            "[LINKED_SRC] ${page?.apiName ?: current.apiName} -> ${linked.secondaryApiName}" +
                     " (${linked.secondaryName})"
         )
         val api = getApiFromNameNull(linked.secondaryApiName) ?: run {
@@ -261,7 +268,8 @@ class RepoLinkGenerator(
 
         // (episode data, sub/dub tag) pairs to load links for
         val variants = mutableListOf<Pair<String, String?>>()
-        if (page.isMovie()) {
+        val isMovie = page?.isMovie() ?: (current.tvType == TvType.Movie)
+        if (isMovie) {
             if (secondary !is MovieLoadResponse) {
                 Log.w(
                     TAG,
