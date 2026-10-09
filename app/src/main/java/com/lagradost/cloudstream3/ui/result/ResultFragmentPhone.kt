@@ -1395,9 +1395,19 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         storedData: ResultFragment.StoredData,
         resume: ResumeWatchingStatus
     ) {
+        // Continue/Next prefer a downloaded file exactly like a direct episode
+        // click: ACTION_CLICK_DEFAULT checks for a valid offline entry and plays
+        // it, falling back to the normal online player action when there is
+        // none. Without this, the buttons always streamed online even when the
+        // episode was already on disk.
+        val action = if (storedData.playerAction == ACTION_PLAY_EPISODE_IN_PLAYER) {
+            ACTION_CLICK_DEFAULT
+        } else {
+            storedData.playerAction
+        }
         viewModel.handleAction(
             EpisodeClickEvent(
-                storedData.playerAction, //?: ACTION_PLAY_EPISODE_IN_PLAYER,
+                action,
                 resume.result
             )
         )

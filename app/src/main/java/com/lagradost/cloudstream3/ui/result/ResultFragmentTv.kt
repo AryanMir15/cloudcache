@@ -534,9 +534,15 @@ class ResultFragmentTv : BaseFragment<FragmentResultTvBinding>(
                     }
 
                 resultResumeSeriesButton.setOnClickListener {
+                    // Prefer a downloaded file (ACTION_CLICK_DEFAULT) before
+                    // falling back to the online player — mirrors direct clicks.
+                    val action =
+                        if (storedData.playerAction == ACTION_PLAY_EPISODE_IN_PLAYER)
+                            ACTION_CLICK_DEFAULT
+                        else storedData.playerAction
                     viewModel.handleAction(
                         EpisodeClickEvent(
-                            storedData.playerAction, //?: ACTION_PLAY_EPISODE_IN_PLAYER,
+                            action,
                             resume.result
                         )
                     )

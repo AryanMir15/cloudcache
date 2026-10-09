@@ -1822,6 +1822,27 @@ class GeneratorPlayer : FullScreenPlayer() {
                     percentage,
                     meta.tvType?.isEpisodeBased() == true || meta.episode != null
                 )
+
+                // Sync panel progress for offline playback too — watching a
+                // downloaded episode must bump the tracker's episode count the
+                // same way online playback does. ExtractorUri carries the
+                // per-season episode number, which is what the tracker expects.
+                if (meta.episode != null &&
+                    meta.tvType?.isEpisodeBased() == true &&
+                    percentage >= UPDATE_SYNC_PROGRESS_PERCENTAGE &&
+                    (maxEpisodeSet ?: -1) < meta.episode
+                ) {
+                    context?.let { ctx ->
+                        val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
+                        if (settingsManager.getBoolean(
+                                ctx.getString(R.string.episode_sync_enabled_key), true
+                            )
+                        ) {
+                            maxEpisodeSet = meta.episode
+                            sync.modifyMaxEpisode(meta.episode)
+                        }
+                    }
+                }
             }
         }
 
