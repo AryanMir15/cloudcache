@@ -364,10 +364,14 @@ private class Anime4kChainProgram(
     private var copyProgram: GlProgram? = null
     private var outputWidth = 0
     private var outputHeight = 0
+    private var inWidth = 0
+    private var inHeight = 0
     private var failed = hdr
 
     override fun configure(inputWidth: Int, inputHeight: Int): Size {
         releaseGl()
+        inWidth = inputWidth
+        inHeight = inputHeight
         outputWidth = inputWidth
         outputHeight = inputHeight
         if (!failed) {
@@ -425,6 +429,21 @@ private class Anime4kChainProgram(
                 }
                 program.bindAttributesAndUniforms()
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+                if (!dumpDone) {
+                    // First frame diagnostics: sample the pass output to see
+                    // where the signal dies.
+                    try {
+                        val (rSum, gSum, bSum) = sampleCenter()
+                        Log.i(
+                            "Anime4kChain",
+                            "pass#${passes.indexOf(compiled)} w=${compiled.width}x${compiled.height}" +
+                                " screen=${compiled.writesScreen} bind=${compiled.bindings.map { it.name }}" +
+                                " sum(r=$rSum g=$gSum b=$bSum)"
+                        )
+                    } catch (e: Exception) {
+                        Log.e("Anime4kChain", "pass diag failed", e)
+                    }
+                }
             }
             logFirstFrame("chain")
             if (!dumpDone) {
@@ -455,6 +474,26 @@ private class Anime4kChainProgram(
         )
     }
 
+    /** Reads a 8x8 block at the center of the currently bound framebuffer. */
+    private fun sampleCenter(): Triple<Int, Int, Int> {
+        val w = minOf(outputWidth, 8)
+        val h = minOf(outputHeight, 8)
+        val buf = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
+        GLES20.glReadPixels(
+            (outputWidth - w) / 2, (outputHeight - h) / 2, w, h,
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf
+        )
+        var r = 0
+        var g = 0
+        var b = 0
+        for (i in 0 until w * h * 4 step 4) {
+            r += buf.get(i).toInt() and 0xFF
+            g += buf.get(i + 1).toInt() and 0xFF
+            b += buf.get(i + 2).toInt() and 0xFF
+        }
+        return Triple(r, g, b)
+    }
+
     /** Reads the current framebuffer and the input texture into PNG files. */
     private fun debugDump(inputTexId: Int) {
         val dir = File(
@@ -476,11 +515,11 @@ private class Anime4kChainProgram(
             GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
             GLES20.GL_TEXTURE_2D, inputTexId, 0
         )
-        GLES20.glViewport(0, 0, inputWidth, inputHeight)
-        val inPixels = readPixels(inputWidth, inputHeight)
+        GLES20.glViewport(0, 0, inWidth, inHeight)
+        val inPixels = readPixels(inWidth, inHeight)
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glDeleteFramebuffers(1, fbo, 0)
-        savePng(dir, "in_${inputWidth}x$inputHeight.png", inPixels, inputWidth, inputHeight)
+        savePng(dir, "in_${inWidth}x$inHeight.png", inPixels, inWidth, inHeight)
         Log.i("Anime4kChain", "debug frames written to ${dir.absolutePath}")
     }
 
@@ -539,6 +578,17 @@ private class Anime4kChainProgram(
                 "aFramePosition",
                 quadArray(),
                 GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE,
+            )
+            val locInfo = item.bindings.joinToString { b ->
+                val tex = program.getUniformLocation("uTex${b.name}")
+                val pt = program.getUniformLocation("uPt${b.name}")
+                val sz = program.getUniformLocation("uSize${b.name}")
+                "${b.name}(t=$tex,pt=$pt,sz=$sz)"
+            }
+            Log.i(
+                "Anime4kChain",
+                "pass#${planned.indexOf(plannedPass)} '${plannedPass.pass.name}' " +
+                    "${plannedPass.width}x${plannedPass.height} locs: $locInfo"
             )
             val bindings = item.bindings.map { binding ->
                 val target = byTarget[binding.target]
