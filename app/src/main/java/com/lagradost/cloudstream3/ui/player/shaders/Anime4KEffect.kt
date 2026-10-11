@@ -175,6 +175,7 @@ private class Anime4KShaderProgram(
         glPasses = emptyList()
         val built = mutableListOf<GLPass>()
         val passCount = shader.passes.size
+        var compiled = 0
 
         shader.passes.forEachIndexed { index, pass ->
             val outW = (inputWidth * pass.widthMult).toInt().coerceAtLeast(1)
@@ -185,11 +186,21 @@ private class Anime4KShaderProgram(
                 GlProgram(VERTEX_SHADER, fragment).apply {
                     setBufferAttribute("aPosition", QUAD_POSITIONS, 2)
                     setBufferAttribute("aTexCoor", QUAD_TEXCOORDS, 2)
-                }
+                }.also { compiled++ }
             } catch (e: Exception) {
-                Log.e(TAG, "Pass $index shader compile failed", e)
+                // Never black out playback for a bad pass: fall back to a plain
+                // copy so the chain keeps flowing (image may look unprocessed).
+                Log.e(TAG, "Pass $index shader compile failed, using passthrough", e)
                 Log.e(TAG, "--- fragment ---\n$fragment")
-                throw e
+                try {
+                    GlProgram(VERTEX_SHADER, PASSTHROUGH_FRAGMENT).apply {
+                        setBufferAttribute("aPosition", QUAD_POSITIONS, 2)
+                        setBufferAttribute("aTexCoor", QUAD_TEXCOORDS, 2)
+                    }
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Passthrough fallback also failed", e2)
+                    throw e2
+                }
             }
 
             val isLast = index == passCount - 1
@@ -205,6 +216,7 @@ private class Anime4KShaderProgram(
             built.add(GLPass(program, pass.bindNames, outW, outH))
         }
         glPasses = built
+        Log.i(TAG, "Anime4K chain: $compiled/$passCount passes compiled")
     }
 
     override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
@@ -285,6 +297,7 @@ private class Anime4KShaderProgram(
         sb.append("precision highp float;\n")
         sb.append("varying vec2 vTexCoor;\n")
         sb.append("uniform vec2 uPassOutSize;\n")
+        sb.append(SELECT4_HELPER)
         for (name in bindNames) {
             sb.append("uniform sampler2D ${name}_SAMPLER;\n")
             sb.append("uniform vec2 ${name}_PT;\n")
@@ -298,10 +311,59 @@ private class Anime4KShaderProgram(
             )
         }
         // mpv GLSL uses texture(); GLES2 needs texture2D()
-        val portedBody = body.replace(Regex("\\btexture\\("), "texture2D(")
+        var portedBody = body.replace(Regex("\\btexture\\("), "texture2D(")
+        // GLES2 bans dynamic vector indexing in fragment shaders (the Anime4K
+        // x2 pass does tex(...)[i.y*2+i.x]) — rewrite to a select4() helper.
+        portedBody = rewriteDynamicVectorIndex(portedBody)
         sb.append(portedBody)
         sb.append("\nvoid main() { gl_FragColor = hook(); }\n")
         return sb.toString()
+    }
+
+    /** Rewrites `NAME_tex(<balanced>)[<expr>]` into `select4(NAME_tex(<balanced>), <expr>)`. */
+    private fun rewriteDynamicVectorIndex(shader: String): String {
+        val out = StringBuilder()
+        var i = 0
+        while (i < shader.length) {
+            val texStart = shader.indexOf("_tex(", i)
+            if (texStart < 0) {
+                out.append(shader.substring(i))
+                break
+            }
+            out.append(shader.substring(i, texStart + 4)) // up to and including "_tex"
+            val openParen = texStart + 4
+            var depth = 0
+            var close = -1
+            for (j in openParen until shader.length) {
+                when (shader[j]) {
+                    '(' -> depth++
+                    ')' -> {
+                        depth--
+                        if (depth == 0) {
+                            close = j
+                            break
+                        }
+                    }
+                }
+            }
+            if (close < 0) {
+                out.append(shader.substring(openParen))
+                break
+            }
+            val callText = shader.substring(openParen, close + 1)
+            i = close + 1
+            if (i < shader.length && shader[i] == '[') {
+                val closeBracket = shader.indexOf(']', i)
+                if (closeBracket > 0) {
+                    val expr = shader.substring(i + 1, closeBracket)
+                    out.append("select4").append(callText).append(", ").append(expr).append(")")
+                    i = closeBracket + 1
+                    continue
+                }
+            }
+            out.append(callText)
+        }
+        return out.toString()
     }
 
     override fun release() {
@@ -328,6 +390,25 @@ private class Anime4KShaderProgram(
             void main() {
                 gl_Position = aPosition;
                 vTexCoor = aTexCoor;
+            }
+        """
+
+        private const val PASSTHROUGH_FRAGMENT = """
+            #version 100
+            precision highp float;
+            varying vec2 vTexCoor;
+            uniform sampler2D HOOKED_SAMPLER;
+            void main() { gl_FragColor = texture2D(HOOKED_SAMPLER, vTexCoor); }
+        """
+
+        // GLES2 forbids dynamic vector indexing in fragment shaders — Anime4K's
+        // x2 pass does tex(...)[i.y*2+i.x], rewritten to select4().
+        private const val SELECT4_HELPER = """
+            float select4(vec4 v, int i) {
+                if (i == 0) return v.x;
+                if (i == 1) return v.y;
+                if (i == 2) return v.z;
+                return v.w;
             }
         """
 
