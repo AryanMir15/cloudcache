@@ -473,9 +473,10 @@ private class Anime4kChainProgram(
                         "pass#${passes.indexOf(compiled)} glError=0x${err.toString(16)}"
                     )
                 }
-                if (!dumpDone) {
+                if (!dumpDone && !hasFloatTargets) {
                     // First frame diagnostics: sample the pass output to see
-                    // where the signal dies.
+                    // where the signal dies (8-bit era debugging — skipped for
+                    // float targets because reading 16F FBOs errors on Mali).
                     try {
                         val pw = if (compiled.writesScreen) outputWidth else compiled.width
                         val ph = if (compiled.writesScreen) outputHeight else compiled.height
@@ -510,6 +511,7 @@ private class Anime4kChainProgram(
 
     private var firstFrameLogged = false
     private var dumpDone = false
+    private var hasFloatTargets = false
 
     private fun logFirstFrame(mode: String) {
         if (firstFrameLogged) return
@@ -566,17 +568,20 @@ private class Anime4kChainProgram(
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glDeleteFramebuffers(1, fbo, 0)
         savePng(dir, "in_${inWidth}x$inHeight.png", inPixels, inWidth, inHeight)
-        // Dump the interesting intermediates to see which ones are black
-        val want = setOf("conv2d_tf", "conv2d_6_tf", "conv2d_last_tf", "conv2d_7_tf")
-        targets.forEachIndexed { index, target ->
-            val name = targetNames[index] ?: "t$index"
-            if (name !in want) return@forEachIndexed
-            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, target.framebuffer)
-            GLES20.glViewport(0, 0, target.width, target.height)
-            val pixels = readPixels(target.width, target.height)
-            savePng(dir, "t${index}_$name.png", pixels, target.width, target.height)
+        // Dump the interesting intermediates (8-bit era debugging — reading
+        // 16F FBOs errors on this Mali, so skip them for float targets).
+        if (!hasFloatTargets) {
+            val want = setOf("conv2d_tf", "conv2d_6_tf", "conv2d_last_tf", "conv2d_7_tf")
+            targets.forEachIndexed { index, target ->
+                val name = targetNames[index] ?: "t$index"
+                if (name !in want) return@forEachIndexed
+                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, target.framebuffer)
+                GLES20.glViewport(0, 0, target.width, target.height)
+                val pixels = readPixels(target.width, target.height)
+                savePng(dir, "t${index}_$name.png", pixels, target.width, target.height)
+            }
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         }
-        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         Log.i("Anime4kChain", "debug frames written to ${dir.absolutePath}")
     }
 
@@ -699,6 +704,7 @@ private class Anime4kChainProgram(
     private fun newTarget(width: Int, height: Int): Target {
         val texture = if (floatTargetsSupported()) {
             try {
+                hasFloatTargets = true
                 createFloatTexture(width, height)
             } catch (e: Exception) {
                 Log.e("Anime4kChain", "float texture creation failed, using 8-bit", e)
