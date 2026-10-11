@@ -1687,7 +1687,7 @@ class ResultViewModel2 : ViewModel() {
                                 android.util.Log.d(
                                     "LocalLibraryTest",
                                     "CLICK id=${click.data.id} fileInfo=${diagInfo != null} " +
-                                        "extra=${diagInfo?.extraInfo} base=${diagInfo?.basePath}"
+                                        "path=${diagInfo?.path}"
                                 )
                                 // Use the app's configured download path from settings
                                 val (baseFile, basePath) = with(ctx) {
@@ -2094,7 +2094,7 @@ class ResultViewModel2 : ViewModel() {
                                                         totalBytes = length,
                                                         relativePath = folderPath,
                                                         displayName = fallbackFile.name() ?: fallbackName,
-                                                        basePath = baseFile.filePath() ?: "",
+                                                        basePath = baseFile?.filePath() ?: "",
                                                         linkHash = 0
                                                     )
                                                 )
