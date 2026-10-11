@@ -1,9 +1,7 @@
 package com.lagradost.cloudstream3.ui.player.shaders
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.opengl.GLES20
-import android.os.Environment
 import android.util.Log
 import androidx.media3.common.VideoFrameProcessingException
 import androidx.media3.common.util.GlProgram
@@ -13,11 +11,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BaseGlShaderProgram
 import androidx.media3.effect.GlEffect
 import androidx.media3.effect.GlShaderProgram
-import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 /**
  * Anime4K GPU shaders for the built-in Media3 player.
@@ -394,18 +388,13 @@ private class Anime4kChainProgram(
 
     private val passes = ArrayList<CompiledPass>()
     private val targets = ArrayList<Target>()
-    private val targetNames = HashMap<Int, String>()
     private var copyProgram: GlProgram? = null
     private var outputWidth = 0
     private var outputHeight = 0
-    private var inWidth = 0
-    private var inHeight = 0
     private var failed = hdr
 
     override fun configure(inputWidth: Int, inputHeight: Int): Size {
         releaseGl()
-        inWidth = inputWidth
-        inHeight = inputHeight
         outputWidth = inputWidth
         outputHeight = inputHeight
         if (!failed) {
@@ -466,43 +455,8 @@ private class Anime4kChainProgram(
                 }
                 program.bindAttributesAndUniforms()
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-                val err = GLES20.glGetError()
-                if (err != GLES20.GL_NO_ERROR) {
-                    Log.e(
-                        "Anime4kChain",
-                        "pass#${passes.indexOf(compiled)} glError=0x${err.toString(16)}"
-                    )
-                }
-                if (!dumpDone && !hasFloatTargets) {
-                    // First frame diagnostics: sample the pass output to see
-                    // where the signal dies (8-bit era debugging — skipped for
-                    // float targets because reading 16F FBOs errors on Mali).
-                    try {
-                        val pw = if (compiled.writesScreen) outputWidth else compiled.width
-                        val ph = if (compiled.writesScreen) outputHeight else compiled.height
-                        val (rSum, gSum, bSum) = sampleCenter(pw, ph)
-                        Log.i(
-                            "Anime4kChain",
-                            "pass#${passes.indexOf(compiled)} w=${compiled.width}x${compiled.height}" +
-                                " screen=${compiled.writesScreen} bind=${compiled.bindings.map { it.name }}" +
-                                " sum(r=$rSum g=$gSum b=$bSum)"
-                        )
-                    } catch (e: Exception) {
-                        Log.e("Anime4kChain", "pass diag failed", e)
-                    }
-                }
             }
             logFirstFrame("chain")
-            if (!dumpDone) {
-                // First processed frame — dump output + input to PNGs so we can
-                // SEE whether the chain actually changes the image.
-                dumpDone = true
-                try {
-                    debugDump(inputTexId)
-                } catch (e: Exception) {
-                    Log.e("Anime4kChain", "debug dump failed", e)
-                }
-            }
         } catch (e: GlUtil.GlException) {
             Log.e("Anime4kChain", "draw failed at ${passes.size} passes", e)
             throw VideoFrameProcessingException(e, presentationTimeUs)
@@ -510,8 +464,6 @@ private class Anime4kChainProgram(
     }
 
     private var firstFrameLogged = false
-    private var dumpDone = false
-    private var hasFloatTargets = false
 
     private fun logFirstFrame(mode: String) {
         if (firstFrameLogged) return
@@ -520,104 +472,6 @@ private class Anime4kChainProgram(
             "Anime4kChain",
             "draw: $mode passes=${passes.size} out=${outputWidth}x$outputHeight"
         )
-    }
-
-    /** Reads a 8x8 block at the center of the currently bound framebuffer. */
-    private fun sampleCenter(pw: Int, ph: Int): Triple<Int, Int, Int> {
-        val w = minOf(pw, 8)
-        val h = minOf(ph, 8)
-        val buf = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
-        GLES20.glReadPixels(
-            (pw - w) / 2, (ph - h) / 2, w, h,
-            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf
-        )
-        var r = 0
-        var g = 0
-        var b = 0
-        for (i in 0 until w * h * 4 step 4) {
-            r += buf.get(i).toInt() and 0xFF
-            g += buf.get(i + 1).toInt() and 0xFF
-            b += buf.get(i + 2).toInt() and 0xFF
-        }
-        return Triple(r, g, b)
-    }
-
-    /** Reads the current framebuffer and the input texture into PNG files. */
-    private fun debugDump(inputTexId: Int) {
-        val dir = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "anime4k_debug"
-        )
-        if (!dir.exists() && !dir.mkdirs()) {
-            Log.e("Anime4kChain", "cannot create debug dir ${dir.absolutePath}")
-            return
-        }
-        // Output: the base's framebuffer is still focused after the last pass
-        val outPixels = readPixels(outputWidth, outputHeight)
-        savePng(dir, "out_${outputWidth}x$outputHeight.png", outPixels, outputWidth, outputHeight)
-        // Input: attach the input texture to a scratch framebuffer and read it
-        val fbo = IntArray(1)
-        GLES20.glGenFramebuffers(1, fbo, 0)
-        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0])
-        GLES20.glFramebufferTexture2D(
-            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
-            GLES20.GL_TEXTURE_2D, inputTexId, 0
-        )
-        GLES20.glViewport(0, 0, inWidth, inHeight)
-        val inPixels = readPixels(inWidth, inHeight)
-        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-        GLES20.glDeleteFramebuffers(1, fbo, 0)
-        savePng(dir, "in_${inWidth}x$inHeight.png", inPixels, inWidth, inHeight)
-        // Dump the interesting intermediates (8-bit era debugging — reading
-        // 16F FBOs errors on this Mali, so skip them for float targets).
-        if (!hasFloatTargets) {
-            val want = setOf("conv2d_tf", "conv2d_6_tf", "conv2d_last_tf", "conv2d_7_tf")
-            targets.forEachIndexed { index, target ->
-                val name = targetNames[index] ?: "t$index"
-                if (name !in want) return@forEachIndexed
-                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, target.framebuffer)
-                GLES20.glViewport(0, 0, target.width, target.height)
-                val pixels = readPixels(target.width, target.height)
-                savePng(dir, "t${index}_$name.png", pixels, target.width, target.height)
-            }
-            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-        }
-        Log.i("Anime4kChain", "debug frames written to ${dir.absolutePath}")
-    }
-
-    private fun readPixels(width: Int, height: Int): IntArray {
-        // Float FBOs must be read as GL_HALF_FLOAT (UNSIGNED_BYTE reads of
-        // RGBA16F are rejected by this Mali driver -> INVALID_OPERATION).
-        val buf = ByteBuffer.allocateDirect(width * height * 8).order(ByteOrder.nativeOrder())
-        GLES20.glReadPixels(
-            0, 0, width, height,
-            GLES20.GL_RGBA, GL_HALF_FLOAT, buf
-        )
-        val fb = buf.asFloatBuffer()
-        val out = IntArray(width * height)
-        // GLES rows are bottom-up; flip and pack RGBA -> ARGB
-        for (row in 0 until height) {
-            val srcRow = height - 1 - row
-            for (col in 0 until width) {
-                val i = (srcRow * width + col) * 4
-                val r = (fb.get(i).coerceIn(0f, 1f) * 255f).toInt()
-                val g = (fb.get(i + 1).coerceIn(0f, 1f) * 255f).toInt()
-                val b = (fb.get(i + 2).coerceIn(0f, 1f) * 255f).toInt()
-                val a = (fb.get(i + 3).coerceIn(0f, 1f) * 255f).toInt()
-                out[row * width + col] = (a shl 24) or (r shl 16) or (g shl 8) or b
-            }
-        }
-        return out
-    }
-
-    private fun savePng(dir: File, name: String, pixels: IntArray, width: Int, height: Int) {
-        val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
-        val file = File(dir, name)
-        FileOutputStream(file).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-        }
-        bitmap.recycle()
-        Log.i("Anime4kChain", "wrote $name (${width}x$height)")
     }
 
     override fun release() {
@@ -649,17 +503,6 @@ private class Anime4kChainProgram(
                 quadArray(),
                 GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE,
             )
-            val locInfo = item.bindings.joinToString { b ->
-                val tex = program.getUniformLocation("uTex${b.name}")
-                val pt = program.getUniformLocation("uPt${b.name}")
-                val sz = program.getUniformLocation("uSize${b.name}")
-                "${b.name}(t=$tex,pt=$pt,sz=$sz)"
-            }
-            Log.i(
-                "Anime4kChain",
-                "pass#${planned.indexOf(plannedPass)} '${plannedPass.pass.name}' " +
-                    "${plannedPass.width}x${plannedPass.height} locs: $locInfo"
-            )
             val bindings = item.bindings.map { binding ->
                 val target = byTarget[binding.target]
                 BoundBinding(
@@ -678,7 +521,6 @@ private class Anime4kChainProgram(
                     ?: newTarget(plannedPass.width, plannedPass.height)
                         .also { byTarget[item.outputTarget] = it }
                 targetFramebuffer = target.framebuffer
-                targetNames[item.outputTarget] = plannedPass.pass.save
             }
             passes.add(
                 CompiledPass(
@@ -704,7 +546,6 @@ private class Anime4kChainProgram(
     private fun newTarget(width: Int, height: Int): Target {
         val texture = if (floatTargetsSupported()) {
             try {
-                hasFloatTargets = true
                 createFloatTexture(width, height)
             } catch (e: Exception) {
                 Log.e("Anime4kChain", "float texture creation failed, using 8-bit", e)
@@ -815,8 +656,6 @@ private class Anime4kChainProgram(
     private companion object {
         // AVBox's default sharpen strength
         const val SHARPEN = 1.0f
-        // GLES3 float pixel type (valid for reads/writes on the ES3 context)
-        const val GL_HALF_FLOAT = 0x140B
 
         const val VERTEX_SHADER = """
             attribute vec4 aFramePosition;
