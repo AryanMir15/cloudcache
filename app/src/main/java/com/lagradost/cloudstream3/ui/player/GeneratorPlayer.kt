@@ -114,7 +114,6 @@ import com.lagradost.cloudstream3.utils.videoskip.SkipAPI
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
 import com.lagradost.cloudstream3.utils.Qualities
-import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showBottomDialog
 import com.lagradost.cloudstream3.utils.SingleSelectionHelper.showDialog
 import com.lagradost.cloudstream3.utils.SubtitleHelper.fromTagToEnglishLanguageName
 import com.lagradost.cloudstream3.utils.SubtitleHelper.fromTagToLanguageName
@@ -2306,132 +2305,6 @@ class GeneratorPlayer : FullScreenPlayer() {
     }
 
     @SuppressLint("SetTextI18n")
-    private fun showAnime4kDialog(ctx: Context) {
-        val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
-        val modeNames = ctx.resources.getStringArray(R.array.anime4k_shader_switch).toList()
-        val modeValues = ctx.resources.getIntArray(R.array.anime4k_shader_switch_values).toList()
-        val sharpenNames = ctx.resources.getStringArray(R.array.anime4k_sharpen_switch).toList()
-        val sharpenValues = ctx.resources.getIntArray(R.array.anime4k_sharpen_switch_values).toList()
-
-        var mode = settingsManager.getInt(ctx.getString(R.string.anime4k_shader_key), 0)
-        var sharpen = settingsManager.getInt(ctx.getString(R.string.anime4k_sharpen_key), 100)
-        var canvasAware =
-            settingsManager.getBoolean(ctx.getString(R.string.anime4k_canvas_aware_key), false)
-
-        val dialog = Dialog(ctx, R.style.DialogFullscreenPlayer)
-        val root = android.widget.LinearLayout(ctx).apply {
-            orientation = android.widget.LinearLayout.VERTICAL
-            setPadding(56, 40, 56, 24)
-        }
-
-        fun makeRow(
-            label: String,
-            valueOf: () -> String,
-        ): Pair<android.widget.LinearLayout, android.widget.TextView> {
-            val valueText = android.widget.TextView(ctx).apply {
-                text = valueOf()
-                setTextColor(0xFF9FB4C7.toInt())
-                textSize = 14f
-            }
-            val row = android.widget.LinearLayout(ctx).apply {
-                orientation = android.widget.LinearLayout.HORIZONTAL
-                gravity = android.view.Gravity.CENTER_VERTICAL
-                setPadding(0, 24, 0, 0)
-                isClickable = true
-                isFocusable = true
-                val out = android.util.TypedValue()
-                ctx.theme.resolveAttribute(android.R.attr.selectableItemBackground, out, true)
-                setBackgroundResource(out.resourceId)
-                addView(
-                    android.widget.TextView(ctx).apply {
-                        text = label
-                        setTextColor(0xFFFFFFFF.toInt())
-                        textSize = 16f
-                    },
-                    android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-                )
-                addView(valueText)
-            }
-            return row to valueText
-        }
-
-        root.addView(
-            android.widget.TextView(ctx).apply {
-                text = ctx.getString(R.string.anime4k_category)
-                setTextColor(0xFFFFFFFF.toInt())
-                textSize = 20f
-            }
-        )
-
-        val (modeRow, modeValue) = makeRow(ctx.getString(R.string.anime4k_shader)) {
-            modeNames.getOrNull(modeValues.indexOf(mode)) ?: modeNames.firstOrNull().orEmpty()
-        }
-        val (sharpenRow, sharpenValue) = makeRow(ctx.getString(R.string.anime4k_sharpen)) {
-            sharpenNames.getOrNull(sharpenValues.indexOf(sharpen)) ?: sharpenNames.firstOrNull().orEmpty()
-        }
-
-        modeRow.setOnClickListener {
-            activity?.showBottomDialog(
-                modeNames,
-                modeValues.indexOf(mode),
-                ctx.getString(R.string.anime4k_shader),
-                true,
-                {}
-            ) { chosen ->
-                mode = modeValues.getOrElse(chosen) { mode }
-                modeValue.text =
-                    modeNames.getOrNull(modeValues.indexOf(mode)) ?: modeNames.firstOrNull().orEmpty()
-            }
-        }
-        sharpenRow.setOnClickListener {
-            activity?.showBottomDialog(
-                sharpenNames,
-                sharpenValues.indexOf(sharpen),
-                ctx.getString(R.string.anime4k_sharpen),
-                true,
-                {}
-            ) { chosen ->
-                sharpen = sharpenValues.getOrElse(chosen) { sharpen }
-                sharpenValue.text =
-                    sharpenNames.getOrNull(sharpenValues.indexOf(sharpen)) ?: sharpenNames.firstOrNull().orEmpty()
-            }
-        }
-
-        val canvasSwitch = android.widget.Switch(ctx).apply {
-            isChecked = canvasAware
-            text = ctx.getString(R.string.anime4k_canvas_aware)
-            setTextColor(0xFFFFFFFF.toInt())
-            setPadding(0, 24, 0, 0)
-        }
-        canvasSwitch.setOnCheckedChangeListener { _, checked -> canvasAware = checked }
-
-        root.addView(modeRow)
-        root.addView(sharpenRow)
-        root.addView(canvasSwitch)
-        root.addView(
-            android.widget.Button(ctx).apply {
-                text = ctx.getString(R.string.ok)
-                setOnClickListener {
-                    settingsManager.edit {
-                        putInt(ctx.getString(R.string.anime4k_shader_key), mode)
-                        putInt(ctx.getString(R.string.anime4k_sharpen_key), sharpen)
-                        putBoolean(ctx.getString(R.string.anime4k_canvas_aware_key), canvasAware)
-                    }
-                    (player as? CS3IPlayer)?.applyAnime4kSettings(ctx)
-                    dialog.dismiss()
-                }
-            },
-            android.widget.LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = 40 }
-        )
-
-        dialog.setContentView(root)
-        dialog.show()
-    }
-
-    @SuppressLint("SetTextI18n")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         var langFilterList = listOf<String>()
@@ -2485,13 +2358,6 @@ class GeneratorPlayer : FullScreenPlayer() {
         playerBinding?.downloadHeaderToggle?.setOnClickListener {
             playerBinding?.downloadHeader?.let {
                 it.isVisible = !it.isVisible
-            }
-        }
-
-        binding?.playerView?.findViewById<android.widget.ImageButton>(R.id.player_anime4k_button)?.apply {
-            isVisible = true
-            setOnClickListener {
-                context?.let { ctx -> showAnime4kDialog(ctx) }
             }
         }
 
