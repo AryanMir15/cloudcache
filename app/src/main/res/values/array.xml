@@ -236,6 +236,17 @@
         <item>HW</item>
     </array>
 
+    <array name="anime4k_shader_switch">
+        <item>@string/off</item>
+        <item>Anime4K Light</item>
+        <item>Anime4K Medium</item>
+    </array>
+    <array name="anime4k_shader_switch_values">
+        <item>0</item>
+        <item>1</item>
+        <item>2</item>
+    </array>
+
     <array name="software_decoding_switch_values">
         <item>-1</item> <!-- Auto-->
         <item>0</item>  <!-- HW+SW, aka on but prefer hw -->

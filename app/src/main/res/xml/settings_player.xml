@@ -122,6 +122,12 @@
             android:title="@string/software_decoding"
             app:defaultValue="true"
             app:key="@string/software_decoding_key" />
+        <Preference
+            android:icon="@drawable/ic_baseline_autorenew_24"
+            android:summary="@string/anime4k_shader_desc"
+            android:title="@string/anime4k_shader"
+            app:defaultValue="0"
+            app:key="@string/anime4k_shader_key" />
         <SwitchPreference
             android:icon="@drawable/sun_7_24"
             android:summary="@string/extra_brightness_settings_des"

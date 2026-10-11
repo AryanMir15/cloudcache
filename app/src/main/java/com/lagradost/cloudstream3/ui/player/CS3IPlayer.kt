@@ -1402,6 +1402,23 @@ class CS3IPlayer : IPlayer {
             setHandleAudioBecomingNoisy(true)
             setPlaybackSpeed(playBackSpeed)
             this.addAnalyticsListener(tracksAnalyticsListener)
+
+            // Anime4K GPU post-processing (player setting: Off / Light / Medium)
+            try {
+                val settingsManager = PreferenceManager.getDefaultSharedPreferences(context)
+                val shaderMode = settingsManager.getInt(
+                    context.getString(R.string.anime4k_shader_key), 0
+                )
+                if (shaderMode > 0) {
+                    val effects = com.lagradost.cloudstream3.ui.player.shaders.Anime4KEffect
+                        .buildEffects(context, shaderMode)
+                    if (effects.isNotEmpty()) {
+                        setVideoEffects(effects)
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.e("Anime4KEffect", "Failed to apply Anime4K shaders", t)
+            }
         }
     }
 
