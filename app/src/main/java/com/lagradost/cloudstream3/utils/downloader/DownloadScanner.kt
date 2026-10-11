@@ -227,12 +227,15 @@ object DownloadScanner {
                             val ep = episodes.firstOrNull { it.episode == file.episodeNumber }
                                 ?: continue
                             matchedHere++
-                            if (context.getKey<DownloadObjects.DownloadedFileInfo>(
-                                    VideoDownloadManager.KEY_DOWNLOAD_INFO, ep.id.toString()
-                                ) != null
-                            ) {
-                                continue // already connected
-                            }
+                            // Heal broken connections: raw-path basePath (scoped
+                            // storage can't resolve it) or missing content URI —
+                            // overwrite with the fresh content-URI fileInfo.
+                            val existing = context.getKey<DownloadObjects.DownloadedFileInfo>(
+                                VideoDownloadManager.KEY_DOWNLOAD_INFO, ep.id.toString()
+                            )
+                            val existingUsable =
+                                existing?.extraInfo?.startsWith("content://") == true
+                            if (existingUsable) continue
                             val fileInfo = DownloadObjects.DownloadedFileInfo(
                                 totalBytes = if (file.uri.toString().startsWith("content://")) -1 else 0,
                                 relativePath = file.folderPath,

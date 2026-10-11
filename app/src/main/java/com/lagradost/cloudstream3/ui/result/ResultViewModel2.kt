@@ -1683,6 +1683,12 @@ class ResultViewModel2 : ViewModel() {
                         // manually check if the file exists in the standard local library folder.
                         if (length <= 0) {
                             try {
+                                val diagInfo = fileInfo
+                                android.util.Log.d(
+                                    "LocalLibraryTest",
+                                    "CLICK id=${click.data.id} fileInfo=${diagInfo != null} " +
+                                        "extra=${diagInfo?.extraInfo} base=${diagInfo?.basePath}"
+                                )
                                 // Use the app's configured download path from settings
                                 val (baseFile, basePath) = with(ctx) {
                                     com.lagradost.cloudstream3.utils.downloader.DownloadFileManagement.run {
@@ -1697,10 +1703,21 @@ class ResultViewModel2 : ViewModel() {
                                 )
                                 
                                 android.util.Log.d("LocalLibraryTest", "Attempting manual check. Base file: ${baseFile?.filePath()} | Folder path: $folderPath")
-                                
-                                // Navigate to the folder using SafeFile
-                                val targetDir = baseFile?.gotoDirectory(folderPath, false)
-                                
+
+                                // The download base may already BE the type folder
+                                // (user picked the "Anime" folder as the download path),
+                                // so "Anime/<name>" under it is wrong — try the bare name too.
+                                val candidatePaths = listOf(
+                                    folderPath,
+                                    folderPath.removePrefix("Anime/"),
+                                    folderPath.removePrefix("Anime\\"),
+                                )
+                                var targetDir: com.lagradost.safefile.SafeFile? = null
+                                for (candidate in candidatePaths) {
+                                    targetDir = baseFile?.gotoDirectory(candidate, false)
+                                    if (targetDir?.exists() == true) break
+                                }
+
                                 android.util.Log.d("LocalLibraryTest", "Target dir exists: ${targetDir?.exists()}")
                                 
                                 if (targetDir != null && targetDir.exists() == true) {
