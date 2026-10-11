@@ -433,7 +433,9 @@ private class Anime4kChainProgram(
                     // First frame diagnostics: sample the pass output to see
                     // where the signal dies.
                     try {
-                        val (rSum, gSum, bSum) = sampleCenter()
+                        val pw = if (compiled.writesScreen) outputWidth else compiled.width
+                        val ph = if (compiled.writesScreen) outputHeight else compiled.height
+                        val (rSum, gSum, bSum) = sampleCenter(pw, ph)
                         Log.i(
                             "Anime4kChain",
                             "pass#${passes.indexOf(compiled)} w=${compiled.width}x${compiled.height}" +
@@ -475,12 +477,12 @@ private class Anime4kChainProgram(
     }
 
     /** Reads a 8x8 block at the center of the currently bound framebuffer. */
-    private fun sampleCenter(): Triple<Int, Int, Int> {
-        val w = minOf(outputWidth, 8)
-        val h = minOf(outputHeight, 8)
+    private fun sampleCenter(pw: Int, ph: Int): Triple<Int, Int, Int> {
+        val w = minOf(pw, 8)
+        val h = minOf(ph, 8)
         val buf = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
         GLES20.glReadPixels(
-            (outputWidth - w) / 2, (outputHeight - h) / 2, w, h,
+            (pw - w) / 2, (ph - h) / 2, w, h,
             GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf
         )
         var r = 0
