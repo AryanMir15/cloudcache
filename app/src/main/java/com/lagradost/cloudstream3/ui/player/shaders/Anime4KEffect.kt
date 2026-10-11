@@ -581,21 +581,24 @@ private class Anime4kChainProgram(
     }
 
     private fun readPixels(width: Int, height: Int): IntArray {
-        val buf = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+        // Float FBOs must be read as GL_HALF_FLOAT (UNSIGNED_BYTE reads of
+        // RGBA16F are rejected by this Mali driver -> INVALID_OPERATION).
+        val buf = ByteBuffer.allocateDirect(width * height * 8).order(ByteOrder.nativeOrder())
         GLES20.glReadPixels(
             0, 0, width, height,
-            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf
+            GLES20.GL_RGBA, GL_HALF_FLOAT, buf
         )
+        val fb = buf.asFloatBuffer()
         val out = IntArray(width * height)
         // GLES rows are bottom-up; flip and pack RGBA -> ARGB
         for (row in 0 until height) {
             val srcRow = height - 1 - row
             for (col in 0 until width) {
                 val i = (srcRow * width + col) * 4
-                val r = buf.get(i).toInt() and 0xFF
-                val g = buf.get(i + 1).toInt() and 0xFF
-                val b = buf.get(i + 2).toInt() and 0xFF
-                val a = buf.get(i + 3).toInt() and 0xFF
+                val r = (fb.get(i).coerceIn(0f, 1f) * 255f).toInt()
+                val g = (fb.get(i + 1).coerceIn(0f, 1f) * 255f).toInt()
+                val b = (fb.get(i + 2).coerceIn(0f, 1f) * 255f).toInt()
+                val a = (fb.get(i + 3).coerceIn(0f, 1f) * 255f).toInt()
                 out[row * width + col] = (a shl 24) or (r shl 16) or (g shl 8) or b
             }
         }
@@ -806,6 +809,8 @@ private class Anime4kChainProgram(
     private companion object {
         // AVBox's default sharpen strength
         const val SHARPEN = 1.0f
+        // GLES3 float pixel type (valid for reads/writes on the ES3 context)
+        const val GL_HALF_FLOAT = 0x140B
 
         const val VERTEX_SHADER = """
             attribute vec4 aFramePosition;
