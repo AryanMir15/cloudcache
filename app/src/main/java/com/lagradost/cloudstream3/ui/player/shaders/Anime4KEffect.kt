@@ -620,8 +620,8 @@ private class Anime4kChainProgram(
         if (basePlanned.isEmpty()) throw IllegalStateException("no pass parsed")
         // Append the sharpen present pass at the chain's final size — this is
         // the visible enhancement (AVBox's unsharp-mask present shader).
-        val last = basePlanned.last()
-        val present = Anime4kShader.presentPass(last.width, last.height)
+        val chainLast = basePlanned.last()
+        val present = Anime4kShader.presentPass(chainLast.width, chainLast.height)
         val planned = Anime4kShader.planPasses(composed + present, inputWidth, inputHeight)
 
         val byTarget = HashMap<Int, Target>()
