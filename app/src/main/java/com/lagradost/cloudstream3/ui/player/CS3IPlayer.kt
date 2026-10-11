@@ -1140,9 +1140,12 @@ class CS3IPlayer : IPlayer {
                     val factory = if (isSoftwareDecodingEnabled || isContentUri) {
                         FixedNextRenderersFactory(context).apply {
                             setEnableDecoderFallback(true)
-                            // Force FFmpeg for content URIs to avoid MediaCodec decoder errors
+                            // Content URIs: HARDWARE video first (MediaCodecVideoRenderer
+                            // runs the effect pipeline — Anime4K shaders); FFmpeg stays as
+                            // the fallback. PREFER would pick FfmpegVideoRenderer first,
+                            // which bypasses the effect-capable video graph entirely.
                             setExtensionRendererMode(
-                                if (isSoftwareDecodingPreferred || isContentUri)
+                                if (isSoftwareDecodingPreferred)
                                     DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER
                                 else
                                     DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON
