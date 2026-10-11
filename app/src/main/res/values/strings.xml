@@ -802,8 +802,9 @@
     <string name="torrent_not_accepted">Restart app and accept Stream Torrent pop-up to proceed.</string>
     <string name="software_decoding">Software decoding</string>
     <string name="software_decoding_desc">Software decoding enables the player to play video files not supported by your device, but may cause laggy or unstable playback on high resolution.</string>
+    <string name="anime4k_category">Anime4K Upscaler</string>
     <string name="anime4k_shader">Anime4K shaders</string>
-    <string name="anime4k_shader_desc">Anime4K GLSL post-processing on the GPU. Light: de-ring + line thinning. Medium: restore CNN + x2 upscale (heavier, best on 1080p or lower sources).</string>
+    <string name="anime4k_shader_desc">Anime4K GLSL post-processing on the GPU. Mode B: soft restore + x2 upscale. Mode A: full restore + x2 upscale. Mode A+A: restore + upscale + restore (heavy, best quality).</string>
     <string name="anime4k_sharpen">Anime4K sharpen</string>
     <string name="anime4k_sharpen_desc">Final unsharp-mask strength applied on top of the shader chain.</string>
     <string name="anime4k_canvas_aware">Anime4K canvas aware</string>

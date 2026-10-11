@@ -239,14 +239,16 @@
     <array name="anime4k_shader_switch">
         <item>@string/off</item>
         <item>Anime4K Light</item>
-        <item>Anime4K Medium</item>
-        <item>Anime4K High</item>
+        <item>Mode B</item>
+        <item>Mode A</item>
+        <item>Mode A+A</item>
     </array>
     <array name="anime4k_shader_switch_values">
         <item>0</item>
         <item>1</item>
         <item>2</item>
         <item>3</item>
+        <item>4</item>
     </array>
 
     <array name="anime4k_sharpen_switch">

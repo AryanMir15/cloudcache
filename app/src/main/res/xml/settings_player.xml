@@ -25,6 +25,27 @@
             android:title="@string/player_pref" />
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/anime4k_category">
+        <Preference
+            android:icon="@drawable/ic_baseline_autorenew_24"
+            android:summary="@string/anime4k_shader_desc"
+            android:title="@string/anime4k_shader"
+            app:defaultValue="0"
+            app:key="@string/anime4k_shader_key" />
+        <Preference
+            android:icon="@drawable/ic_baseline_tune_24"
+            android:summary="@string/anime4k_sharpen_desc"
+            android:title="@string/anime4k_sharpen"
+            app:defaultValue="100"
+            app:key="@string/anime4k_sharpen_key" />
+        <androidx.preference.SwitchPreferenceCompat
+            android:icon="@drawable/ic_baseline_aspect_ratio_24"
+            android:summary="@string/anime4k_canvas_aware_desc"
+            android:title="@string/anime4k_canvas_aware"
+            app:defaultValue="false"
+            app:key="@string/anime4k_canvas_aware_key" />
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/pref_category_player_layout">
         <Preference
             android:icon="@drawable/ic_baseline_text_format_24"
@@ -122,24 +143,6 @@
             android:title="@string/software_decoding"
             app:defaultValue="true"
             app:key="@string/software_decoding_key" />
-        <Preference
-            android:icon="@drawable/ic_baseline_autorenew_24"
-            android:summary="@string/anime4k_shader_desc"
-            android:title="@string/anime4k_shader"
-            app:defaultValue="0"
-            app:key="@string/anime4k_shader_key" />
-        <Preference
-            android:icon="@drawable/ic_baseline_tune_24"
-            android:summary="@string/anime4k_sharpen_desc"
-            android:title="@string/anime4k_sharpen"
-            app:defaultValue="100"
-            app:key="@string/anime4k_sharpen_key" />
-        <androidx.preference.SwitchPreferenceCompat
-            android:icon="@drawable/ic_baseline_aspect_ratio_24"
-            android:summary="@string/anime4k_canvas_aware_desc"
-            android:title="@string/anime4k_canvas_aware"
-            app:defaultValue="false"
-            app:key="@string/anime4k_canvas_aware_key" />
         <SwitchPreference
             android:icon="@drawable/sun_7_24"
             android:summary="@string/extra_brightness_settings_des"

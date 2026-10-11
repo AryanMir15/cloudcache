@@ -30,16 +30,16 @@ object Anime4KEffect {
     private const val TAG = "Anime4KEffect"
     const val MODE_OFF = 0
     const val MODE_LIGHT = 1
-    const val MODE_MEDIUM = 2
-    const val MODE_HIGH = 3
+    const val MODE_B = 2
+    const val MODE_A = 3
+    const val MODE_A_A = 4
 
-    /** Light: de-ring + line thinning. Medium: soft restore CNN + x2 upscale. High: full restore CNN + x2 upscale. */
+    /** Light: de-ring + line thinning. B: soft restore + x2. A: full restore + x2. A+A: restore + upscale + restore + upscale. */
     fun buildEffects(
         context: Context,
         mode: Int,
         sharpen: Float = 1.0f,
         canvasAware: Boolean = false,
-        polish: Boolean = false,
     ): List<GlEffect> = when (mode) {
         MODE_OFF -> emptyList()
         MODE_LIGHT -> listOf(
@@ -51,10 +51,9 @@ object Anime4KEffect {
                 context,
                 sharpen,
                 canvasAware,
-                polish,
-            )
+                doubleUpscale = false,\r?\n            )
         )
-        MODE_MEDIUM -> listOf(
+        MODE_B -> listOf(
             Anime4kGlEffect(
                 listOf(
                     "anime4k_clamp_highlights",
@@ -64,10 +63,9 @@ object Anime4KEffect {
                 context,
                 sharpen,
                 canvasAware,
-                polish,
-            )
+                doubleUpscale = false,\r?\n            )
         )
-        MODE_HIGH -> listOf(
+        MODE_A -> listOf(
             Anime4kGlEffect(
                 listOf(
                     "anime4k_clamp_highlights",
@@ -77,7 +75,19 @@ object Anime4KEffect {
                 context,
                 sharpen,
                 canvasAware,
-                /* polish = */ true, // restore → upscale → restore (B+B)
+                doubleUpscale = false,\r?\n            )
+        )
+        MODE_A_A -> listOf(
+            Anime4kGlEffect(
+                listOf(
+                    "anime4k_clamp_highlights",
+                    "anime4k_restore_cnn_m",
+                    "anime4k_upscale_cnn_x2_m",
+                ),
+                context,
+                sharpen,
+                canvasAware,
+                doubleUpscale = true, // restore → upscale → restore → upscale
             )
         )
         else -> emptyList()
@@ -98,10 +108,9 @@ private class Anime4kGlEffect(
     private val context: Context,
     private val sharpen: Float,
     private val canvasAware: Boolean,
-    private val polish: Boolean,
-) : GlEffect {
+    private val doubleUpscale: Boolean,\r?\n) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        Anime4kChainProgram(context, assets, useHdr, sharpen, canvasAware, polish)
+        Anime4kChainProgram(context, assets, useHdr, sharpen, canvasAware, doubleUpscale)
 
     override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = false
 }
@@ -454,8 +463,7 @@ private class Anime4kChainProgram(
     hdr: Boolean,
     private val sharpen: Float,
     private val canvasAware: Boolean,
-    private val polish: Boolean,
-) : BaseGlShaderProgram(
+    private val doubleUpscale: Boolean,\r?\n) : BaseGlShaderProgram(
     // The effect pipeline runs on a GLES 2.0 context (media3 default) — float
     // render targets need EXT_color_buffer_half_float with the OES pixel type;
     // newTarget() checks for it and falls back to 8-bit. Output pool 8-bit.
@@ -588,6 +596,7 @@ private class Anime4kChainProgram(
         } else null
         val ratio = canvas?.let { it[0].toFloat() / inputWidth } ?: 1f
         val upscaleCount = when {
+            doubleUpscale && !canvasAware -> 2 // literal A+A: restore→upscale→restore→upscale
             !isUpscaler -> 1
             canvas == null -> 1
             ratio < 1.35f -> 0
@@ -600,10 +609,15 @@ private class Anime4kChainProgram(
         composed += clamp.dropLast(1)
         composed += restore
         composed += clamp.takeLast(1)
-        repeat(upscaleCount) { composed += parsed.lastOrNull().orEmpty() }
-        // Polish (B+B): run the restore again on the upscaled image — smoother
-        // surfaces and edges (bloc97's recommended quality mode).
-        if (polish && restore.isNotEmpty()) composed += restore
+        // A+A = restore + upscale + restore + upscale (polish between the stages)
+        if (doubleUpscale) {
+            repeat(upscaleCount) { i ->
+                composed += parsed.lastOrNull().orEmpty()
+                if (i < upscaleCount - 1 || upscaleCount == 1) composed += restore
+            }
+        } else {
+            repeat(upscaleCount) { composed += parsed.lastOrNull().orEmpty() }
+        }
 
         val basePlanned = Anime4kShader.planPasses(composed, inputWidth, inputHeight)
         if (basePlanned.isEmpty()) throw IllegalStateException("no pass parsed")
