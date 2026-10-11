@@ -466,6 +466,13 @@ private class Anime4kChainProgram(
                 }
                 program.bindAttributesAndUniforms()
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+                val err = GLES20.glGetError()
+                if (err != GLES20.GL_NO_ERROR) {
+                    Log.e(
+                        "Anime4kChain",
+                        "pass#${passes.indexOf(compiled)} glError=0x${err.toString(16)}"
+                    )
+                }
                 if (!dumpDone) {
                     // First frame diagnostics: sample the pass output to see
                     // where the signal dies.
@@ -753,6 +760,10 @@ private class Anime4kChainProgram(
             GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
             GLES20.GL_TEXTURE_2D, textureId, 0,
         )
+        val status = GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER)
+        if (status != GLES20.GL_FRAMEBUFFER_COMPLETE) {
+            Log.e("Anime4kChain", "FBO incomplete: status=0x${status.toString(16)}")
+        }
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         return ids[0]
     }
