@@ -124,6 +124,33 @@ private object Anime4kShader {
     const val INPUT_BINDING = -1
     const val SCREEN_TARGET = -1
 
+    /** Unsharp-mask present pass — the visible enhancement (AVBox port). */
+    private const val PRESENT_SHARP_BODY = "uniform float uSharpen;\n" +
+        "const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);\n" +
+        "vec4 hook() {\n" +
+        "    vec4 c = MAIN_tex(MAIN_pos);\n" +
+        "    float lc = dot(c.rgb, LUMA);\n" +
+        "    float ln = dot(MAIN_tex(MAIN_pos + vec2(0.0, -1.0) * MAIN_pt).rgb, LUMA);\n" +
+        "    float ls = dot(MAIN_tex(MAIN_pos + vec2(0.0, 1.0) * MAIN_pt).rgb, LUMA);\n" +
+        "    float lw = dot(MAIN_tex(MAIN_pos + vec2(-1.0, 0.0) * MAIN_pt).rgb, LUMA);\n" +
+        "    float le = dot(MAIN_tex(MAIN_pos + vec2(1.0, 0.0) * MAIN_pt).rgb, LUMA);\n" +
+        "    float delta = (lc - (ln + ls + lw + le) * 0.25) * uSharpen;\n" +
+        "    float up = max(0.0, max(max(ln, ls), max(lw, le)) - lc);\n" +
+        "    float down = max(0.0, lc - min(min(ln, ls), min(lw, le)));\n" +
+        "    return vec4(clamp(c.rgb + clamp(delta, -down, up), 0.0, 1.0), c.a);\n" +
+        "}\n"
+
+    fun presentPass(width: Int, height: Int): Anime4kPass = Anime4kPass(
+        name = "present-sharpen",
+        binds = listOf(MAIN),
+        save = MAIN,
+        widthExpr = listOf(width.toString()),
+        heightExpr = listOf(height.toString()),
+        components = 4,
+        whenExpr = emptyList(),
+        fragmentShader = fragmentShader(PRESENT_SHARP_BODY, listOf(MAIN)),
+    )
+
     fun assignTargets(planned: List<Anime4kPlannedPass>): List<Anime4kPassIo> {
         val latest = HashMap<String, Int>()
         val sizes = HashMap<String, IntArray>()
@@ -358,10 +385,9 @@ private class Anime4kChainProgram(
     private val assets: List<String>,
     hdr: Boolean,
 ) : BaseGlShaderProgram(
-    // The CNN feature maps are raw activations (roughly -5..+5). 8-bit RGBA
-    // clamps them to [0,1] and crushes the correction to invisibility — mpv
-    // runs these intermediates in float. Use 16-bit half-float end to end.
-    /* useHighPrecisionColorComponents = */ true,
+    // 8-bit pipeline: RGBA16F intermediates are not renderable on this GL
+    // context (no EXT_color_buffer_half_float) — INVALID_OPERATION at draw.
+    /* useHighPrecisionColorComponents = */ false,
     /* texturePoolCapacity = */ 3
 ) {
 
@@ -433,6 +459,9 @@ private class Anime4kChainProgram(
                         "uSize${binding.name}",
                         floatArrayOf(binding.width.toFloat(), binding.height.toFloat()),
                     )
+                }
+                if (compiled.writesScreen) {
+                    program.setFloatsUniformIfPresent("uSharpen", floatArrayOf(SHARPEN))
                 }
                 program.bindAttributesAndUniforms()
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
@@ -587,8 +616,13 @@ private class Anime4kChainProgram(
         val clamp = parsed.firstOrNull().orEmpty()
         val middle = parsed.drop(1).flatten()
         val composed = clamp.dropLast(1) + middle + clamp.takeLast(1)
-        val planned = Anime4kShader.planPasses(composed, inputWidth, inputHeight)
-        if (planned.isEmpty()) throw IllegalStateException("no pass parsed")
+        val basePlanned = Anime4kShader.planPasses(composed, inputWidth, inputHeight)
+        if (basePlanned.isEmpty()) throw IllegalStateException("no pass parsed")
+        // Append the sharpen present pass at the chain's final size — this is
+        // the visible enhancement (AVBox's unsharp-mask present shader).
+        val last = basePlanned.last()
+        val present = Anime4kShader.presentPass(last.width, last.height)
+        val planned = Anime4kShader.planPasses(composed + present, inputWidth, inputHeight)
 
         val byTarget = HashMap<Int, Target>()
         Anime4kShader.assignTargets(planned).forEach { item ->
@@ -677,12 +711,10 @@ private class Anime4kChainProgram(
         val ids = IntArray(1)
         GLES20.glGenTextures(1, ids, 0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
-        // Half-float intermediates (GL_RGBA16F / GL_HALF_FLOAT are GLES3
-        // constants; the values are legal to pass to glTexImage2D on any
-        // GLES3 device — Mali-G615 is GLES3.2).
+        // 8-bit RGBA — same as the proven AVBox port (GlUtil.createTexture(..., false)).
         GLES20.glTexImage2D(
-            GLES20.GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0,
-            GLES20.GL_RGBA, GL_HALF_FLOAT, null,
+            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null,
         )
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
@@ -739,10 +771,7 @@ private class Anime4kChainProgram(
     )
 
     private companion object {
-        // GLES3 constants (not in android.opengl.GLES20) — legal values for
-        // glTexImage2D on any GLES3 device.
-        const val GL_RGBA16F = 0x881A
-        const val GL_HALF_FLOAT = 0x140B
+        const val SHARPEN = 0.9f
 
         const val VERTEX_SHADER = """
             attribute vec4 aFramePosition;
