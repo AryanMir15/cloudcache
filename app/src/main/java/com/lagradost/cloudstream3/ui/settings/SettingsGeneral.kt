@@ -159,9 +159,11 @@ class SettingsGeneral : BasePreferenceFragmentCompat() {
 
     private val pathPicker = getChooseFolderLauncher { uri, path ->
         val context = context ?: CloudStreamApp.context ?: return@getChooseFolderLauncher
+        // Store the resolved filesystem path when the picker gave us one (so the
+        // app has a simple directory to look into), falling back to the SAF URI.
         (path ?: uri.toString()).let {
             PreferenceManager.getDefaultSharedPreferences(context).edit {
-                putString(getString(R.string.download_path_key), uri.toString())
+                putString(getString(R.string.download_path_key), path ?: uri.toString())
                 putString(getString(R.string.download_path_key_visual), it)
             }
         }
