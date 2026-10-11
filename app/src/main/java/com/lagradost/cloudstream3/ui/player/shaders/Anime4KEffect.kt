@@ -51,7 +51,8 @@ object Anime4KEffect {
                 context,
                 sharpen,
                 canvasAware,
-                doubleUpscale = false,\r?\n            )
+                doubleUpscale = false,
+            )
         )
         MODE_B -> listOf(
             Anime4kGlEffect(
@@ -63,7 +64,8 @@ object Anime4KEffect {
                 context,
                 sharpen,
                 canvasAware,
-                doubleUpscale = false,\r?\n            )
+                doubleUpscale = false,
+            )
         )
         MODE_A -> listOf(
             Anime4kGlEffect(
@@ -75,7 +77,8 @@ object Anime4KEffect {
                 context,
                 sharpen,
                 canvasAware,
-                doubleUpscale = false,\r?\n            )
+                doubleUpscale = false,
+            )
         )
         MODE_A_A -> listOf(
             Anime4kGlEffect(
@@ -108,7 +111,8 @@ private class Anime4kGlEffect(
     private val context: Context,
     private val sharpen: Float,
     private val canvasAware: Boolean,
-    private val doubleUpscale: Boolean,\r?\n) : GlEffect {
+    private val doubleUpscale: Boolean,
+) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
         Anime4kChainProgram(context, assets, useHdr, sharpen, canvasAware, doubleUpscale)
 
@@ -463,7 +467,8 @@ private class Anime4kChainProgram(
     hdr: Boolean,
     private val sharpen: Float,
     private val canvasAware: Boolean,
-    private val doubleUpscale: Boolean,\r?\n) : BaseGlShaderProgram(
+    private val doubleUpscale: Boolean,
+) : BaseGlShaderProgram(
     // The effect pipeline runs on a GLES 2.0 context (media3 default) — float
     // render targets need EXT_color_buffer_half_float with the OES pixel type;
     // newTarget() checks for it and falls back to 8-bit. Output pool 8-bit.
@@ -577,18 +582,21 @@ private class Anime4kChainProgram(
         val isUpscaler = lastAsset.contains("upscale")
         val canvas = if (canvasAware) {
             // The canvas = the video's actual display region: fit the video into
-            // the PHYSICAL panel. displayMetrics may report logical or scaled
-            // pixels depending on the device, so use the display's physical
-            // mode size when available (covers 7:5 tablets with letterboxing).
+            // the PHYSICAL panel. context.display throws on non-visual contexts
+            // (e.g. the player's app context), so fall back to displayMetrics.
             val dm = context.resources.displayMetrics
-            val (panelW, panelH) = if (android.os.Build.VERSION.SDK_INT >= 30) {
-                val mode = context.display?.mode
-                if (mode != null && mode.physicalWidth > 0 && mode.physicalHeight > 0) {
-                    mode.physicalWidth to mode.physicalHeight
+            val (panelW, panelH) = try {
+                if (android.os.Build.VERSION.SDK_INT >= 30) {
+                    val mode = context.display?.mode
+                    if (mode != null && mode.physicalWidth > 0 && mode.physicalHeight > 0) {
+                        mode.physicalWidth to mode.physicalHeight
+                    } else {
+                        dm.widthPixels to dm.heightPixels
+                    }
                 } else {
                     dm.widthPixels to dm.heightPixels
                 }
-            } else {
+            } catch (e: Exception) {
                 dm.widthPixels to dm.heightPixels
             }
             val scale = minOf(panelW.toFloat() / inputWidth, panelH.toFloat() / inputHeight)
