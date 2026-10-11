@@ -158,13 +158,15 @@ object DownloadScanner {
     fun scanDownloads(context: Context, onComplete: (Int) -> Unit) {
         CoroutineScope(Dispatchers.IO).launch {
             var foundCount = 0
+            var matchedTotal = 0
+            val countedHeaders = HashSet<Int>()
             try {
                 val basePathSetting = getDownloadPath(context)
 
                 val headers = context.getKeys(DOWNLOAD_HEADER_CACHE)
                     .mapNotNull { CloudStreamApp.getKey<DownloadObjects.DownloadHeaderCached>(it) }
 
-                // Scope to the user's library (favorites + subscriptions + bookmarked) �
+                // Scope to the user's library (favorites + subscriptions + bookmarked) —
                 // headers are also written for every show merely viewed/cached.
                 val libraryIds = buildSet {
                     addAll(com.lagradost.cloudstream3.utils.DataStoreHelper.getAllFavorites().mapNotNull { it.id })
@@ -178,13 +180,17 @@ object DownloadScanner {
                     .mapNotNull { CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(it) }
                     .groupBy { it.parentId }
 
-                // Candidate roots: the configured path first, then the default Downloads dir
+                // Candidate roots: the default MediaStore Downloads dir first (the
+                // "Download/" setting resolves to a raw path that scoped storage
+                // won't list), then the configured path (SAF trees resolve fine).
+                // No distinctBy(filePath) — different SafeFile implementations may
+                // share a display path but point at different storage backends.
                 val bases = buildList {
                     DownloadFileManagement.run {
-                        basePathToFile(context, basePathSetting)?.let { add(it) }
                         getDefaultDir(context)?.let { add(it) }
+                        basePathToFile(context, basePathSetting)?.let { add(it) }
                     }
-                }.distinctBy { it.filePath() }
+                }.distinct()
                 Log.d(TAG, "Base locations: ${bases.map { it.filePath() }}")
 
                 for (base in bases) {
@@ -215,9 +221,12 @@ object DownloadScanner {
                             "'${header.name}': ${matched.size} files (eps ${matchedNumbers.sorted().take(10)}), " +
                                 "$existingCount already connected"
                         )
+                        var newlyConnected = 0
+                        var matchedHere = 0
                         for (file in matched) {
                             val ep = episodes.firstOrNull { it.episode == file.episodeNumber }
                                 ?: continue
+                            matchedHere++
                             if (context.getKey<DownloadObjects.DownloadedFileInfo>(
                                     VideoDownloadManager.KEY_DOWNLOAD_INFO, ep.id.toString()
                                 ) != null
@@ -238,14 +247,24 @@ object DownloadScanner {
                             VideoDownloadManager.setDownloadStatus(
                                 ep.id, VideoDownloadManager.DownloadType.IsDone, context
                             )
+                            newlyConnected++
                             foundCount++
                         }
+                        // Count this header once even if multiple bases see it
+                        if (countedHeaders.add(header.id)) matchedTotal += matchedHere
+                        Log.d(
+                            TAG,
+                            "'${header.name}': +$newlyConnected newly connected " +
+                                "($matchedHere matched here)"
+                        )
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error scanning downloads: ${e.message}", e)
             }
-            onComplete(foundCount)
+            // Report EVERY matched episode (already-connected included) so a scan
+            // over an already-bound library shows "N entries found" instead of 0.
+            onComplete(matchedTotal)
         }
     }
 }
