@@ -2406,7 +2406,12 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                         episodes is Resource.Success && episodes.value.isNotEmpty()
 
                     if (episodes is Resource.Success) {
-                        (resultEpisodes.adapter as? EpisodeAdapter)?.submitList(episodes.value)
+                        // Force a full rebind after the list commits so download-
+                        // status icons refresh even when the list is unchanged
+                        // (e.g. right after a download scan).
+                        (resultEpisodes.adapter as? EpisodeAdapter)?.submitList(episodes.value) {
+                            (resultEpisodes.adapter as? EpisodeAdapter)?.notifyDataSetChanged()
+                        }
 
                         // Show quality dialog with all sources
                         resultBatchDownloadButton.setOnLongClickListener {

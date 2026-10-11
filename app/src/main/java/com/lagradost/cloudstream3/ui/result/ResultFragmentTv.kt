@@ -864,7 +864,11 @@ class ResultFragmentTv : BaseFragment<FragmentResultTvBinding>(
                     }
 
 
-                    (resultEpisodes.adapter as? EpisodeAdapter)?.submitList(episodes.value)
+                    // Force a full rebind so download-status icons refresh even
+                    // when the list contents are unchanged (post download scan).
+                    (resultEpisodes.adapter as? EpisodeAdapter)?.submitList(episodes.value) {
+                        (resultEpisodes.adapter as? EpisodeAdapter)?.notifyDataSetChanged()
+                    }
                 }
             }
         }
