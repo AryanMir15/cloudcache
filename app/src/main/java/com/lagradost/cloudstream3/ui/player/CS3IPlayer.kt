@@ -1434,6 +1434,33 @@ class CS3IPlayer : IPlayer {
         }
     }
 
+    /** Live-apply the Anime4K shader settings to the current player (no restart). */
+    fun applyAnime4kSettings(context: Context) {
+        try {
+            val settingsManager = PreferenceManager.getDefaultSharedPreferences(context)
+            val shaderMode = settingsManager.getInt(
+                context.getString(R.string.anime4k_shader_key), 0
+            )
+            val sharpen = settingsManager.getInt(
+                context.getString(R.string.anime4k_sharpen_key), 100
+            ) / 100f
+            val canvasAware = settingsManager.getBoolean(
+                context.getString(R.string.anime4k_canvas_aware_key), false
+            )
+            val player = exoPlayer ?: return
+            val effects = if (shaderMode <= 0) {
+                emptyList()
+            } else {
+                com.lagradost.cloudstream3.ui.player.shaders.Anime4KEffect
+                    .buildEffects(context, shaderMode, sharpen, canvasAware)
+            }
+            player.setVideoEffects(effects)
+            Log.i("Anime4KEffect", "live-apply shaderMode=$shaderMode sharpen=$sharpen canvasAware=$canvasAware")
+        } catch (t: Throwable) {
+            Log.e("Anime4KEffect", "Failed to live-apply Anime4K shaders", t)
+        }
+    }
+
     private fun loadExo(
         context: Context,
         mediaSlices: List<MediaItemSlice>,
