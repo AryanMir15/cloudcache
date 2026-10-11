@@ -385,11 +385,10 @@ private class Anime4kChainProgram(
     private val assets: List<String>,
     hdr: Boolean,
 ) : BaseGlShaderProgram(
-    // Float pipeline: the conv nets use both positive AND negative feature
-    // halves (go_0/go_1) — 8-bit intermediates clamp the negatives to zero and
-    // kill half the network. Media3's GlUtil.createTexture(useHdr=true) uses
-    // the correct HALF_FLOAT_OES path for float render targets.
-    /* useHighPrecisionColorComponents = */ true,
+    // The effect pipeline runs on a GLES 2.0 context (media3 default) — float
+    // render targets need EXT_color_buffer_half_float with the OES pixel type;
+    // newTarget() checks for it and falls back to 8-bit. Output pool 8-bit.
+    /* useHighPrecisionColorComponents = */ false,
     /* texturePoolCapacity = */ 3
 ) {
 
@@ -688,18 +687,47 @@ private class Anime4kChainProgram(
     }
 
     private fun newTarget(width: Int, height: Int): Target {
-        // Media3's own texture creation handles the float format correctly
-        // (GL_HALF_FLOAT_OES + EXT_color_buffer_half_float); fall back to 8-bit
-        // only if the device truly can't render to float targets.
-        val texture = try {
-            GlUtil.createTexture(width, height, /* useHdr = */ true)
-        } catch (e: Exception) {
-            Log.e("Anime4kChain", "float targets unsupported, using 8-bit", e)
+        val texture = if (floatTargetsSupported) {
+            try {
+                createFloatTexture(width, height)
+            } catch (e: Exception) {
+                Log.e("Anime4kChain", "float texture creation failed, using 8-bit", e)
+                GlUtil.createTexture(width, height, /* useHdr = */ false)
+            }
+        } else {
             GlUtil.createTexture(width, height, /* useHdr = */ false)
         }
         val target = Target(texture, createFramebuffer(texture), width, height)
         targets.add(target)
         return target
+    }
+
+    /** EXT_color_buffer_half_float present in this (GLES2) context? */
+    private fun floatTargetsSupported(): Boolean {
+        val exts = GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: return false
+        val version = GLES20.glGetString(GLES20.GL_VERSION) ?: "?"
+        val supported = exts.contains("GL_EXT_color_buffer_half_float")
+        Log.i(
+            "Anime4kChain",
+            "GL context: $version, float targets=$supported"
+        )
+        return supported
+    }
+
+    private fun createFloatTexture(width: Int, height: Int): Int {
+        // GLES2 EXT path: GL_RGBA16F + GL_HALF_FLOAT_OES (not 0x140B).
+        val ids = IntArray(1)
+        GLES20.glGenTextures(1, ids, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
+        GLES20.glTexImage2D(
+            GLES20.GL_TEXTURE_2D, 0, 0x881A /* GL_RGBA16F */, width, height, 0,
+            GLES20.GL_RGBA, 0x8D61 /* GL_HALF_FLOAT_OES */, null,
+        )
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        return ids[0]
     }
 
     private fun drawCopy(inputTexId: Int) {
@@ -765,7 +793,8 @@ private class Anime4kChainProgram(
     )
 
     private companion object {
-        const val SHARPEN = 0.9f
+        // AVBox's default sharpen strength
+        const val SHARPEN = 1.0f
 
         const val VERTEX_SHADER = """
             attribute vec4 aFramePosition;
