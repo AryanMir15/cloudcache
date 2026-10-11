@@ -149,6 +149,16 @@
             android:title="@string/extra_brightness_settings"
             app:defaultValue="false"
             app:key="@string/extra_brightness_key" />
+        <SeekBarPreference
+            android:icon="@drawable/ic_baseline_color_lens_24"
+            android:defaultValue="0"
+            android:key="@string/saturation_key"
+            android:max="100"
+            android:summary="@string/saturation_desc"
+            android:title="@string/saturation"
+            app:adjustable="true"
+            app:min="0"
+            app:seekBarIncrement="1" />
     </PreferenceCategory>
     <PreferenceCategory
         android:title="@string/pref_category_gestures"

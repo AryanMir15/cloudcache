@@ -1419,10 +1419,16 @@ class CS3IPlayer : IPlayer {
                 val canvasAware = settingsManager.getBoolean(
                     context.getString(R.string.anime4k_canvas_aware_key), false
                 )
-                Log.i("Anime4KEffect", "shaderMode=$shaderMode sharpen=$sharpen canvasAware=$canvasAware")
-                if (shaderMode > 0) {
+                val saturation = settingsManager.getInt(
+                    context.getString(R.string.saturation_key), 0
+                ) / 100f
+                Log.i(
+                    "Anime4KEffect",
+                    "shaderMode=$shaderMode sharpen=$sharpen canvasAware=$canvasAware saturation=$saturation"
+                )
+                if (shaderMode > 0 || saturation > 0f) {
                     val effects = com.lagradost.cloudstream3.ui.player.shaders.Anime4KEffect
-                        .buildEffects(context, shaderMode, sharpen, canvasAware)
+                        .buildEffects(context, shaderMode, sharpen, canvasAware, saturation)
                     Log.i("Anime4KEffect", "effects=${effects.size}")
                     if (effects.isNotEmpty()) {
                         setVideoEffects(effects)

@@ -809,6 +809,8 @@
     <string name="anime4k_sharpen_desc">Final unsharp-mask strength applied on top of the shader chain.</string>
     <string name="anime4k_canvas_aware">Anime4K canvas aware</string>
     <string name="anime4k_canvas_aware_desc">Only upscale when the screen actually benefits, scaling to the display size instead. Same quality, less wasted GPU work.</string>
+    <string name="saturation">Saturation</string>
+    <string name="saturation_desc">Color saturation boost on the video output. 0 = unchanged, 100 = strong boost.</string>
     <string name="volume_exceeded_100">Volume has exceeded 100%</string>
     <string name="slide_up_again_to_exceed_100">Slide up again to go beyond 100%</string>
     <string name="update_plugins">Update Plugins</string>

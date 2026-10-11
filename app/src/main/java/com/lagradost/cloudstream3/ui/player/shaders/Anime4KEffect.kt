@@ -40,60 +40,83 @@ object Anime4KEffect {
         mode: Int,
         sharpen: Float = 1.0f,
         canvasAware: Boolean = false,
-    ): List<GlEffect> = when (mode) {
-        MODE_OFF -> emptyList()
-        MODE_LIGHT -> listOf(
-            Anime4kGlEffect(
-                listOf(
-                    "anime4k_clamp_highlights",
-                    "anime4k_thinlines_fast",
-                ),
-                context,
-                sharpen,
-                canvasAware,
-                doubleUpscale = false,
+        saturation: Float = 0f,
+    ): List<GlEffect> {
+        val chain = when (mode) {
+            MODE_OFF -> emptyList()
+            MODE_LIGHT -> listOf(
+                Anime4kGlEffect(
+                    listOf(
+                        "anime4k_clamp_highlights",
+                        "anime4k_thinlines_fast",
+                    ),
+                    context,
+                    sharpen,
+                    canvasAware,
+                    doubleUpscale = false,
+                    saturation,
+                )
             )
-        )
-        MODE_B -> listOf(
-            Anime4kGlEffect(
-                listOf(
-                    "anime4k_clamp_highlights",
-                    "anime4k_restore_cnn_soft_m",
-                    "anime4k_upscale_cnn_x2_m",
-                ),
-                context,
-                sharpen,
-                canvasAware,
-                doubleUpscale = false,
+            MODE_B -> listOf(
+                Anime4kGlEffect(
+                    listOf(
+                        "anime4k_clamp_highlights",
+                        "anime4k_restore_cnn_soft_m",
+                        "anime4k_upscale_cnn_x2_m",
+                    ),
+                    context,
+                    sharpen,
+                    canvasAware,
+                    doubleUpscale = false,
+                    saturation,
+                )
             )
-        )
-        MODE_A -> listOf(
-            Anime4kGlEffect(
-                listOf(
-                    "anime4k_clamp_highlights",
-                    "anime4k_restore_cnn_m",
-                    "anime4k_upscale_cnn_x2_m",
-                ),
-                context,
-                sharpen,
-                canvasAware,
-                doubleUpscale = false,
+            MODE_A -> listOf(
+                Anime4kGlEffect(
+                    listOf(
+                        "anime4k_clamp_highlights",
+                        "anime4k_restore_cnn_m",
+                        "anime4k_upscale_cnn_x2_m",
+                    ),
+                    context,
+                    sharpen,
+                    canvasAware,
+                    doubleUpscale = false,
+                    saturation,
+                )
             )
-        )
-        MODE_A_A -> listOf(
-            Anime4kGlEffect(
-                listOf(
-                    "anime4k_clamp_highlights",
-                    "anime4k_restore_cnn_m",
-                    "anime4k_upscale_cnn_x2_m",
-                ),
-                context,
-                sharpen,
-                canvasAware,
-                doubleUpscale = true, // restore → upscale → restore → upscale
+            MODE_A_A -> listOf(
+                Anime4kGlEffect(
+                    listOf(
+                        "anime4k_clamp_highlights",
+                        "anime4k_restore_cnn_m",
+                        "anime4k_upscale_cnn_x2_m",
+                    ),
+                    context,
+                    sharpen,
+                    canvasAware,
+                    doubleUpscale = true, // restore → upscale → restore → upscale
+                    saturation,
+                )
             )
-        )
-        else -> emptyList()
+            else -> emptyList()
+        }
+        // Saturation is a standalone color tweak — it must work even with the
+        // upscaler off, as a single passthrough+adjust present pass.
+        return if (chain.isEmpty() && saturation > 0f) {
+            listOf(
+                Anime4kGlEffect(
+                    emptyList(),
+                    context,
+                    sharpen = 0f,
+                    canvasAware = false,
+                    doubleUpscale = false,
+                    saturation,
+                )
+            )
+        } else {
+            chain
+        }
     }
 
     internal fun loadSource(context: Context, asset: String): String = try {
@@ -112,9 +135,10 @@ private class Anime4kGlEffect(
     private val sharpen: Float,
     private val canvasAware: Boolean,
     private val doubleUpscale: Boolean,
+    private val saturation: Float,
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        Anime4kChainProgram(context, assets, useHdr, sharpen, canvasAware, doubleUpscale)
+        Anime4kChainProgram(context, assets, useHdr, sharpen, canvasAware, doubleUpscale, saturation)
 
     override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = false
 }
@@ -161,11 +185,16 @@ private object Anime4kShader {
     const val SCREEN_TARGET = -1
 
     /** Unsharp-mask present pass — the visible enhancement (AVBox port). */
-    private const val PRESENT_BOX_BODY = "vec4 hook() {\n" +
-        "    return (MAIN_tex(MAIN_pos + vec2(-0.5, -0.5) * MAIN_pt)\n" +
+    private const val PRESENT_BOX_BODY = "uniform float uSaturation;\n" +
+        "const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);\n" +
+        "vec4 hook() {\n" +
+        "    vec4 c = (MAIN_tex(MAIN_pos + vec2(-0.5, -0.5) * MAIN_pt)\n" +
         "        + MAIN_tex(MAIN_pos + vec2(0.5, -0.5) * MAIN_pt)\n" +
         "        + MAIN_tex(MAIN_pos + vec2(-0.5, 0.5) * MAIN_pt)\n" +
         "        + MAIN_tex(MAIN_pos + vec2(0.5, 0.5) * MAIN_pt)) * 0.25;\n" +
+        "    float l = dot(c.rgb, LUMA);\n" +
+        "    c.rgb = mix(vec3(l), c.rgb, 1.0 + uSaturation);\n" +
+        "    return c;\n" +
         "}\n"
 
     fun presentPass(width: Int, height: Int, box: Boolean = false): Anime4kPass = Anime4kPass(
@@ -205,6 +234,7 @@ private object Anime4kShader {
 
     /** Unsharp-mask present pass — the visible enhancement (AVBox port). */
     private const val PRESENT_SHARP_BODY = "uniform float uSharpen;\n" +
+        "uniform float uSaturation;\n" +
         "const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);\n" +
         "vec4 hook() {\n" +
         "    vec4 c = MAIN_tex(MAIN_pos);\n" +
@@ -218,7 +248,9 @@ private object Anime4kShader {
         // actually visible after the final downscale; still halo-limited.
         "    float up = max(0.0, max(max(ln, ls), max(lw, le)) - lc) * 2.0;\n" +
         "    float down = max(0.0, lc - min(min(ln, ls), min(lw, le))) * 2.0;\n" +
-        "    return vec4(clamp(c.rgb + clamp(delta, -down, up), 0.0, 1.0), c.a);\n" +
+        "    vec3 outC = clamp(c.rgb + clamp(delta, -down, up), 0.0, 1.0);\n" +
+        "    float l = dot(outC, LUMA);\n" +
+        "    return vec4(mix(vec3(l), outC, 1.0 + uSaturation), c.a);\n" +
         "}\n"
 
     fun assignTargets(planned: List<Anime4kPlannedPass>): List<Anime4kPassIo> {
@@ -468,6 +500,7 @@ private class Anime4kChainProgram(
     private val sharpen: Float,
     private val canvasAware: Boolean,
     private val doubleUpscale: Boolean,
+    private val saturation: Float,
 ) : BaseGlShaderProgram(
     // The effect pipeline runs on a GLES 2.0 context (media3 default) — float
     // render targets need EXT_color_buffer_half_float with the OES pixel type;
@@ -542,6 +575,7 @@ private class Anime4kChainProgram(
                 }
                 if (compiled.writesScreen) {
                     program.setFloatsUniformIfPresent("uSharpen", floatArrayOf(sharpen))
+                    program.setFloatsUniformIfPresent("uSaturation", floatArrayOf(saturation))
                 }
                 program.bindAttributesAndUniforms()
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
@@ -570,76 +604,84 @@ private class Anime4kChainProgram(
     }
 
     private fun build(inputWidth: Int, inputHeight: Int) {
-        // Split the clamp file around the middle passes: its stats passes run
-        // first (on the original), its clamp pass runs last (on the result).
-        val parsed = assets.map { Anime4kShader.parse(Anime4KEffect.loadSource(context, it)) }
-        val clamp = parsed.firstOrNull().orEmpty()
-        val middle = parsed.drop(1)
+        val satOnly = assets.isEmpty()
+        val composed = ArrayList<Anime4kPass>()
+        val present: Anime4kPass
+        if (satOnly) {
+            // Saturation-only: a single passthrough present pass at input size
+            // (uSharpen = 0, so just the color boost — no sharpening/upscaling).
+            present = Anime4kShader.presentPass(inputWidth, inputHeight, box = false)
+        } else {
+            // Split the clamp file around the middle passes: its stats passes run
+            // first (on the original), its clamp pass runs last (on the result).
+            val parsed = assets.map { Anime4kShader.parse(Anime4KEffect.loadSource(context, it)) }
+            val clamp = parsed.firstOrNull().orEmpty()
+            val middle = parsed.drop(1)
 
-        // Canvas-aware upscale count (AVBox): only run the x2 upscaler when the
-        // display actually benefits; otherwise skip it (the present pass scales).
-        val lastAsset = assets.lastOrNull().orEmpty()
-        val isUpscaler = lastAsset.contains("upscale")
-        val canvas = if (canvasAware) {
-            // The canvas = the video's actual display region: fit the video into
-            // the PHYSICAL panel. context.display throws on non-visual contexts
-            // (e.g. the player's app context), so fall back to displayMetrics.
-            val dm = context.resources.displayMetrics
-            val (panelW, panelH) = try {
-                if (android.os.Build.VERSION.SDK_INT >= 30) {
-                    val mode = context.display?.mode
-                    if (mode != null && mode.physicalWidth > 0 && mode.physicalHeight > 0) {
-                        mode.physicalWidth to mode.physicalHeight
+            // Canvas-aware upscale count (AVBox): only run the x2 upscaler when the
+            // display actually benefits; otherwise skip it (the present pass scales).
+            val lastAsset = assets.lastOrNull().orEmpty()
+            val isUpscaler = lastAsset.contains("upscale")
+            val canvas = if (canvasAware) {
+                // The canvas = the video's actual display region: fit the video into
+                // the PHYSICAL panel. context.display throws on non-visual contexts
+                // (e.g. the player's app context), so fall back to displayMetrics.
+                val dm = context.resources.displayMetrics
+                val (panelW, panelH) = try {
+                    if (android.os.Build.VERSION.SDK_INT >= 30) {
+                        val mode = context.display?.mode
+                        if (mode != null && mode.physicalWidth > 0 && mode.physicalHeight > 0) {
+                            mode.physicalWidth to mode.physicalHeight
+                        } else {
+                            dm.widthPixels to dm.heightPixels
+                        }
                     } else {
                         dm.widthPixels to dm.heightPixels
                     }
-                } else {
+                } catch (e: Exception) {
                     dm.widthPixels to dm.heightPixels
                 }
-            } catch (e: Exception) {
-                dm.widthPixels to dm.heightPixels
+                val scale = minOf(panelW.toFloat() / inputWidth, panelH.toFloat() / inputHeight)
+                intArrayOf((inputWidth * scale).toInt(), (inputHeight * scale).toInt())
+            } else null
+            val ratio = canvas?.let { it[0].toFloat() / inputWidth } ?: 1f
+            val upscaleCount = when {
+                doubleUpscale && !canvasAware -> 2 // literal A+A: restore→upscale→restore→upscale
+                !isUpscaler -> 1
+                canvas == null -> 1
+                ratio < 1.35f -> 0
+                ratio >= 2.5f -> 2
+                else -> 1
             }
-            val scale = minOf(panelW.toFloat() / inputWidth, panelH.toFloat() / inputHeight)
-            intArrayOf((inputWidth * scale).toInt(), (inputHeight * scale).toInt())
-        } else null
-        val ratio = canvas?.let { it[0].toFloat() / inputWidth } ?: 1f
-        val upscaleCount = when {
-            doubleUpscale && !canvasAware -> 2 // literal A+A: restore→upscale→restore→upscale
-            !isUpscaler -> 1
-            canvas == null -> 1
-            ratio < 1.35f -> 0
-            ratio >= 2.5f -> 2
-            else -> 1
-        }
 
-        val composed = ArrayList<Anime4kPass>()
-        val restore = middle.dropLast(1).flatten() // restore etc. (all but the last file)
-        composed += clamp.dropLast(1)
-        composed += restore
-        composed += clamp.takeLast(1)
-        // A+A = restore + upscale + restore + upscale (polish between the stages)
-        if (doubleUpscale) {
-            repeat(upscaleCount) { i ->
-                composed += parsed.lastOrNull().orEmpty()
-                if (i < upscaleCount - 1 || upscaleCount == 1) composed += restore
+            val restore = middle.dropLast(1).flatten() // restore etc. (all but the last file)
+            composed += clamp.dropLast(1)
+            composed += restore
+            composed += clamp.takeLast(1)
+            // A+A = restore + upscale + restore + upscale (polish between the stages)
+            if (doubleUpscale) {
+                repeat(upscaleCount) { i ->
+                    composed += parsed.lastOrNull().orEmpty()
+                    if (i < upscaleCount - 1 || upscaleCount == 1) composed += restore
+                }
+            } else {
+                repeat(upscaleCount) { composed += parsed.lastOrNull().orEmpty() }
             }
-        } else {
-            repeat(upscaleCount) { composed += parsed.lastOrNull().orEmpty() }
-        }
 
-        val basePlanned = Anime4kShader.planPasses(composed, inputWidth, inputHeight)
-        if (basePlanned.isEmpty()) throw IllegalStateException("no pass parsed")
-        // Present pass: scale to the canvas when canvas-aware (box when
-        // downscaling, sharpen otherwise); otherwise keep the chain's size.
-        val chainLast = basePlanned.last()
-        val target = if (canvasAware) {
-            Anime4kShader.presentedSize(inputWidth, inputHeight, chainLast, canvas)
-        } else {
-            chainLast.width to chainLast.height
+            val basePlanned = Anime4kShader.planPasses(composed, inputWidth, inputHeight)
+            if (basePlanned.isEmpty()) throw IllegalStateException("no pass parsed")
+            // Present pass: scale to the canvas when canvas-aware (box when
+            // downscaling, sharpen otherwise); otherwise keep the chain's size.
+            val chainLast = basePlanned.last()
+            val target = if (canvasAware) {
+                Anime4kShader.presentedSize(inputWidth, inputHeight, chainLast, canvas)
+            } else {
+                chainLast.width to chainLast.height
+            }
+            val box = target.first < chainLast.width || target.second < chainLast.height
+            present = Anime4kShader.presentPass(target.first, target.second, box)
         }
-        val box = target.first < chainLast.width || target.second < chainLast.height
-        val present = Anime4kShader.presentPass(target.first, target.second, box)
-        val planned = Anime4kShader.planPasses(composed + present, inputWidth, inputHeight)
+        val planned = Anime4kShader.planPasses(if (satOnly) listOf(present) else composed + present, inputWidth, inputHeight)
 
         val byTarget = HashMap<Int, Target>()
         Anime4kShader.assignTargets(planned).forEach { item ->
@@ -685,7 +727,8 @@ private class Anime4kChainProgram(
         outputHeight = last.height
         Log.i(
             "Anime4kChain",
-            "chain: ${assets.joinToString("+")} passes=${passes.size} " +
+            "chain: ${if (satOnly) "saturation-only" else assets.joinToString("+")} " +
+                "passes=${passes.size} " +
                 "in=${inputWidth}x$inputHeight out=${outputWidth}x$outputHeight"
         )
     }
