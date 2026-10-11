@@ -361,6 +361,7 @@ private class Anime4kChainProgram(
 
     private val passes = ArrayList<CompiledPass>()
     private val targets = ArrayList<Target>()
+    private val targetNames = HashMap<Int, String>()
     private var copyProgram: GlProgram? = null
     private var outputWidth = 0
     private var outputHeight = 0
@@ -522,6 +523,17 @@ private class Anime4kChainProgram(
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         GLES20.glDeleteFramebuffers(1, fbo, 0)
         savePng(dir, "in_${inWidth}x$inHeight.png", inPixels, inWidth, inHeight)
+        // Dump the interesting intermediates to see which ones are black
+        val want = setOf("conv2d_tf", "conv2d_6_tf", "conv2d_last_tf", "conv2d_7_tf")
+        targets.forEachIndexed { index, target ->
+            val name = targetNames[index] ?: "t$index"
+            if (name !in want) return@forEachIndexed
+            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, target.framebuffer)
+            GLES20.glViewport(0, 0, target.width, target.height)
+            val pixels = readPixels(target.width, target.height)
+            savePng(dir, "t${index}_$name.png", pixels, target.width, target.height)
+        }
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
         Log.i("Anime4kChain", "debug frames written to ${dir.absolutePath}")
     }
 
@@ -610,6 +622,7 @@ private class Anime4kChainProgram(
                     ?: newTarget(plannedPass.width, plannedPass.height)
                         .also { byTarget[item.outputTarget] = it }
                 targetFramebuffer = target.framebuffer
+                targetNames[item.outputTarget] = plannedPass.pass.save
             }
             passes.add(
                 CompiledPass(
