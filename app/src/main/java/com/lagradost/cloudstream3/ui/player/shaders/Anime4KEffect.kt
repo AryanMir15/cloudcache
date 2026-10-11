@@ -687,7 +687,7 @@ private class Anime4kChainProgram(
     }
 
     private fun newTarget(width: Int, height: Int): Target {
-        val texture = if (floatTargetsSupported) {
+        val texture = if (floatTargetsSupported()) {
             try {
                 createFloatTexture(width, height)
             } catch (e: Exception) {
