@@ -7,10 +7,10 @@ import com.lagradost.cloudstream3.CloudStreamApp
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.utils.DOWNLOAD_EPISODE_CACHE
 import com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE
+import com.lagradost.cloudstream3.utils.DataStore.getKey
 import com.lagradost.cloudstream3.utils.DataStore.getKeys
 import com.lagradost.cloudstream3.utils.DataStore.setKey
 import com.lagradost.cloudstream3.ui.player.extractEpisodeNumber
-import com.lagradost.cloudstream3.ui.player.generateUniqueLocalId
 import com.lagradost.cloudstream3.utils.downloader.VideoDownloadManager
 import com.lagradost.safefile.SafeFile
 import kotlinx.coroutines.CoroutineScope
@@ -86,259 +86,165 @@ object DownloadScanner {
         }
     }
 
-    private fun scanFolderRecursively(
+    private data class ScannedFile(
+        val folderPath: String,
+        val name: String,
+        val uri: android.net.Uri,
+        val episodeNumber: Int,
+    )
+
+    /** Recursively walks [base] collecting video files with extractable episode numbers. */
+    private fun walkTree(
         context: Context,
+        base: SafeFile,
         folderPath: String,
-        basePath: String?,
-        folderName: String,
-        episodesByParentId: Map<Int, List<DownloadObjects.DownloadEpisodeCached>>,
-        matchingHeaderIds: Set<Int>,
-        headerId: Int,
-        existingIds: Set<Int>
-    ): Int {
-        var foundCount = 0
-        
-        try {
-            val files = DownloadFileManagement.getFolder(context, folderPath, basePath)
-            
-            if (files != null && files.isNotEmpty()) {
-                Log.d(TAG, "Scanning folder: $folderPath, found ${files.size} items")
-                
-                files.forEach { (name, uri) ->
-                    val extension = name.substringAfterLast('.', "").lowercase()
-                    
-                    if (videoExtensions.contains(extension)) {
-                        val episodeNumber = extractEpisodeNumber(name)
-                        if (episodeNumber != null) {
-                            Log.d(TAG, "Found episode $episodeNumber: $name in $folderPath")
-                            
-                            // Find existing episode by checking all matching header IDs
-                            val existingEpisode = matchingHeaderIds.firstNotNullOfOrNull { headerId ->
-                                episodesByParentId[headerId]?.firstOrNull { it.episode == episodeNumber }
-                            }
-                            
-                            if (existingEpisode != null) {
-                                // Update existing episode with DownloadedFileInfo.
-                                // -1 for content URIs (unknown size) — 0 made
-                                // the Downloads tab treat scanned entries as
-                                // empty and the progress math as 0%.
-                                val fileInfo = DownloadObjects.DownloadedFileInfo(
-                                    totalBytes = if (uri.toString().startsWith("content://")) -1 else 0,
-                                    relativePath = "$folderPath/$name",
-                                    displayName = name,
-                                    extraInfo = uri.toString(),
-                                    basePath = basePath
-                                )
-                                // Use correct constant instead of string literal to match getDownloadFileInfo read path
-                                context.setKey(VideoDownloadManager.KEY_DOWNLOAD_INFO, existingEpisode.id.toString(), fileInfo)
-                                Log.d(TAG, "Cached DownloadedFileInfo with key: ${VideoDownloadManager.KEY_DOWNLOAD_INFO}/${existingEpisode.id}")
-                                
-                                // Cache content URI in CONTENT_URI_* key (matches ResultViewModel2 behavior)
-                                val contentUriKey = "CONTENT_URI_${existingEpisode.id}"
-                                // Use path-level write instead of DOWNLOAD_EPISODE_CACHE namespace
-                                context.setKey(contentUriKey, uri.toString())
-                                Log.d(TAG, "Cached content URI with key: $contentUriKey")
-                                
-                                // Update downloadStatus using helper to persist immediately
-                                VideoDownloadManager.setDownloadStatus(existingEpisode.id, VideoDownloadManager.DownloadType.IsDone, context)
-                                
-                                Log.d(TAG, "Updated episode $episodeNumber with ID ${existingEpisode.id}")
-                                foundCount++
-                            } else {
-                                // Episode not in library - skip it
-                                // We only update episodes that are already in the library (from the API)
-                                // because the episode list uses API episode IDs to check download status
-                                Log.d(TAG, "Episode $episodeNumber not in library, skipping (add to library first)")
-                            }
-                        }
-                    } else {
-                        // It's a directory, scan it recursively
-                        val subfolderPath = if (folderPath.isEmpty()) name else "$folderPath/$name"
-                        foundCount += scanFolderRecursively(
-                            context,
-                            subfolderPath,
-                            basePath,
-                            folderName,
-                            episodesByParentId,
-                            matchingHeaderIds,
-                            headerId,
-                            existingIds
-                        )
-                    }
-                }
-            }
+        out: MutableList<ScannedFile>
+    ) {
+        val files = try {
+            base.gotoDirectory(folderPath, createMissingDirectories = false)?.listFiles()
         } catch (e: Exception) {
-            Log.e(TAG, "Error scanning folder $folderPath: ${e.message}", e)
+            Log.w(TAG, "Error listing '$folderPath': ${e.message}")
+            null
+        } ?: return
+
+        for (item in files) {
+            val name = try { item.name() } catch (e: Exception) { null } ?: continue
+            val uri = try { item.uri() } catch (e: Exception) { null } ?: continue
+            val extension = name.substringAfterLast('.', "").lowercase()
+            if (videoExtensions.contains(extension)) {
+                val episodeNumber = extractEpisodeNumber(name)
+                if (episodeNumber != null) {
+                    out.add(ScannedFile(folderPath, name, uri, episodeNumber))
+                }
+            } else if (item.isDirectory() == true || extension.isBlank()) {
+                // Recurse into subfolders (subtitle files resolve to nothing)
+                val sub = if (folderPath.isEmpty()) name else "$folderPath/$name"
+                walkTree(context, base, sub, out)
+            }
         }
-        
-        return foundCount
+    }
+
+    /** Matches a header name against collected folder paths (normalized containment). */
+    private fun matchFolder(
+        filesByFolder: Map<String, List<ScannedFile>>,
+        headerName: String
+    ): List<ScannedFile>? {
+        fun normalize(input: String): String = input
+            .lowercase()
+            .replace(Regex("[:\\-��_|/\\\\]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        val normalizedName = normalize(headerName)
+        if (normalizedName.isEmpty()) return null
+
+        // Exact folder match first (shortest path wins)
+        val exact = filesByFolder.entries
+            .filter { (folder, _) -> normalize(folder.substringAfterLast('/')) == normalizedName }
+            .minByOrNull { it.key.length }
+        if (exact != null) return exact.value
+
+        // Containment match (folder contains the show name, or vice versa)
+        val best = filesByFolder.entries
+            .filter { (folder, _) ->
+                val normFolder = normalize(folder)
+                (normFolder.contains(normalizedName) && normalizedName.length > 4) ||
+                    (normalizedName.contains(normFolder) && normFolder.length > 4)
+            }
+            .minByOrNull { it.key.length }
+        return best?.value
     }
 
     fun scanDownloads(context: Context, onComplete: (Int) -> Unit) {
         CoroutineScope(Dispatchers.IO).launch {
             var foundCount = 0
             try {
-                val basePath = getDownloadPath(context)
-                Log.d(TAG, "Scanning download directory with basePath: $basePath")
-                
-                // Get all library headers to match against
-                val headerKeys = context.getKeys(DOWNLOAD_HEADER_CACHE)
-                Log.d(TAG, "Found ${headerKeys.size} cached headers in library")
-                
-                // Build headers list and group by name to handle duplicates
-                val headers = headerKeys.mapNotNull { key ->
-                    CloudStreamApp.getKey<DownloadObjects.DownloadHeaderCached>(key)
+                val basePathSetting = getDownloadPath(context)
+
+                val headers = context.getKeys(DOWNLOAD_HEADER_CACHE)
+                    .mapNotNull { CloudStreamApp.getKey<DownloadObjects.DownloadHeaderCached>(it) }
+
+                // Scope to the user's library (favorites + subscriptions + bookmarked) �
+                // headers are also written for every show merely viewed/cached.
+                val libraryIds = buildSet {
+                    addAll(com.lagradost.cloudstream3.utils.DataStoreHelper.getAllFavorites().mapNotNull { it.id })
+                    addAll(com.lagradost.cloudstream3.utils.DataStoreHelper.getAllSubscriptions().mapNotNull { it.id })
+                    addAll(com.lagradost.cloudstream3.utils.DataStoreHelper.getAllWatchStateIds()?.toList() ?: emptyList())
                 }
-                val headersByName = headers.groupBy { it.name }
-                
-                // Log all library header names
-                Log.d(TAG, "=== Library Headers ===")
-                headers.forEach { header ->
-                    Log.d(TAG, "Library header: ${header.name} (id: ${header.id})")
-                }
-                Log.d(TAG, "=== End Library Headers ===")
-                
-                // Pre-build episode map by parentId for efficient lookup
+                val scoped = if (libraryIds.isEmpty()) headers else headers.filter { it.id in libraryIds }
+                Log.d(TAG, "Scanning ${scoped.size}/${headers.size} library entries")
+
                 val episodesByParentId = context.getKeys(DOWNLOAD_EPISODE_CACHE)
                     .mapNotNull { CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(it) }
                     .groupBy { it.parentId }
-                
-                // Get all existing episode IDs for collision detection
-                val existingIds = context.getKeys(DOWNLOAD_EPISODE_CACHE)
-                    .mapNotNull { CloudStreamApp.getKey<DownloadObjects.DownloadEpisodeCached>(it) }
-                    .map { it.id }
-                    .toSet()
-                
-                Log.d(TAG, "Built episode map with ${episodesByParentId.size} parent IDs, ${existingIds.size} existing IDs")
-                
-                // Track which folder names we've already scanned to avoid duplicates
-                val scannedFolders = mutableSetOf<String>()
-                
-                // Try to scan each unique folder name
-                headersByName.forEach { (folderName, headerList) ->
-                    if (folderName in scannedFolders) {
-                        Log.d(TAG, "Already scanned $folderName, skipping")
-                        return@forEach
+
+                // Candidate roots: the configured path first, then the default Downloads dir
+                val bases = buildList {
+                    DownloadFileManagement.run {
+                        basePathToFile(context, basePathSetting)?.let { add(it) }
+                        getDefaultDir(context)?.let { add(it) }
                     }
-                    scannedFolders.add(folderName)
-                    
-                    // Get all header IDs that match this folder name
-                    val matchingHeaderIds = headerList.map { it.id }.toSet()
-                    Log.d(TAG, "Scanning folder: $folderName (matching header IDs: $matchingHeaderIds)")
-                    
-                    // Try direct path first
-                    var folderPath = folderName
-                    var files: List<Pair<String, android.net.Uri>>? = null
-                    try {
-                        files = DownloadFileManagement.getFolder(context, folderPath, basePath)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error accessing folder $folderPath: ${e.message}", e)
-                    }
-                    
-                    // If not found, try under Anime/
-                    if (files.isNullOrEmpty()) {
-                        folderPath = "Anime/$folderName"
-                        try {
-                            files = DownloadFileManagement.getFolder(context, folderPath, basePath)
-                            Log.d(TAG, "Trying Anime/$folderName, found: ${files?.size}")
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error accessing folder Anime/$folderName: ${e.message}", e)
+                }.distinctBy { it.filePath() }
+                Log.d(TAG, "Base locations: ${bases.map { it.filePath() }}")
+
+                for (base in bases) {
+                    val baseStr = base.filePath() ?: continue
+                    val files = mutableListOf<ScannedFile>()
+                    walkTree(context, base, "", files)
+                    Log.d(TAG, "Base $baseStr: ${files.size} video files on disk")
+                    if (files.isEmpty()) continue
+
+                    val filesByFolder = files.groupBy { it.folderPath }
+
+                    for (header in scoped) {
+                        if (header.name.isBlank()) continue
+                        val matched = matchFolder(filesByFolder, header.name) ?: continue
+                        val episodes = episodesByParentId[header.id].orEmpty()
+                        if (episodes.isEmpty()) {
+                            Log.d(TAG, "No cached episodes for '${header.name}', skipping")
+                            continue
                         }
-                    }
-                    
-                    // If still not found, try fuzzy matching with Anime folder contents
-                    if (files.isNullOrEmpty()) {
-                        try {
-                            val animeFolderFiles = DownloadFileManagement.getFolder(context, "Anime", basePath)
-                            
-                            if (animeFolderFiles != null) {
-                                Log.d(TAG, "=== Anime folder contents ===")
-                                animeFolderFiles.forEach { (name, uri) ->
-                                    Log.d(TAG, "Found in Anime: '$name' (uri: $uri)")
-                                }
-                                Log.d(TAG, "=== End Anime folder contents ===")
-                                
-                                val matchedFolder = animeFolderFiles.firstOrNull { (name, _) ->
-                                    // Normalize both names for robust comparison
-                                    fun normalize(input: String): String {
-                                        return input
-                                            .lowercase()
-                                            .replace(Regex("[:\\-–—_|/\\\\]"), " ") // Replace various separators with space
-                                            .replace(Regex("\\s+"), " ") // Collapse multiple spaces
-                                            .trim()
-                                    }
-                                    
-                                    val normalizedName = normalize(folderName)
-                                    val normalizedFolder = normalize(name)
-                                    
-                                    Log.d(TAG, "Comparing: '$normalizedName' vs '$normalizedFolder'")
-                                    
-                                    // Try exact match first
-                                    if (normalizedName == normalizedFolder) {
-                                        Log.d(TAG, "Exact match found")
-                                        return@firstOrNull true
-                                    }
-                                    
-                                    // Try containment (one contains the other)
-                                    if (normalizedFolder.contains(normalizedName) && normalizedName.length > 5) {
-                                        Log.d(TAG, "Containment match (folder contains name)")
-                                        return@firstOrNull true
-                                    }
-                                    if (normalizedName.contains(normalizedFolder) && normalizedFolder.length > 5) {
-                                        Log.d(TAG, "Containment match (name contains folder)")
-                                        return@firstOrNull true
-                                    }
-                                    
-                                    // Try word-by-word matching (at least 3 words match)
-                                    val nameWords = normalizedName.split(" ").filter { it.isNotEmpty() }
-                                    val folderWords = normalizedFolder.split(" ").filter { it.isNotEmpty() }
-                                    val matchingWords = nameWords.intersect(folderWords.toSet()).size
-                                    if (matchingWords >= 3 && matchingWords >= minOf(nameWords.size, folderWords.size) * 0.6) {
-                                        Log.d(TAG, "Word match: $matchingWords words match")
-                                        return@firstOrNull true
-                                    }
-                                    
-                                    false
-                                }
-                                
-                                if (matchedFolder != null) {
-                                    Log.d(TAG, "Fuzzy matched: '${matchedFolder.first}' to '$folderName'")
-                                    folderPath = "Anime/${matchedFolder.first}"
-                                    files = DownloadFileManagement.getFolder(context, folderPath, basePath)
-                                } else {
-                                    Log.d(TAG, "No fuzzy match found for '$folderName' in Anime folder")
-                                }
-                            } else {
-                                Log.d(TAG, "Anime folder is null or empty")
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error accessing Anime folder for fuzzy matching: ${e.message}", e)
+                        val matchedNumbers = matched.map { it.episodeNumber }.toSet()
+                        val existingCount = episodes.count { ep ->
+                            context.getKey<DownloadObjects.DownloadedFileInfo>(
+                                VideoDownloadManager.KEY_DOWNLOAD_INFO, ep.id.toString()
+                            ) != null
                         }
-                    }
-                    
-                    if (files != null && files.isNotEmpty()) {
-                        // Use the first header ID for this folder (they all have the same name)
-                        val headerId = headerList.first().id
-                        
-                        // Scan recursively to handle subfolders
-                        foundCount += scanFolderRecursively(
-                            context,
-                            folderPath,
-                            basePath,
-                            folderName,
-                            episodesByParentId,
-                            matchingHeaderIds,
-                            headerId,
-                            existingIds
+                        Log.d(
+                            TAG,
+                            "'${header.name}': ${matched.size} files (eps ${matchedNumbers.sorted().take(10)}), " +
+                                "$existingCount already connected"
                         )
-                    } else {
-                        Log.d(TAG, "No files found for $folderName")
+                        for (file in matched) {
+                            val ep = episodes.firstOrNull { it.episode == file.episodeNumber }
+                                ?: continue
+                            if (context.getKey<DownloadObjects.DownloadedFileInfo>(
+                                    VideoDownloadManager.KEY_DOWNLOAD_INFO, ep.id.toString()
+                                ) != null
+                            ) {
+                                continue // already connected
+                            }
+                            val fileInfo = DownloadObjects.DownloadedFileInfo(
+                                totalBytes = if (file.uri.toString().startsWith("content://")) -1 else 0,
+                                relativePath = file.folderPath,
+                                displayName = file.name,
+                                extraInfo = file.uri.toString(),
+                                basePath = baseStr
+                            )
+                            context.setKey(
+                                VideoDownloadManager.KEY_DOWNLOAD_INFO, ep.id.toString(), fileInfo
+                            )
+                            context.setKey("CONTENT_URI_${ep.id}", file.uri.toString())
+                            VideoDownloadManager.setDownloadStatus(
+                                ep.id, VideoDownloadManager.DownloadType.IsDone, context
+                            )
+                            foundCount++
+                        }
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error scanning downloads: ${e.message}", e)
             }
-            
             onComplete(foundCount)
         }
     }
