@@ -31,9 +31,15 @@ object Anime4KEffect {
     const val MODE_OFF = 0
     const val MODE_LIGHT = 1
     const val MODE_MEDIUM = 2
+    const val MODE_HIGH = 3
 
-    /** Light: de-ring + line thinning. Medium: restore CNN + x2 upscale. */
-    fun buildEffects(context: Context, mode: Int): List<GlEffect> = when (mode) {
+    /** Light: de-ring + line thinning. Medium: soft restore CNN + x2 upscale. High: full restore CNN + x2 upscale. */
+    fun buildEffects(
+        context: Context,
+        mode: Int,
+        sharpen: Float = 1.0f,
+        canvasAware: Boolean = false,
+    ): List<GlEffect> = when (mode) {
         MODE_OFF -> emptyList()
         MODE_LIGHT -> listOf(
             Anime4kGlEffect(
@@ -42,6 +48,8 @@ object Anime4KEffect {
                     "anime4k_thinlines_fast",
                 ),
                 context,
+                sharpen,
+                canvasAware,
             )
         )
         MODE_MEDIUM -> listOf(
@@ -52,6 +60,20 @@ object Anime4KEffect {
                     "anime4k_upscale_cnn_x2_m",
                 ),
                 context,
+                sharpen,
+                canvasAware,
+            )
+        )
+        MODE_HIGH -> listOf(
+            Anime4kGlEffect(
+                listOf(
+                    "anime4k_clamp_highlights",
+                    "anime4k_restore_cnn_m",
+                    "anime4k_upscale_cnn_x2_m",
+                ),
+                context,
+                sharpen,
+                canvasAware,
             )
         )
         else -> emptyList()
@@ -70,9 +92,11 @@ object Anime4KEffect {
 private class Anime4kGlEffect(
     private val assets: List<String>,
     private val context: Context,
+    private val sharpen: Float,
+    private val canvasAware: Boolean,
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        Anime4kChainProgram(context, assets, useHdr)
+        Anime4kChainProgram(context, assets, useHdr, sharpen, canvasAware)
 
     override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = false
 }
@@ -119,6 +143,49 @@ private object Anime4kShader {
     const val SCREEN_TARGET = -1
 
     /** Unsharp-mask present pass — the visible enhancement (AVBox port). */
+    private const val PRESENT_BOX_BODY = "vec4 hook() {\n" +
+        "    return (MAIN_tex(MAIN_pos + vec2(-0.5, -0.5) * MAIN_pt)\n" +
+        "        + MAIN_tex(MAIN_pos + vec2(0.5, -0.5) * MAIN_pt)\n" +
+        "        + MAIN_tex(MAIN_pos + vec2(-0.5, 0.5) * MAIN_pt)\n" +
+        "        + MAIN_tex(MAIN_pos + vec2(0.5, 0.5) * MAIN_pt)) * 0.25;\n" +
+        "}\n"
+
+    fun presentPass(width: Int, height: Int, box: Boolean = false): Anime4kPass = Anime4kPass(
+        name = "present-${if (box) "box" else "sharpen"}",
+        binds = listOf(MAIN),
+        save = MAIN,
+        widthExpr = listOf(width.toString()),
+        heightExpr = listOf(height.toString()),
+        components = 4,
+        whenExpr = emptyList(),
+        fragmentShader = fragmentShader(
+            if (box) PRESENT_BOX_BODY else PRESENT_SHARP_BODY,
+            listOf(MAIN),
+        ),
+    )
+
+    /** Canvas-aware target: the display size when it's ≥ input and same aspect. */
+    fun presentedSize(
+        inputWidth: Int,
+        inputHeight: Int,
+        last: Anime4kPlannedPass?,
+        canvas: IntArray?,
+    ): Pair<Int, Int> {
+        if (last == null || canvas == null) return inputWidth to inputHeight
+        val cw = canvas[0]
+        val ch = canvas[1]
+        if (cw < inputWidth || ch < inputHeight) return inputWidth to inputHeight
+        if (!sameAspect(cw, ch, inputWidth, inputHeight)) return inputWidth to inputHeight
+        return cw to ch
+    }
+
+    private fun sameAspect(w: Int, h: Int, ow: Int, oh: Int): Boolean {
+        val left = w.toLong() * oh
+        val right = ow.toLong() * h
+        return kotlin.math.abs(left - right) * 100 <= right
+    }
+
+    /** Unsharp-mask present pass — the visible enhancement (AVBox port). */
     private const val PRESENT_SHARP_BODY = "uniform float uSharpen;\n" +
         "const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);\n" +
         "vec4 hook() {\n" +
@@ -133,17 +200,6 @@ private object Anime4kShader {
         "    float down = max(0.0, lc - min(min(ln, ls), min(lw, le)));\n" +
         "    return vec4(clamp(c.rgb + clamp(delta, -down, up), 0.0, 1.0), c.a);\n" +
         "}\n"
-
-    fun presentPass(width: Int, height: Int): Anime4kPass = Anime4kPass(
-        name = "present-sharpen",
-        binds = listOf(MAIN),
-        save = MAIN,
-        widthExpr = listOf(width.toString()),
-        heightExpr = listOf(height.toString()),
-        components = 4,
-        whenExpr = emptyList(),
-        fragmentShader = fragmentShader(PRESENT_SHARP_BODY, listOf(MAIN)),
-    )
 
     fun assignTargets(planned: List<Anime4kPlannedPass>): List<Anime4kPassIo> {
         val latest = HashMap<String, Int>()
@@ -317,6 +373,17 @@ private object Anime4kShader {
                 "WHEN" -> whenExpr = value
             }
         }
+        // Also bind input-alias textures the body references literally but that
+        // aren't declared //!BIND (e.g. ThinLines uses `#define L_tex NATIVE_tex`).
+        val inputAliases = listOf("NATIVE", "MAIN", "HOOKED", "LUMA", "CHROMA", "PREKERNEL")
+        for (alias in inputAliases) {
+            if (alias !in binds &&
+                (block.body.contains("${alias}_tex") || block.body.contains("${alias}_pos") ||
+                    block.body.contains("${alias}_pt"))
+            ) {
+                binds.add(alias)
+            }
+        }
         val usedBinds = binds.filter { bind ->
             val alias = when (bind) {
                 HOOKED -> MAIN
@@ -378,6 +445,8 @@ private class Anime4kChainProgram(
     private val context: Context,
     private val assets: List<String>,
     hdr: Boolean,
+    private val sharpen: Float,
+    private val canvasAware: Boolean,
 ) : BaseGlShaderProgram(
     // The effect pipeline runs on a GLES 2.0 context (media3 default) — float
     // render targets need EXT_color_buffer_half_float with the OES pixel type;
@@ -451,7 +520,7 @@ private class Anime4kChainProgram(
                     )
                 }
                 if (compiled.writesScreen) {
-                    program.setFloatsUniformIfPresent("uSharpen", floatArrayOf(SHARPEN))
+                    program.setFloatsUniformIfPresent("uSharpen", floatArrayOf(sharpen))
                 }
                 program.bindAttributesAndUniforms()
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
@@ -484,14 +553,43 @@ private class Anime4kChainProgram(
         // first (on the original), its clamp pass runs last (on the result).
         val parsed = assets.map { Anime4kShader.parse(Anime4KEffect.loadSource(context, it)) }
         val clamp = parsed.firstOrNull().orEmpty()
-        val middle = parsed.drop(1).flatten()
-        val composed = clamp.dropLast(1) + middle + clamp.takeLast(1)
+        val middle = parsed.drop(1)
+
+        // Canvas-aware upscale count (AVBox): only run the x2 upscaler when the
+        // display actually benefits; otherwise skip it (the present pass scales).
+        val lastAsset = assets.lastOrNull().orEmpty()
+        val isUpscaler = lastAsset.contains("upscale")
+        val canvas = if (canvasAware) {
+            val dm = context.resources.displayMetrics
+            intArrayOf(dm.widthPixels, dm.heightPixels)
+        } else null
+        val ratio = canvas?.let { it[0].toFloat() / inputWidth } ?: 1f
+        val upscaleCount = when {
+            !isUpscaler -> 1
+            canvas == null -> 1
+            ratio < 1.35f -> 0
+            ratio >= 2.5f -> 2
+            else -> 1
+        }
+
+        val composed = ArrayList<Anime4kPass>()
+        composed += clamp.dropLast(1)
+        composed += middle.dropLast(1).flatten() // restore etc. (all but the last file)
+        composed += clamp.takeLast(1)
+        repeat(upscaleCount) { composed += parsed.lastOrNull().orEmpty() }
+
         val basePlanned = Anime4kShader.planPasses(composed, inputWidth, inputHeight)
         if (basePlanned.isEmpty()) throw IllegalStateException("no pass parsed")
-        // Append the sharpen present pass at the chain's final size — this is
-        // the visible enhancement (AVBox's unsharp-mask present shader).
+        // Present pass: scale to the canvas when canvas-aware (box when
+        // downscaling, sharpen otherwise); otherwise keep the chain's size.
         val chainLast = basePlanned.last()
-        val present = Anime4kShader.presentPass(chainLast.width, chainLast.height)
+        val target = if (canvasAware) {
+            Anime4kShader.presentedSize(inputWidth, inputHeight, chainLast, canvas)
+        } else {
+            chainLast.width to chainLast.height
+        }
+        val box = target.first < chainLast.width || target.second < chainLast.height
+        val present = Anime4kShader.presentPass(target.first, target.second, box)
         val planned = Anime4kShader.planPasses(composed + present, inputWidth, inputHeight)
 
         val byTarget = HashMap<Int, Target>()
@@ -654,9 +752,6 @@ private class Anime4kChainProgram(
     )
 
     private companion object {
-        // AVBox's default sharpen strength
-        const val SHARPEN = 1.0f
-
         const val VERTEX_SHADER = """
             attribute vec4 aFramePosition;
             varying vec2 vTexCoord;

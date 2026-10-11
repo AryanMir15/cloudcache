@@ -804,6 +804,10 @@
     <string name="software_decoding_desc">Software decoding enables the player to play video files not supported by your device, but may cause laggy or unstable playback on high resolution.</string>
     <string name="anime4k_shader">Anime4K shaders</string>
     <string name="anime4k_shader_desc">Anime4K GLSL post-processing on the GPU. Light: de-ring + line thinning. Medium: restore CNN + x2 upscale (heavier, best on 1080p or lower sources).</string>
+    <string name="anime4k_sharpen">Anime4K sharpen</string>
+    <string name="anime4k_sharpen_desc">Final unsharp-mask strength applied on top of the shader chain.</string>
+    <string name="anime4k_canvas_aware">Anime4K canvas aware</string>
+    <string name="anime4k_canvas_aware_desc">Only upscale when the screen actually benefits, scaling to the display size instead. Same quality, less wasted GPU work.</string>
     <string name="volume_exceeded_100">Volume has exceeded 100%</string>
     <string name="slide_up_again_to_exceed_100">Slide up again to go beyond 100%</string>
     <string name="update_plugins">Update Plugins</string>

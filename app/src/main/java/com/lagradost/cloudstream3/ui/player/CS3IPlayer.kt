@@ -1406,17 +1406,23 @@ class CS3IPlayer : IPlayer {
             setPlaybackSpeed(playBackSpeed)
             this.addAnalyticsListener(tracksAnalyticsListener)
 
-            // Anime4K GPU post-processing (player setting: Off / Light / Medium)
+            // Anime4K GPU post-processing (player setting: Off / Light / Medium / High)
             Log.i("Anime4KEffect", "buildExoPlayer offline=${currentDownloadedFile != null}")
             try {
                 val settingsManager = PreferenceManager.getDefaultSharedPreferences(context)
                 val shaderMode = settingsManager.getInt(
                     context.getString(R.string.anime4k_shader_key), 0
                 )
-                Log.i("Anime4KEffect", "shaderMode=$shaderMode")
+                val sharpen = settingsManager.getInt(
+                    context.getString(R.string.anime4k_sharpen_key), 100
+                ) / 100f
+                val canvasAware = settingsManager.getBoolean(
+                    context.getString(R.string.anime4k_canvas_aware_key), false
+                )
+                Log.i("Anime4KEffect", "shaderMode=$shaderMode sharpen=$sharpen canvasAware=$canvasAware")
                 if (shaderMode > 0) {
                     val effects = com.lagradost.cloudstream3.ui.player.shaders.Anime4KEffect
-                        .buildEffects(context, shaderMode)
+                        .buildEffects(context, shaderMode, sharpen, canvasAware)
                     Log.i("Anime4KEffect", "effects=${effects.size}")
                     if (effects.isNotEmpty()) {
                         setVideoEffects(effects)

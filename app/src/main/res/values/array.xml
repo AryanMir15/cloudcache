@@ -240,11 +240,28 @@
         <item>@string/off</item>
         <item>Anime4K Light</item>
         <item>Anime4K Medium</item>
+        <item>Anime4K High</item>
     </array>
     <array name="anime4k_shader_switch_values">
         <item>0</item>
         <item>1</item>
         <item>2</item>
+        <item>3</item>
+    </array>
+
+    <array name="anime4k_sharpen_switch">
+        <item>Off</item>
+        <item>Subtle</item>
+        <item>Medium</item>
+        <item>Strong</item>
+        <item>Very strong</item>
+    </array>
+    <array name="anime4k_sharpen_switch_values">
+        <item>0</item>
+        <item>50</item>
+        <item>75</item>
+        <item>100</item>
+        <item>150</item>
     </array>
 
     <array name="software_decoding_switch_values">

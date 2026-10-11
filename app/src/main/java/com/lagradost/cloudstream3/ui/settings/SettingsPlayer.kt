@@ -134,6 +134,25 @@ class SettingsPlayer : BasePreferenceFragmentCompat() {
             return@setOnPreferenceClickListener true
         }
 
+        getPref(R.string.anime4k_sharpen_key)?.setOnPreferenceClickListener {
+            val prefNames = resources.getStringArray(R.array.anime4k_sharpen_switch)
+            val prefValues = resources.getIntArray(R.array.anime4k_sharpen_switch_values)
+            val current = settingsManager.getInt(getString(R.string.anime4k_sharpen_key), 100)
+
+            activity?.showBottomDialog(
+                prefNames.toList(),
+                prefValues.indexOf(current),
+                getString(R.string.anime4k_sharpen),
+                true,
+                {}
+            ) {
+                settingsManager.edit {
+                    putInt(getString(R.string.anime4k_sharpen_key), prefValues[it])
+                }
+            }
+            return@setOnPreferenceClickListener true
+        }
+
         getPref(R.string.prefer_limit_show_player_info)?.setOnPreferenceClickListener {
             val ctx = context ?: return@setOnPreferenceClickListener false
 
