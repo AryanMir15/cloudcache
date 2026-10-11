@@ -212,8 +212,11 @@ open class PieFetchButton(context: Context, attributeSet: AttributeSet) :
                         )
                     }
 
-                    // DON'T RESUME A DOWNLOADED FILE lastState != VideoDownloadManager.DownloadType.IsDone &&
-                    if (progressPercentage < 98) {
+                    // DON'T RESUME A DOWNLOADED FILE — the percentage guard alone
+                    // misfires for content-URI files (fileLength=-1, totalBytes=-1
+                    // → negative progress), offering Resume on fully completed
+                    // scanned downloads.
+                    if (status != VideoDownloadManager.DownloadType.IsDone && progressPercentage < 98) {
                         list.add(
                             if (status == VideoDownloadManager.DownloadType.IsDownloading)
                                 Pair(DOWNLOAD_ACTION_PAUSE_DOWNLOAD, R.string.popup_pause_download)

@@ -118,9 +118,12 @@ object DownloadScanner {
                             }
                             
                             if (existingEpisode != null) {
-                                // Update existing episode with DownloadedFileInfo
+                                // Update existing episode with DownloadedFileInfo.
+                                // -1 for content URIs (unknown size) — 0 made
+                                // the Downloads tab treat scanned entries as
+                                // empty and the progress math as 0%.
                                 val fileInfo = DownloadObjects.DownloadedFileInfo(
-                                    totalBytes = 0,
+                                    totalBytes = if (uri.toString().startsWith("content://")) -1 else 0,
                                     relativePath = "$folderPath/$name",
                                     displayName = name,
                                     extraInfo = uri.toString(),

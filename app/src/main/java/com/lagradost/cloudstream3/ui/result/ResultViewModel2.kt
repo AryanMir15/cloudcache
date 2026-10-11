@@ -5412,7 +5412,28 @@ class ResultViewModel2 : ViewModel() {
                 android.util.Log.d("CacheFlow", "MAIN LOAD - No cached header found, calling API")
                 when (val data = repo.load(validUrl)) {
                     is Resource.Failure -> {
-                        _page.postValue(data)
+                        // Offline-safe reload: a force-refresh that fails (e.g. no
+                        // internet) must NOT destroy the cached entry. Fall back to
+                        // the cached header + episodes so metadata and the episode
+                        // list survive until the network returns.
+                        if (cachedHeader != null) {
+                            android.util.Log.w(
+                                "CacheFlow",
+                                "MAIN LOAD - API fetch failed, falling back to cached entry: ${cachedHeader.name}"
+                            )
+                            _page.postValue(Resource.Loading())
+                            postSuccessful(
+                                createOfflineLoadResponse(cachedHeader, validUrl, apiName, api),
+                                cachedHeader.id,
+                                updateEpisodes = false,
+                                updateFillers = false,
+                                apiRepository = repo
+                            )
+                            currentId = cachedHeader.id
+                            loadOfflineEpisodes(cachedHeader.id, cachedHeader, apiName, validUrl, api)
+                        } else {
+                            _page.postValue(data)
+                        }
                     }
 
                 is Resource.Success -> {

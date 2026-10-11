@@ -132,10 +132,6 @@ open class ResultFragmentPhone : FullScreenPlayer() {
     private var lastSyncButtonClick = 0L
     private val SYNC_CLICK_DEBOUNCE_MS = 500L
 
-    private val undoFabAutoHide = Runnable {
-        binding?.resultUndoMetadataFab?.visibility = android.view.View.GONE
-    }
-
     private fun formatSyncDate(epochMillis: Long): String {
         return try {
             java.text.SimpleDateFormat(
@@ -495,8 +491,6 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     // Sync SwipeRefreshLayout with metadata loading state
                     if (!isLoading) {
                         resultBinding?.resultSwipeRefresh?.isRefreshing = false
-                        // Hide undo swap button after refresh completes
-                        binding?.resultUndoMetadataFab?.visibility = android.view.View.GONE
                     }
                 },
 
@@ -530,50 +524,12 @@ open class ResultFragmentPhone : FullScreenPlayer() {
         )
         binding?.resultSwapMetadataFab?.setOnClickListener {
             android.util.Log.d("MetadataSwap", "Swap metadata FAB clicked")
-            // Re-show the undo FAB (it auto-hides) and reset its timer
-            val undoFab = binding?.resultUndoMetadataFab
-            if (undoFab?.visibility != android.view.View.VISIBLE &&
-                getStoredData()?.let { stored ->
-                    com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
-                        com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE, stored.url
-                    )?.hasSwappedMetadata == true
-                } == true
-            ) {
-                undoFab?.removeCallbacks(undoFabAutoHide)
-                undoFab?.visibility = android.view.View.VISIBLE
-                undoFab?.postDelayed(undoFabAutoHide, 3000)
-            }
             val currentResponse = viewModel.currentResponse
             val originalResponse = viewModel.originalResponse
             if (currentResponse != null && originalResponse != null) {
                 showFieldSelectionAndSwap(requireContext(), currentResponse, originalResponse, null)
             } else {
                 android.util.Log.e("MetadataSwap", "currentResponse or originalResponse is null")
-            }
-        }
-
-        // Reset metadata button - clears swapped cache and reloads original entry from provider
-        binding?.resultUndoMetadataFab?.setOnClickListener {
-            android.util.Log.d("MetadataSwap", "Reset metadata FAB clicked - clearing swap and reloading original entry")
-            val storedData = getStoredData()
-            val currentResponse = viewModel.currentResponse
-            if (storedData != null && currentResponse != null) {
-                // Remove cached header entirely so it reloads fresh from provider
-                com.lagradost.cloudstream3.CloudStreamApp.removeKey(
-                    com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE, storedData.url
-                )
-                @Suppress("DEPRECATION_ERROR")
-                com.lagradost.cloudstream3.utils.AppContextUtils.loadSearchResult(
-                    com.lagradost.cloudstream3.AnimeSearchResponse(
-                        name = storedData.name,
-                        url = storedData.url,
-                        apiName = storedData.apiName,
-                        type = currentResponse.type,
-                        posterUrl = currentResponse.posterUrl
-                    )
-                )
-            } else {
-                android.util.Log.e("MetadataSwap", "Cannot reload - stored data or currentResponse is null")
             }
         }
 
@@ -597,28 +553,6 @@ open class ResultFragmentPhone : FullScreenPlayer() {
             // Hide bookmark FAB when in metadata swap mode to prevent overlap
             binding?.resultBookmarkFab?.visibility =
                 if (shouldShow) android.view.View.GONE else android.view.View.VISIBLE
-
-            // Check cache for swapped metadata to show/hide reset button
-            val storedData = getStoredData()
-            if (storedData != null) {
-                val cachedHeader =
-                    com.lagradost.cloudstream3.CloudStreamApp.getKey<com.lagradost.cloudstream3.utils.downloader.DownloadObjects.DownloadHeaderCached>(
-                        com.lagradost.cloudstream3.utils.DOWNLOAD_HEADER_CACHE,
-                        storedData.url
-                    )
-                android.util.Log.d(
-                    "MetadataSwap",
-                    "Checking cache for reset button - url: ${storedData.url}, hasSwappedMetadata: ${cachedHeader?.hasSwappedMetadata}"
-                )
-                val undoFab = binding?.resultUndoMetadataFab
-                val hasSwapped = cachedHeader?.hasSwappedMetadata == true
-                undoFab?.visibility = if (hasSwapped) android.view.View.VISIBLE else android.view.View.GONE
-                if (hasSwapped) {
-                    // Auto-hide the undo FAB after 3 seconds
-                    undoFab?.removeCallbacks(undoFabAutoHide)
-                    undoFab?.postDelayed(undoFabAutoHide, 3000)
-                }
-            }
         }
     }
 

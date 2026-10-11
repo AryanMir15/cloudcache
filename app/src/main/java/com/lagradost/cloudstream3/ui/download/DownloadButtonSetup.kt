@@ -187,17 +187,34 @@ object DownloadButtonSetup {
                         }
                     }
 
-                    // 1. Load cached episodes for this show using optimized folder-based lookup
-                    val episodeKeys = try {
-                        getKeys(getFolderName(DOWNLOAD_EPISODE_CACHE, click.data.parentId.toString()))
-                    } catch (e: Exception) {
-                        // fallback to full scan for compatibility
-                        getKeys(DOWNLOAD_EPISODE_CACHE) ?: emptyList()
+                    // 1. Load cached episodes for this show. The result-page
+                    // cache and DownloadScanner write to the FLAT namespace
+                    // (DOWNLOAD_EPISODE_CACHE/{episodeId}) tracked by the parent
+                    // index — reading only the legacy per-parent folder missed
+                    // scanned entries entirely, leaving an empty player.
+                    val parentId = click.data.parentId
+                    val indexKey =
+                        "${com.lagradost.cloudstream3.utils.EPISODE_PARENT_INDEX}_$parentId"
+                    val indexIds = com.lagradost.cloudstream3.CloudStreamApp
+                        .getKey<Set<String>>(indexKey)
+
+                    val cachedEpisodes = if (indexIds != null) {
+                        indexIds.mapNotNull { id ->
+                            getKey<DownloadObjects.DownloadEpisodeCached>(
+                                DOWNLOAD_EPISODE_CACHE, id
+                            )
+                        }
+                    } else {
+                        // Legacy: per-parent folder, then a full scan fallback
+                        val episodeKeys = try {
+                            getKeys(getFolderName(DOWNLOAD_EPISODE_CACHE, parentId.toString()))
+                        } catch (e: Exception) {
+                            getKeys(DOWNLOAD_EPISODE_CACHE) ?: emptyList()
+                        }
+                        (episodeKeys ?: emptyList()).mapNotNull { key ->
+                            getKey<DownloadObjects.DownloadEpisodeCached>(key)
+                        }.filter { it.parentId == parentId }
                     }
-                    
-                    val cachedEpisodes = (episodeKeys ?: emptyList()).mapNotNull { key ->
-                        getKey<DownloadObjects.DownloadEpisodeCached>(key)
-                    }.filter { it.parentId == click.data.parentId }
 
                     // Map for quick lookup by episode number
                     val cachedByEpisode = cachedEpisodes.associateBy { it.episode }
@@ -225,7 +242,6 @@ object DownloadButtonSetup {
 
                     // Add cached episodes first
                     cachedEpisodes.forEach { ep ->
-                        val episodeFolder = getFolderName(DOWNLOAD_EPISODE_CACHE, ep.parentId.toString())
                         val fileInfo = getKey<DownloadObjects.DownloadedFileInfo>(
                             VideoDownloadManager.KEY_DOWNLOAD_INFO,
                             ep.id.toString()
