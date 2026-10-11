@@ -561,12 +561,20 @@ private class Anime4kChainProgram(
         val isUpscaler = lastAsset.contains("upscale")
         val canvas = if (canvasAware) {
             // The canvas = the video's actual display region: fit the video into
-            // the PHYSICAL panel (displayMetrics are logical px — multiplying by
-            // density recovers the real size). This handles letterboxing on
-            // non-16:9 panels (e.g. 7:5 tablets).
+            // the PHYSICAL panel. displayMetrics may report logical or scaled
+            // pixels depending on the device, so use the display's physical
+            // mode size when available (covers 7:5 tablets with letterboxing).
             val dm = context.resources.displayMetrics
-            val panelW = (dm.widthPixels * dm.density).toInt().coerceAtLeast(1)
-            val panelH = (dm.heightPixels * dm.density).toInt().coerceAtLeast(1)
+            val (panelW, panelH) = if (android.os.Build.VERSION.SDK_INT >= 30) {
+                val mode = context.display?.mode
+                if (mode != null && mode.physicalWidth > 0 && mode.physicalHeight > 0) {
+                    mode.physicalWidth to mode.physicalHeight
+                } else {
+                    dm.widthPixels to dm.heightPixels
+                }
+            } else {
+                dm.widthPixels to dm.heightPixels
+            }
             val scale = minOf(panelW.toFloat() / inputWidth, panelH.toFloat() / inputHeight)
             intArrayOf((inputWidth * scale).toInt(), (inputHeight * scale).toInt())
         } else null
