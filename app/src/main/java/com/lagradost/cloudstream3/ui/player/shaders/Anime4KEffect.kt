@@ -39,6 +39,7 @@ object Anime4KEffect {
         mode: Int,
         sharpen: Float = 1.0f,
         canvasAware: Boolean = false,
+        polish: Boolean = false,
     ): List<GlEffect> = when (mode) {
         MODE_OFF -> emptyList()
         MODE_LIGHT -> listOf(
@@ -50,6 +51,7 @@ object Anime4KEffect {
                 context,
                 sharpen,
                 canvasAware,
+                polish,
             )
         )
         MODE_MEDIUM -> listOf(
@@ -62,6 +64,7 @@ object Anime4KEffect {
                 context,
                 sharpen,
                 canvasAware,
+                polish,
             )
         )
         MODE_HIGH -> listOf(
@@ -74,6 +77,7 @@ object Anime4KEffect {
                 context,
                 sharpen,
                 canvasAware,
+                /* polish = */ true, // restore → upscale → restore (B+B)
             )
         )
         else -> emptyList()
@@ -94,9 +98,10 @@ private class Anime4kGlEffect(
     private val context: Context,
     private val sharpen: Float,
     private val canvasAware: Boolean,
+    private val polish: Boolean,
 ) : GlEffect {
     override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        Anime4kChainProgram(context, assets, useHdr, sharpen, canvasAware)
+        Anime4kChainProgram(context, assets, useHdr, sharpen, canvasAware, polish)
 
     override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = false
 }
@@ -196,8 +201,10 @@ private object Anime4kShader {
         "    float lw = dot(MAIN_tex(MAIN_pos + vec2(-1.0, 0.0) * MAIN_pt).rgb, LUMA);\n" +
         "    float le = dot(MAIN_tex(MAIN_pos + vec2(1.0, 0.0) * MAIN_pt).rgb, LUMA);\n" +
         "    float delta = (lc - (ln + ls + lw + le) * 0.25) * uSharpen;\n" +
-        "    float up = max(0.0, max(max(ln, ls), max(lw, le)) - lc);\n" +
-        "    float down = max(0.0, lc - min(min(ln, ls), min(lw, le)));\n" +
+        // Wider clamp envelope (2x the local contrast) so the strength is
+        // actually visible after the final downscale; still halo-limited.
+        "    float up = max(0.0, max(max(ln, ls), max(lw, le)) - lc) * 2.0;\n" +
+        "    float down = max(0.0, lc - min(min(ln, ls), min(lw, le))) * 2.0;\n" +
         "    return vec4(clamp(c.rgb + clamp(delta, -down, up), 0.0, 1.0), c.a);\n" +
         "}\n"
 
@@ -447,6 +454,7 @@ private class Anime4kChainProgram(
     hdr: Boolean,
     private val sharpen: Float,
     private val canvasAware: Boolean,
+    private val polish: Boolean,
 ) : BaseGlShaderProgram(
     // The effect pipeline runs on a GLES 2.0 context (media3 default) — float
     // render targets need EXT_color_buffer_half_float with the OES pixel type;
@@ -588,10 +596,14 @@ private class Anime4kChainProgram(
         }
 
         val composed = ArrayList<Anime4kPass>()
+        val restore = middle.dropLast(1).flatten() // restore etc. (all but the last file)
         composed += clamp.dropLast(1)
-        composed += middle.dropLast(1).flatten() // restore etc. (all but the last file)
+        composed += restore
         composed += clamp.takeLast(1)
         repeat(upscaleCount) { composed += parsed.lastOrNull().orEmpty() }
+        // Polish (B+B): run the restore again on the upscaled image — smoother
+        // surfaces and edges (bloc97's recommended quality mode).
+        if (polish && restore.isNotEmpty()) composed += restore
 
         val basePlanned = Anime4kShader.planPasses(composed, inputWidth, inputHeight)
         if (basePlanned.isEmpty()) throw IllegalStateException("no pass parsed")
