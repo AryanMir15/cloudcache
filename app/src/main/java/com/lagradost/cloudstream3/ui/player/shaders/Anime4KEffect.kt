@@ -182,6 +182,7 @@ private class Anime4KShaderProgram(
             val outH = (inputHeight * pass.heightMult).toInt().coerceAtLeast(1)
 
             val fragment = buildFragmentShader(pass.body, pass.bindNames)
+            var fallback = false
             val program = try {
                 GlProgram(VERTEX_SHADER, fragment).apply {
                     setBufferAttribute("aPosition", QUAD_POSITIONS, 2)
@@ -192,6 +193,7 @@ private class Anime4KShaderProgram(
                 // copy so the chain keeps flowing (image may look unprocessed).
                 Log.e(TAG, "Pass $index shader compile failed, using passthrough", e)
                 Log.e(TAG, "--- fragment ---\n$fragment")
+                fallback = true
                 try {
                     GlProgram(VERTEX_SHADER, PASSTHROUGH_FRAGMENT).apply {
                         setBufferAttribute("aPosition", QUAD_POSITIONS, 2)
@@ -202,6 +204,9 @@ private class Anime4KShaderProgram(
                     throw e2
                 }
             }
+            // The passthrough program only declares HOOKED_SAMPLER — draw with
+            // bind names the program actually has or GlProgram throws.
+            val bindNames = if (fallback) listOf("HOOKED") else pass.bindNames
 
             val isLast = index == passCount - 1
             if (isLast) {
@@ -213,7 +218,7 @@ private class Anime4KShaderProgram(
                 intermediateFbos[pass.saveName!!] = fbo
             }
 
-            built.add(GLPass(program, pass.bindNames, outW, outH))
+            built.add(GLPass(program, bindNames, outW, outH))
         }
         glPasses = built
         Log.i(TAG, "Anime4K chain: $compiled/$passCount passes compiled")
@@ -330,7 +335,15 @@ private class Anime4KShaderProgram(
                 out.append(shader.substring(i))
                 break
             }
-            out.append(shader.substring(i, texStart + 4)) // up to and including "_tex"
+            // Backtrack over the identifier that owns this _tex call
+            var nameStart = texStart
+            while (nameStart > 0 &&
+                (shader[nameStart - 1].isLetterOrDigit() || shader[nameStart - 1] == '_')
+            ) {
+                nameStart--
+            }
+            out.append(shader.substring(i, nameStart)) // text before the identifier
+            val identifier = shader.substring(nameStart, texStart) // e.g. "conv2d_last_tf"
             val openParen = texStart + 4
             var depth = 0
             var close = -1
@@ -347,21 +360,25 @@ private class Anime4KShaderProgram(
                 }
             }
             if (close < 0) {
-                out.append(shader.substring(openParen))
+                out.append(identifier).append("_tex").append(shader.substring(openParen))
                 break
             }
-            val callText = shader.substring(openParen, close + 1)
-            i = close + 1
-            if (i < shader.length && shader[i] == '[') {
-                val closeBracket = shader.indexOf(']', i)
+            val callText = shader.substring(openParen, close + 1) // "(...)"
+            var next = close + 1
+            if (next < shader.length && shader[next] == '[') {
+                val closeBracket = shader.indexOf(']', next)
                 if (closeBracket > 0) {
-                    val expr = shader.substring(i + 1, closeBracket)
-                    out.append("select4").append(callText).append(", ").append(expr).append(")")
-                    i = closeBracket + 1
-                    continue
+                    val expr = shader.substring(next + 1, closeBracket)
+                    out.append("select4(").append(identifier).append("_tex").append(callText)
+                        .append(", ").append(expr).append(")")
+                    next = closeBracket + 1
+                } else {
+                    out.append(identifier).append("_tex").append(callText)
                 }
+            } else {
+                out.append(identifier).append("_tex").append(callText)
             }
-            out.append(callText)
+            i = next
         }
         return out.toString()
     }
