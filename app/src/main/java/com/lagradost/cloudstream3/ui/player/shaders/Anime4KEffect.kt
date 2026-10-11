@@ -381,6 +381,7 @@ private class Anime4kChainProgram(
         try {
             if (failed) {
                 drawCopy(inputTexId)
+                logFirstFrame("copy")
                 return
             }
             val previousFramebuffer = IntArray(1)
@@ -419,9 +420,22 @@ private class Anime4kChainProgram(
                 program.bindAttributesAndUniforms()
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             }
+            logFirstFrame("chain")
         } catch (e: GlUtil.GlException) {
+            Log.e("Anime4kChain", "draw failed at ${passes.size} passes", e)
             throw VideoFrameProcessingException(e, presentationTimeUs)
         }
+    }
+
+    private var firstFrameLogged = false
+
+    private fun logFirstFrame(mode: String) {
+        if (firstFrameLogged) return
+        firstFrameLogged = true
+        Log.i(
+            "Anime4kChain",
+            "draw: $mode passes=${passes.size} out=${outputWidth}x$outputHeight"
+        )
     }
 
     override fun release() {
