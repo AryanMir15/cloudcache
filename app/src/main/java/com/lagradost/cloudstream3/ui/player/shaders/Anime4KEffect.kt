@@ -1,7 +1,9 @@
 package com.lagradost.cloudstream3.ui.player.shaders
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.opengl.GLES20
+import android.os.Environment
 import android.util.Log
 import androidx.media3.common.VideoFrameProcessingException
 import androidx.media3.common.util.GlProgram
@@ -11,7 +13,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BaseGlShaderProgram
 import androidx.media3.effect.GlEffect
 import androidx.media3.effect.GlShaderProgram
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
  * Anime4K GPU shaders for the built-in Media3 player.
@@ -421,6 +427,16 @@ private class Anime4kChainProgram(
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             }
             logFirstFrame("chain")
+            if (!dumpDone) {
+                // First processed frame — dump output + input to PNGs so we can
+                // SEE whether the chain actually changes the image.
+                dumpDone = true
+                try {
+                    debugDump(inputTexId)
+                } catch (e: Exception) {
+                    Log.e("Anime4kChain", "debug dump failed", e)
+                }
+            }
         } catch (e: GlUtil.GlException) {
             Log.e("Anime4kChain", "draw failed at ${passes.size} passes", e)
             throw VideoFrameProcessingException(e, presentationTimeUs)
@@ -428,6 +444,7 @@ private class Anime4kChainProgram(
     }
 
     private var firstFrameLogged = false
+    private var dumpDone = false
 
     private fun logFirstFrame(mode: String) {
         if (firstFrameLogged) return
@@ -436,6 +453,67 @@ private class Anime4kChainProgram(
             "Anime4kChain",
             "draw: $mode passes=${passes.size} out=${outputWidth}x$outputHeight"
         )
+    }
+
+    /** Reads the current framebuffer and the input texture into PNG files. */
+    private fun debugDump(inputTexId: Int) {
+        val dir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "anime4k_debug"
+        )
+        if (!dir.exists() && !dir.mkdirs()) {
+            Log.e("Anime4kChain", "cannot create debug dir ${dir.absolutePath}")
+            return
+        }
+        // Output: the base's framebuffer is still focused after the last pass
+        val outPixels = readPixels(outputWidth, outputHeight)
+        savePng(dir, "out_${outputWidth}x$outputHeight.png", outPixels, outputWidth, outputHeight)
+        // Input: attach the input texture to a scratch framebuffer and read it
+        val fbo = IntArray(1)
+        GLES20.glGenFramebuffers(1, fbo, 0)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0])
+        GLES20.glFramebufferTexture2D(
+            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
+            GLES20.GL_TEXTURE_2D, inputTexId, 0
+        )
+        GLES20.glViewport(0, 0, inputWidth, inputHeight)
+        val inPixels = readPixels(inputWidth, inputHeight)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        GLES20.glDeleteFramebuffers(1, fbo, 0)
+        savePng(dir, "in_${inputWidth}x$inputHeight.png", inPixels, inputWidth, inputHeight)
+        Log.i("Anime4kChain", "debug frames written to ${dir.absolutePath}")
+    }
+
+    private fun readPixels(width: Int, height: Int): IntArray {
+        val buf = ByteBuffer.allocateDirect(width * height * 4).order(ByteOrder.nativeOrder())
+        GLES20.glReadPixels(
+            0, 0, width, height,
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf
+        )
+        val out = IntArray(width * height)
+        // GLES rows are bottom-up; flip and pack RGBA -> ARGB
+        for (row in 0 until height) {
+            val srcRow = height - 1 - row
+            for (col in 0 until width) {
+                val i = (srcRow * width + col) * 4
+                val r = buf.get(i).toInt() and 0xFF
+                val g = buf.get(i + 1).toInt() and 0xFF
+                val b = buf.get(i + 2).toInt() and 0xFF
+                val a = buf.get(i + 3).toInt() and 0xFF
+                out[row * width + col] = (a shl 24) or (r shl 16) or (g shl 8) or b
+            }
+        }
+        return out
+    }
+
+    private fun savePng(dir: File, name: String, pixels: IntArray, width: Int, height: Int) {
+        val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+        val file = File(dir, name)
+        FileOutputStream(file).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+        }
+        bitmap.recycle()
+        Log.i("Anime4kChain", "wrote $name (${width}x$height)")
     }
 
     override fun release() {
