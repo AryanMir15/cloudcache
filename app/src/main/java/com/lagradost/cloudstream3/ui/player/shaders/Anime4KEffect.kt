@@ -385,9 +385,11 @@ private class Anime4kChainProgram(
     private val assets: List<String>,
     hdr: Boolean,
 ) : BaseGlShaderProgram(
-    // 8-bit pipeline: RGBA16F intermediates are not renderable on this GL
-    // context (no EXT_color_buffer_half_float) — INVALID_OPERATION at draw.
-    /* useHighPrecisionColorComponents = */ false,
+    // Float pipeline: the conv nets use both positive AND negative feature
+    // halves (go_0/go_1) — 8-bit intermediates clamp the negatives to zero and
+    // kill half the network. Media3's GlUtil.createTexture(useHdr=true) uses
+    // the correct HALF_FLOAT_OES path for float render targets.
+    /* useHighPrecisionColorComponents = */ true,
     /* texturePoolCapacity = */ 3
 ) {
 
@@ -686,7 +688,15 @@ private class Anime4kChainProgram(
     }
 
     private fun newTarget(width: Int, height: Int): Target {
-        val texture = createTexture(width, height)
+        // Media3's own texture creation handles the float format correctly
+        // (GL_HALF_FLOAT_OES + EXT_color_buffer_half_float); fall back to 8-bit
+        // only if the device truly can't render to float targets.
+        val texture = try {
+            GlUtil.createTexture(width, height, /* useHdr = */ true)
+        } catch (e: Exception) {
+            Log.e("Anime4kChain", "float targets unsupported, using 8-bit", e)
+            GlUtil.createTexture(width, height, /* useHdr = */ false)
+        }
         val target = Target(texture, createFramebuffer(texture), width, height)
         targets.add(target)
         return target
@@ -705,22 +715,6 @@ private class Anime4kChainProgram(
         program.setSamplerTexIdUniform("uTexSampler", inputTexId, 0)
         program.bindAttributesAndUniforms()
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-    }
-
-    private fun createTexture(width: Int, height: Int): Int {
-        val ids = IntArray(1)
-        GLES20.glGenTextures(1, ids, 0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
-        // 8-bit RGBA — same as the proven AVBox port (GlUtil.createTexture(..., false)).
-        GLES20.glTexImage2D(
-            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
-            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null,
-        )
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
-        return ids[0]
     }
 
     private fun createFramebuffer(textureId: Int): Int {
