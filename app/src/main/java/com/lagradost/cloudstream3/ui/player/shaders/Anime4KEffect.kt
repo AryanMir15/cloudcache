@@ -73,7 +73,9 @@ private class MShader(source: String) {
 
     init {
         val passes = mutableListOf<MPass>()
-        val blocks = source.split(Regex("(?m)^//!DESC"))
+        // Split on the whole //!DESC line (not just the marker — the description
+        // text would otherwise leak into the GLSL body)
+        val blocks = source.split(Regex("(?m)^//!DESC.*$"))
         for (block in blocks) {
             if (block.isBlank()) continue
             val lines = block.lines()
@@ -86,12 +88,13 @@ private class MShader(source: String) {
                 val trimmed = line.trim()
                 when {
                     trimmed.startsWith("//!HOOK") -> {
-                        // The hook target is our single input
-                        if (trimmed.contains("NATIVE") || trimmed.contains("MAIN") ||
-                            trimmed.contains("HOOKED") || trimmed.contains("LUMA") ||
-                            trimmed.contains("CHROMA") || trimmed.contains("PREKERNEL")
-                        ) {
+                        // The hook target is our single input frame. Bind it under
+                        // the literal name the body references (MAIN/NATIVE/...) as
+                        // well as the generic HOOKED alias.
+                        val hookName = trimmed.removePrefix("//!HOOK").trim()
+                        if (hookName.isNotEmpty()) {
                             bindNames.add(0, "HOOKED")
+                            if (hookName != "HOOKED") bindNames.add(hookName)
                         }
                     }
                     trimmed.startsWith("//!BIND") -> {
@@ -115,7 +118,13 @@ private class MShader(source: String) {
             }
             val body = bodyLines.joinToString("\n")
             if (body.contains("hook()")) {
-                passes.add(MPass(bindNames.distinct(), saveName, widthMult, heightMult, body))
+                // Keep only binds the body actually references — GlProgram throws
+                // on setting a uniform that doesn't exist in the program.
+                val referenced = bindNames.filter { name ->
+                    body.contains("${name}_tex") || body.contains("${name}_pos") ||
+                        body.contains("${name}_pt") || body.contains("${name}_size")
+                }.distinct()
+                passes.add(MPass(referenced, saveName, widthMult, heightMult, body))
             }
         }
         this.passes = passes
