@@ -357,7 +357,13 @@ private class Anime4kChainProgram(
     private val context: Context,
     private val assets: List<String>,
     hdr: Boolean,
-) : BaseGlShaderProgram(false, 3) {
+) : BaseGlShaderProgram(
+    // The CNN feature maps are raw activations (roughly -5..+5). 8-bit RGBA
+    // clamps them to [0,1] and crushes the correction to invisibility — mpv
+    // runs these intermediates in float. Use 16-bit half-float end to end.
+    /* useHighPrecisionColorComponents = */ true,
+    /* texturePoolCapacity = */ 3
+) {
 
     private val passes = ArrayList<CompiledPass>()
     private val targets = ArrayList<Target>()
@@ -671,9 +677,12 @@ private class Anime4kChainProgram(
         val ids = IntArray(1)
         GLES20.glGenTextures(1, ids, 0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
+        // Half-float intermediates (GL_RGBA16F / GL_HALF_FLOAT are GLES3
+        // constants; the values are legal to pass to glTexImage2D on any
+        // GLES3 device — Mali-G615 is GLES3.2).
         GLES20.glTexImage2D(
-            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
-            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null,
+            GLES20.GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0,
+            GLES20.GL_RGBA, GL_HALF_FLOAT, null,
         )
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
@@ -730,6 +739,11 @@ private class Anime4kChainProgram(
     )
 
     private companion object {
+        // GLES3 constants (not in android.opengl.GLES20) — legal values for
+        // glTexImage2D on any GLES3 device.
+        const val GL_RGBA16F = 0x881A
+        const val GL_HALF_FLOAT = 0x140B
+
         const val VERTEX_SHADER = """
             attribute vec4 aFramePosition;
             varying vec2 vTexCoord;
