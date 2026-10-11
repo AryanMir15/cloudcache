@@ -702,11 +702,10 @@ private class Anime4kChainProgram(
         return target
     }
 
-    /** EXT_color_buffer_half_float present in this (GLES2) context? */
+    /** GLES3 contexts support RGBA16F render targets natively. */
     private fun floatTargetsSupported(): Boolean {
-        val exts = GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: return false
-        val version = GLES20.glGetString(GLES20.GL_VERSION) ?: "?"
-        val supported = exts.contains("GL_EXT_color_buffer_half_float")
+        val version = GLES20.glGetString(GLES20.GL_VERSION) ?: return false
+        val supported = version.contains("ES 3") || version.contains("ES_3")
         Log.i(
             "Anime4kChain",
             "GL context: $version, float targets=$supported"
@@ -715,13 +714,14 @@ private class Anime4kChainProgram(
     }
 
     private fun createFloatTexture(width: Int, height: Int): Int {
-        // GLES2 EXT path: GL_RGBA16F + GL_HALF_FLOAT_OES (not 0x140B).
+        // GLES3 native path: GL_RGBA16F (0x881A) + GL_HALF_FLOAT (0x140B).
+        // (0x8D61 = GL_HALF_FLOAT_OES is INVALID_ENUM on a GLES3 context.)
         val ids = IntArray(1)
         GLES20.glGenTextures(1, ids, 0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
         GLES20.glTexImage2D(
             GLES20.GL_TEXTURE_2D, 0, 0x881A /* GL_RGBA16F */, width, height, 0,
-            GLES20.GL_RGBA, 0x8D61 /* GL_HALF_FLOAT_OES */, null,
+            GLES20.GL_RGBA, 0x140B /* GL_HALF_FLOAT */, null,
         )
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
