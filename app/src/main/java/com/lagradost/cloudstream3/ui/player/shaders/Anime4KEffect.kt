@@ -3,30 +3,27 @@ package com.lagradost.cloudstream3.ui.player.shaders
 import android.content.Context
 import android.opengl.GLES20
 import android.util.Log
+import androidx.media3.common.VideoFrameProcessingException
 import androidx.media3.common.util.GlProgram
+import androidx.media3.common.util.GlUtil
 import androidx.media3.common.util.Size
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.effect.BaseGlShaderProgram
 import androidx.media3.effect.GlEffect
 import androidx.media3.effect.GlShaderProgram
-import com.lagradost.cloudstream3.R
 import java.io.IOException
 
 /**
  * Anime4K GPU shaders for the built-in Media3 player.
  *
- * The upstream shaders (bloc97/Anime4K, MIT) are written for mpv: multi-pass
- * chains with named intermediate textures and multi-input passes. Media3's
- * Effect API is a linear single-input chain, so a plain list of effects cannot
- * express them. Instead this runs the WHOLE mpv chain inside ONE
- * [BaseGlShaderProgram]: passes render into our own framebuffers and may bind
- * both the original frame and any previously-saved intermediate — exactly like
- * mpv.
+ * This is a faithful port of the AVBox media3 Anime4K implementation
+ * (github.com/XiaochangXu/AVBox, `player/effect/anime4k/`, GPL-3.0 — compatible
+ * with this project's license). It parses the verbatim mpv shaders shipped in
+ * res/raw, plans the multi-pass chain, and runs it inside one
+ * [BaseGlShaderProgram] with per-pass framebuffers and the original frame
+ * available to every pass — exactly like mpv.
  *
- * The mpv GLSL is shipped verbatim in res/raw and parsed at runtime
- * (//!HOOK, //!BIND, //!SAVE, //!WIDTH/HEIGHT, //!DESC markers); the per-pass
- * <name>_tex / <name>_texOff / <name>_pos / <name>_pt / <name>_size tokens are
- * mapped onto GLES2 samplers and uniforms.
+ * Shaders: Anime4K by bloc97 (MIT, copyright 2019-2021, in each .glsl file).
  */
 @UnstableApi
 object Anime4KEffect {
@@ -39,399 +36,562 @@ object Anime4KEffect {
     fun buildEffects(context: Context, mode: Int): List<GlEffect> = when (mode) {
         MODE_OFF -> emptyList()
         MODE_LIGHT -> listOf(
-            GlEffectProgram(loadSource(context, R.raw.anime4k_clamp_highlights)),
-            GlEffectProgram(loadSource(context, R.raw.anime4k_thinlines_fast)),
+            Anime4kGlEffect(
+                listOf(
+                    "anime4k_clamp_highlights",
+                    "anime4k_thinlines_fast",
+                ),
+                context,
+            )
         )
         MODE_MEDIUM -> listOf(
-            GlEffectProgram(loadSource(context, R.raw.anime4k_clamp_highlights)),
-            GlEffectProgram(loadSource(context, R.raw.anime4k_restore_cnn_soft_m)),
-            GlEffectProgram(loadSource(context, R.raw.anime4k_upscale_cnn_x2_m)),
+            Anime4kGlEffect(
+                listOf(
+                    "anime4k_clamp_highlights",
+                    "anime4k_restore_cnn_soft_m",
+                    "anime4k_upscale_cnn_x2_m",
+                ),
+                context,
+            )
         )
         else -> emptyList()
     }
 
-    private fun loadSource(context: Context, resId: Int): String = try {
-        context.resources.openRawResource(resId).bufferedReader().use { it.readText() }
+    internal fun loadSource(context: Context, asset: String): String = try {
+        context.resources.openRawResource(
+            context.resources.getIdentifier(asset, "raw", context.packageName)
+        ).bufferedReader().use { it.readText() }
     } catch (e: IOException) {
-        Log.e(TAG, "Failed to load shader resource $resId", e)
+        Log.e(TAG, "Failed to load shader resource $asset", e)
         ""
     }
 }
 
-/** One mpv pass extracted from a shader file. */
-private class MPass(
-    val bindNames: List<String>,
-    val saveName: String?,
-    val widthMult: Float,
-    val heightMult: Float,
-    val body: String,
+private class Anime4kGlEffect(
+    private val assets: List<String>,
+    private val context: Context,
+) : GlEffect {
+    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
+        Anime4kChainProgram(context, assets, useHdr)
+
+    override fun isNoOp(inputWidth: Int, inputHeight: Int): Boolean = false
+}
+
+/** ---- Ported from AVBox Anime4kShader.kt ---- */
+
+internal data class Anime4kPass(
+    val name: String,
+    val binds: List<String>,
+    val save: String,
+    val widthExpr: List<String>,
+    val heightExpr: List<String>,
+    val components: Int,
+    val whenExpr: List<String>,
+    val fragmentShader: String,
 )
 
-/** Parses the mpv file into passes. */
-private class MShader(source: String) {
-    val passes: List<MPass>
+internal data class Anime4kBinding(val name: String, val width: Int, val height: Int)
 
-    init {
-        val passes = mutableListOf<MPass>()
-        // Split on the whole //!DESC line (not just the marker — the description
-        // text would otherwise leak into the GLSL body)
-        val blocks = source.split(Regex("(?m)^//!DESC.*$"))
-        for (block in blocks) {
-            if (block.isBlank()) continue
-            val lines = block.lines()
-            val bindNames = mutableListOf<String>()
-            var saveName: String? = null
-            var widthMult = 1f
-            var heightMult = 1f
-            val bodyLines = mutableListOf<String>()
-            for (line in lines) {
-                val trimmed = line.trim()
-                when {
-                    trimmed.startsWith("//!HOOK") -> {
-                        // The hook target is our single input frame. Bind it under
-                        // the literal name the body references (MAIN/NATIVE/...) as
-                        // well as the generic HOOKED alias.
-                        val hookName = trimmed.removePrefix("//!HOOK").trim()
-                        if (hookName.isNotEmpty()) {
-                            bindNames.add(0, "HOOKED")
-                            if (hookName != "HOOKED") bindNames.add(hookName)
-                        }
-                    }
-                    trimmed.startsWith("//!BIND") -> {
-                        val name = trimmed.removePrefix("//!BIND").trim()
-                        if (name.isNotEmpty() && name !in bindNames) bindNames.add(name)
-                    }
-                    trimmed.startsWith("//!SAVE") -> {
-                        saveName = trimmed.removePrefix("//!SAVE").trim().ifEmpty { null }
-                    }
-                    trimmed.startsWith("//!WIDTH") -> {
-                        widthMult = parseMult(trimmed.removePrefix("//!WIDTH"))
-                    }
-                    trimmed.startsWith("//!HEIGHT") -> {
-                        heightMult = parseMult(trimmed.removePrefix("//!HEIGHT"))
-                    }
-                    trimmed.startsWith("//!") -> {
-                        // WHEN / COMPONENTS / etc. are ignored
-                    }
-                    else -> bodyLines.add(line)
-                }
+internal data class Anime4kPlannedPass(
+    val pass: Anime4kPass,
+    val width: Int,
+    val height: Int,
+    val writesScreen: Boolean,
+    val bindings: List<Anime4kBinding>,
+)
+
+internal data class Anime4kBindingSource(
+    val name: String, val target: Int, val width: Int, val height: Int,
+)
+
+internal data class Anime4kPassIo(
+    val planned: Anime4kPlannedPass,
+    val bindings: List<Anime4kBindingSource>,
+    val outputTarget: Int,
+    val createdTarget: Boolean,
+)
+
+private object Anime4kShader {
+
+    const val MAIN = "MAIN"
+    const val HOOKED = "HOOKED"
+    const val INPUT_BINDING = -1
+    const val SCREEN_TARGET = -1
+
+    fun assignTargets(planned: List<Anime4kPlannedPass>): List<Anime4kPassIo> {
+        val latest = HashMap<String, Int>()
+        val sizes = HashMap<String, IntArray>()
+        val result = ArrayList<Anime4kPassIo>()
+        var nextTarget = 0
+        planned.forEach { item ->
+            val bindings = item.bindings.map { binding ->
+                Anime4kBindingSource(
+                    name = binding.name,
+                    target = latest[binding.name] ?: INPUT_BINDING,
+                    width = binding.width,
+                    height = binding.height,
+                )
             }
-            val body = bodyLines.joinToString("\n")
-            if (body.contains("hook()")) {
-                // Keep only binds the body actually references — GlProgram throws
-                // on setting a uniform that doesn't exist in the program.
-                val referenced = bindNames.filter { name ->
-                    body.contains("${name}_tex") || body.contains("${name}_pos") ||
-                        body.contains("${name}_pt") || body.contains("${name}_size")
-                }.distinct()
-                passes.add(MPass(referenced, saveName, widthMult, heightMult, body))
+            var outputTarget = SCREEN_TARGET
+            var created = false
+            if (!item.writesScreen) {
+                val save = item.pass.save
+                val existing = latest[save]
+                val readsSave = item.bindings.any { it.name == save || it.name == HOOKED }
+                val reusable = existing != null && !readsSave &&
+                    sizes[save]?.let { it[0] == item.width && it[1] == item.height } == true
+                outputTarget = if (reusable) {
+                    existing!!
+                } else {
+                    created = true
+                    nextTarget++
+                    nextTarget - 1
+                }
+                latest[save] = outputTarget
+                sizes[save] = intArrayOf(item.width, item.height)
+                if (save == MAIN) latest[HOOKED] = outputTarget
+            }
+            result.add(Anime4kPassIo(item, bindings, outputTarget, created))
+        }
+        return result
+    }
+
+    private const val DIRECTIVE = "//!"
+    private const val PRECISION = "#ifdef GL_FRAGMENT_PRECISION_HIGH\n" +
+        "precision highp float;\n" +
+        "#else\n" +
+        "precision mediump float;\n" +
+        "#endif\n"
+    private const val ENTRY = "void main() {\n  gl_FragColor = hook();\n}\n"
+
+    private val IVEC_DECL =
+        Regex("""(?m)^(\s*)ivec2\s+(\w+)\s*=\s*ivec2\((\w+)\s*\*\s*vec2\(2\.0\)\)\s*;""")
+    private val DYNAMIC_INDEX =
+        Regex("""(?m)^(\s*)(?:\w+\s+)?(\w+)\s*=\s*([^;]*?)\[(\w+)\.y\s*\*\s*2\s*\+\s*\4\.x\]\s*;""")
+
+    fun parse(text: String): List<Anime4kPass> = splitBlocks(text).map(::buildPass)
+
+    fun planPasses(
+        passes: List<Anime4kPass>,
+        inputWidth: Int,
+        inputHeight: Int,
+    ): List<Anime4kPlannedPass> {
+        val sizes = HashMap<String, IntArray>()
+        sizes[MAIN] = intArrayOf(inputWidth, inputHeight)
+        sizes[HOOKED] = intArrayOf(inputWidth, inputHeight)
+        val planned = ArrayList<Anime4kPlannedPass>()
+        passes.forEach { pass ->
+            val current = sizes[HOOKED] ?: intArrayOf(inputWidth, inputHeight)
+            val width = resolve(pass.widthExpr, sizes, current[0])
+            val height = resolve(pass.heightExpr, sizes, current[1])
+            sizes[pass.save] = intArrayOf(width, height)
+            if (pass.save == MAIN) sizes[HOOKED] = intArrayOf(width, height)
+            val bindings = pass.binds.map { name ->
+                val bound = sizes[name] ?: intArrayOf(width, height)
+                Anime4kBinding(name, bound[0], bound[1])
+            }
+            planned.add(Anime4kPlannedPass(pass, width, height, false, bindings))
+        }
+        return planned.mapIndexed { index, item ->
+            item.copy(writesScreen = index == planned.lastIndex)
+        }
+    }
+
+    fun resolveSize(expr: List<String>, widthOf: (String) -> Int, heightOf: (String) -> Int): Int {
+        val stack = ArrayList<Int>()
+        expr.forEach { token ->
+            when {
+                token == "*" -> {
+                    if (stack.size < 2) return@forEach
+                    val b = stack.removeAt(stack.lastIndex)
+                    val a = stack.removeAt(stack.lastIndex)
+                    stack.add(a * b)
+                }
+                token.endsWith(".w") -> stack.add(widthOf(token.dropLast(2)))
+                token.endsWith(".h") -> stack.add(heightOf(token.dropLast(2)))
+                else -> token.toIntOrNull()?.let { stack.add(it) }
             }
         }
-        this.passes = passes
+        return stack.lastOrNull() ?: 0
     }
 
-    private fun parseMult(expr: String): Float {
-        val tokens = expr.trim().split(Regex("\\s+"))
-        val mult = tokens.firstOrNull { it == "2" || it == "4" } ?: return 1f
-        return if (tokens.lastOrNull() == "/") 1f / mult.toFloat() else mult.toFloat()
+    fun adaptToEs2(body: String): String {
+        var adapted = IVEC_DECL.replace(body) { match ->
+            val indent = match.groupValues[1]
+            val index = match.groupValues[2]
+            val fraction = match.groupValues[3]
+            "${indent}float ${index}x = step(0.5, ${fraction}.x);\n" +
+                "${indent}float ${index}y = step(0.5, ${fraction}.y);"
+        }
+        adapted = DYNAMIC_INDEX.replace(adapted) { match ->
+            val indent = match.groupValues[1]
+            val target = match.groupValues[2]
+            val sample = match.groupValues[3]
+            val index = match.groupValues[4]
+            "${indent}vec4 ${index}v = ${sample};\n" +
+                "${indent}float ${target} = mix(mix(${index}v.x, ${index}v.y, ${index}x)," +
+                " mix(${index}v.z, ${index}v.w, ${index}x), ${index}y);"
+        }
+        return adapted
+    }
+
+    private fun resolve(expr: List<String>, sizes: Map<String, IntArray>, fallback: Int): Int {
+        val value = resolveSize(
+            expr,
+            { sizes[it]?.get(0) ?: fallback },
+            { sizes[it]?.get(1) ?: fallback },
+        )
+        return if (value > 0) value else fallback
+    }
+
+    private class Block(val header: List<String>, val body: String)
+
+    private fun splitBlocks(text: String): List<Block> {
+        val blocks = ArrayList<Block>()
+        var header: MutableList<String>? = null
+        var body: StringBuilder? = null
+        text.split('\n').forEach { raw ->
+            val line = raw.trimEnd('\r')
+            when {
+                line.startsWith(DIRECTIVE + "DESC") -> {
+                    val previous = header
+                    if (previous != null) blocks.add(Block(previous, body?.toString().orEmpty()))
+                    header = ArrayList<String>().apply { add(line) }
+                    body = StringBuilder()
+                }
+                line.startsWith(DIRECTIVE) -> header?.add(line)
+                else -> body?.append(line)?.append('\n')
+            }
+        }
+        val last = header
+        if (last != null) blocks.add(Block(last, body?.toString().orEmpty()))
+        return blocks
+    }
+
+    private fun buildPass(block: Block): Anime4kPass {
+        val binds = ArrayList<String>()
+        var name = ""
+        var save = MAIN
+        var widthExpr: List<String> = emptyList()
+        var heightExpr: List<String> = emptyList()
+        var components = 4
+        var whenExpr: List<String> = emptyList()
+        block.header.forEach { line ->
+            val tokens = line.removePrefix(DIRECTIVE).trim().split(' ').filter { it.isNotEmpty() }
+            if (tokens.isEmpty()) return@forEach
+            val value = tokens.drop(1)
+            when (tokens[0]) {
+                "DESC" -> name = value.joinToString(" ")
+                "BIND" -> value.firstOrNull()?.let { binds.add(it) }
+                "SAVE" -> value.firstOrNull()?.let { save = it }
+                "WIDTH" -> widthExpr = value
+                "HEIGHT" -> heightExpr = value
+                "COMPONENTS" -> components = value.firstOrNull()?.toIntOrNull() ?: components
+                "WHEN" -> whenExpr = value
+            }
+        }
+        val usedBinds = binds.filter { bind ->
+            val alias = when (bind) {
+                HOOKED -> MAIN
+                MAIN -> HOOKED
+                else -> null
+            }
+            block.body.contains("${bind}_") || (alias != null && block.body.contains("${alias}_"))
+        }
+        return Anime4kPass(
+            name = name,
+            binds = usedBinds,
+            save = save,
+            widthExpr = widthExpr,
+            heightExpr = heightExpr,
+            components = components,
+            whenExpr = whenExpr,
+            fragmentShader = fragmentShader(block.body, usedBinds),
+        )
+    }
+
+    private fun fragmentShader(body: String, binds: List<String>): String = buildString {
+        append(PRECISION)
+        append("varying vec2 vTexCoord;\n")
+        val emitted = LinkedHashSet<String>()
+        binds.forEach { tex ->
+            emitted.add(tex)
+            append("uniform sampler2D uTex$tex;\n")
+            append("uniform vec2 uPt$tex;\n")
+            append("uniform vec2 uSize$tex;\n")
+            appendTexMacros(tex, tex)
+        }
+        binds.forEach { tex ->
+            val alias = when (tex) {
+                HOOKED -> MAIN
+                MAIN -> HOOKED
+                else -> null
+            }
+            if (alias != null && emitted.add(alias)) appendTexMacros(alias, tex)
+        }
+        val adapted = adaptToEs2(body)
+        append(adapted)
+        if (!adapted.endsWith("\n")) append('\n')
+        append(ENTRY)
+    }
+
+    private fun StringBuilder.appendTexMacros(name: String, uniform: String) {
+        append("#define ${name}_tex(p) texture2D(uTex$uniform, (p))\n")
+        append("#define ${name}_texOff(off) texture2D(uTex$uniform, vTexCoord + (off) * uPt$uniform)\n")
+        append("#define ${name}_pos vTexCoord\n")
+        append("#define ${name}_pt uPt$uniform\n")
+        append("#define ${name}_size uSize$uniform\n")
     }
 }
 
-private class GlEffectProgram(private val source: String) : GlEffect {
-    override fun toGlShaderProgram(context: Context, useHdr: Boolean): GlShaderProgram =
-        Anime4KShaderProgram(MShader(source))
-}
+/** ---- Ported from AVBox Anime4kChainProgram.kt ---- */
 
-/** Runs the full mpv chain inside one Media3 [BaseGlShaderProgram]. */
 @UnstableApi
-private class Anime4KShaderProgram(
-    private val shader: MShader,
-) : BaseGlShaderProgram(/* useHighPrecisionColorComponents = */ false, /* texturePoolCapacity = */ 1) {
+private class Anime4kChainProgram(
+    private val context: Context,
+    private val assets: List<String>,
+    hdr: Boolean,
+) : BaseGlShaderProgram(false, 3) {
 
-    private inner class GLPass(
-        val program: GlProgram,
-        val bindNames: List<String>,
-        val outWidth: Int,
-        val outHeight: Int,
-    )
-
-    private var inputWidth = 0
-    private var inputHeight = 0
+    private val passes = ArrayList<CompiledPass>()
+    private val targets = ArrayList<Target>()
+    private var copyProgram: GlProgram? = null
     private var outputWidth = 0
     private var outputHeight = 0
-    private var glPasses = listOf<GLPass>()
-    private val intermediateTextures = mutableMapOf<String, Int>()
-    private val intermediateFbos = mutableMapOf<String, Int>()
+    private var failed = hdr
 
     override fun configure(inputWidth: Int, inputHeight: Int): Size {
-        this.inputWidth = inputWidth
-        this.inputHeight = inputHeight
-        releaseInternal()
-        buildPasses()
+        releaseGl()
+        outputWidth = inputWidth
+        outputHeight = inputHeight
+        if (!failed) {
+            try {
+                build(inputWidth, inputHeight)
+            } catch (e: Exception) {
+                failed = true
+                passes.clear()
+                releaseTargets()
+                Log.e("Anime4kChain", "chain build failed, fallback to passthrough", e)
+            }
+        }
         return Size(outputWidth, outputHeight)
     }
 
-    private fun buildPasses() {
-        glPasses = emptyList()
-        val built = mutableListOf<GLPass>()
-        val passCount = shader.passes.size
-        var compiled = 0
-
-        shader.passes.forEachIndexed { index, pass ->
-            val outW = (inputWidth * pass.widthMult).toInt().coerceAtLeast(1)
-            val outH = (inputHeight * pass.heightMult).toInt().coerceAtLeast(1)
-
-            val fragment = buildFragmentShader(pass.body, pass.bindNames)
-            var fallback = false
-            val program = try {
-                GlProgram(VERTEX_SHADER, fragment).apply {
-                    setBufferAttribute("aPosition", QUAD_POSITIONS, 2)
-                    setBufferAttribute("aTexCoor", QUAD_TEXCOORDS, 2)
-                }.also { compiled++ }
-            } catch (e: Exception) {
-                // Never black out playback for a bad pass: fall back to a plain
-                // copy so the chain keeps flowing (image may look unprocessed).
-                Log.e(TAG, "Pass $index shader compile failed, using passthrough", e)
-                Log.e(TAG, "--- fragment ---\n$fragment")
-                fallback = true
-                try {
-                    GlProgram(VERTEX_SHADER, PASSTHROUGH_FRAGMENT).apply {
-                        setBufferAttribute("aPosition", QUAD_POSITIONS, 2)
-                        setBufferAttribute("aTexCoor", QUAD_TEXCOORDS, 2)
-                    }
-                } catch (e2: Exception) {
-                    Log.e(TAG, "Passthrough fallback also failed", e2)
-                    throw e2
-                }
-            }
-            // The passthrough program only declares HOOKED_SAMPLER — draw with
-            // bind names the program actually has or GlProgram throws.
-            val bindNames = if (fallback) listOf("HOOKED") else pass.bindNames
-
-            val isLast = index == passCount - 1
-            if (isLast) {
-                outputWidth = outW
-                outputHeight = outH
-            } else if (pass.saveName != null) {
-                val (tex, fbo) = createFbo(outW, outH)
-                intermediateTextures[pass.saveName!!] = tex
-                intermediateFbos[pass.saveName!!] = fbo
-            }
-
-            built.add(GLPass(program, bindNames, outW, outH))
-        }
-        glPasses = built
-        Log.i(TAG, "Anime4K chain: $compiled/$passCount passes compiled")
-    }
-
     override fun drawFrame(inputTexId: Int, presentationTimeUs: Long) {
-        if (glPasses.isEmpty()) return
-        GLES20.glDisable(GLES20.GL_DEPTH_TEST)
-        GLES20.glDisable(GLES20.GL_BLEND)
-
-        glPasses.forEachIndexed { index, glPass ->
-            val isLast = index == glPasses.lastIndex
-            if (!isLast) {
-                val saveName = shader.passes[index].saveName
-                val fbo = intermediateFbos[saveName] ?: 0
-                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo)
+        try {
+            if (failed) {
+                drawCopy(inputTexId)
+                return
             }
-            // The last pass renders into the caller's focused output buffer
-            GLES20.glViewport(0, 0, glPass.outWidth, glPass.outHeight)
-
-            val program = glPass.program
-            program.use()
-
-            glPass.bindNames.forEachIndexed { unit, name ->
-                val texId = if (name == "HOOKED" || name == "MAIN" || name == "NATIVE") {
-                    inputTexId
+            val previousFramebuffer = IntArray(1)
+            val previousViewport = IntArray(4)
+            GLES20.glGetIntegerv(GLES20.GL_FRAMEBUFFER_BINDING, previousFramebuffer, 0)
+            GLES20.glGetIntegerv(GLES20.GL_VIEWPORT, previousViewport, 0)
+            passes.forEach { compiled ->
+                if (compiled.writesScreen) {
+                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, previousFramebuffer[0])
+                    GLES20.glViewport(
+                        previousViewport[0], previousViewport[1],
+                        previousViewport[2], previousViewport[3],
+                    )
                 } else {
-                    intermediateTextures[name] ?: inputTexId
+                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, compiled.targetFramebuffer)
+                    GLES20.glViewport(0, 0, compiled.width, compiled.height)
                 }
-                program.setSamplerTexIdUniform("${name}_SAMPLER", texId, unit)
-                val (texW, texH) = textureSizeOf(name)
-                program.setFloatsUniformIfPresent("${name}_PT", floatArrayOf(1f / texW, 1f / texH))
+                val program = compiled.program
+                program.use()
+                compiled.bindings.forEachIndexed { unit, binding ->
+                    val textureId = if (binding.isInput) inputTexId else binding.textureId
+                    try {
+                        program.setSamplerTexIdUniform("uTex${binding.name}", textureId, unit)
+                    } catch (e: RuntimeException) {
+                        // sampler not present in this program — skip
+                    }
+                    program.setFloatsUniformIfPresent(
+                        "uPt${binding.name}",
+                        floatArrayOf(1f / binding.width, 1f / binding.height),
+                    )
+                    program.setFloatsUniformIfPresent(
+                        "uSize${binding.name}",
+                        floatArrayOf(binding.width.toFloat(), binding.height.toFloat()),
+                    )
+                }
+                program.bindAttributesAndUniforms()
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
             }
-            program.setFloatsUniformIfPresent(
-                "uPassOutSize", floatArrayOf(glPass.outWidth.toFloat(), glPass.outHeight.toFloat())
-            )
-
-            program.bindAttributesAndUniforms()
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        } catch (e: GlUtil.GlException) {
+            throw VideoFrameProcessingException(e, presentationTimeUs)
         }
-        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
     }
 
-    private fun textureSizeOf(name: String): Pair<Int, Int> =
-        if (name == "HOOKED" || name == "MAIN" || name == "NATIVE") {
-            inputWidth to inputHeight
-        } else {
-            val savedAt = shader.passes.indexOfFirst { it.saveName == name }
-            if (savedAt >= 0) {
-                val p = shader.passes[savedAt]
-                (inputWidth * p.widthMult).toInt() to (inputHeight * p.heightMult).toInt()
-            } else inputWidth to inputHeight
-        }
+    override fun release() {
+        super.release()
+        releaseGl()
+    }
 
-    private fun createFbo(width: Int, height: Int): Pair<Int, Int> {
-        val texIds = IntArray(1)
-        GLES20.glGenTextures(1, texIds, 0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texIds[0])
+    private fun build(inputWidth: Int, inputHeight: Int) {
+        // Split the clamp file around the middle passes: its stats passes run
+        // first (on the original), its clamp pass runs last (on the result).
+        val parsed = assets.map { Anime4kShader.parse(Anime4KEffect.loadSource(context, it)) }
+        val clamp = parsed.firstOrNull().orEmpty()
+        val middle = parsed.drop(1).flatten()
+        val composed = clamp.dropLast(1) + middle + clamp.takeLast(1)
+        val planned = Anime4kShader.planPasses(composed, inputWidth, inputHeight)
+        if (planned.isEmpty()) throw IllegalStateException("no pass parsed")
+
+        val byTarget = HashMap<Int, Target>()
+        Anime4kShader.assignTargets(planned).forEach { item ->
+            val plannedPass = item.planned
+            val program = GlProgram(VERTEX_SHADER, plannedPass.pass.fragmentShader)
+            program.setBufferAttribute(
+                "aFramePosition",
+                quadArray(),
+                GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE,
+            )
+            val bindings = item.bindings.map { binding ->
+                val target = byTarget[binding.target]
+                BoundBinding(
+                    binding.name,
+                    target?.texture ?: 0,
+                    target == null,
+                    binding.width,
+                    binding.height,
+                )
+            }
+            val targetFramebuffer: Int
+            if (item.outputTarget == Anime4kShader.SCREEN_TARGET) {
+                targetFramebuffer = 0
+            } else {
+                val target = byTarget[item.outputTarget]
+                    ?: newTarget(plannedPass.width, plannedPass.height)
+                        .also { byTarget[item.outputTarget] = it }
+                targetFramebuffer = target.framebuffer
+            }
+            passes.add(
+                CompiledPass(
+                    program = program,
+                    bindings = bindings,
+                    targetFramebuffer = targetFramebuffer,
+                    width = plannedPass.width,
+                    height = plannedPass.height,
+                    writesScreen = plannedPass.writesScreen,
+                ),
+            )
+        }
+        val last = planned.last()
+        outputWidth = last.width
+        outputHeight = last.height
+        Log.i(
+            "Anime4kChain",
+            "chain: ${assets.joinToString("+")} passes=${passes.size} " +
+                "in=${inputWidth}x$inputHeight out=${outputWidth}x$outputHeight"
+        )
+    }
+
+    private fun newTarget(width: Int, height: Int): Target {
+        val texture = createTexture(width, height)
+        val target = Target(texture, createFramebuffer(texture), width, height)
+        targets.add(target)
+        return target
+    }
+
+    private fun drawCopy(inputTexId: Int) {
+        val program = copyProgram ?: GlProgram(VERTEX_SHADER, COPY_SHADER).also {
+            it.setBufferAttribute(
+                "aFramePosition",
+                quadArray(),
+                GlUtil.HOMOGENEOUS_COORDINATE_VECTOR_SIZE,
+            )
+            copyProgram = it
+        }
+        program.use()
+        program.setSamplerTexIdUniform("uTexSampler", inputTexId, 0)
+        program.bindAttributesAndUniforms()
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+    }
+
+    private fun createTexture(width: Int, height: Int): Int {
+        val ids = IntArray(1)
+        GLES20.glGenTextures(1, ids, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
         GLES20.glTexImage2D(
             GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, width, height, 0,
-            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null,
         )
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
-        val fboIds = IntArray(1)
-        GLES20.glGenFramebuffers(1, fboIds, 0)
-        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fboIds[0])
+        return ids[0]
+    }
+
+    private fun createFramebuffer(textureId: Int): Int {
+        val ids = IntArray(1)
+        GLES20.glGenFramebuffers(1, ids, 0)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, ids[0])
         GLES20.glFramebufferTexture2D(
             GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
-            GLES20.GL_TEXTURE_2D, texIds[0], 0
+            GLES20.GL_TEXTURE_2D, textureId, 0,
         )
         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
-        return texIds[0] to fboIds[0]
+        return ids[0]
     }
 
-    private fun buildFragmentShader(body: String, bindNames: List<String>): String {
-        val sb = StringBuilder()
-        sb.append("#version 100\n")
-        sb.append("precision highp float;\n")
-        sb.append("varying vec2 vTexCoor;\n")
-        sb.append("uniform vec2 uPassOutSize;\n")
-        sb.append(SELECT4_HELPER)
-        for (name in bindNames) {
-            sb.append("uniform sampler2D ${name}_SAMPLER;\n")
-            sb.append("uniform vec2 ${name}_PT;\n")
-            sb.append("#define ${name}_pos (vTexCoor * uPassOutSize * ${name}_PT)\n")
-            sb.append("#define ${name}_pt ${name}_PT\n")
-            sb.append("#define ${name}_size (1.0 / ${name}_PT)\n")
-            sb.append("#define ${name}_tex(p) texture2D(${name}_SAMPLER, p)\n")
-            sb.append(
-                "#define ${name}_texOff(o) " +
-                    "texture2D(${name}_SAMPLER, ${name}_pos + ${name}_PT * (o))\n"
-            )
+    private fun releaseGl() {
+        passes.forEach { runCatching { it.program.delete() } }
+        runCatching { copyProgram?.delete() }
+        passes.clear()
+        releaseTargets()
+        copyProgram = null
+    }
+
+    private fun releaseTargets() {
+        targets.forEach { target ->
+            runCatching { GLES20.glDeleteTextures(1, intArrayOf(target.texture), 0) }
+            GLES20.glDeleteFramebuffers(1, intArrayOf(target.framebuffer), 0)
         }
-        // mpv GLSL uses texture(); GLES2 needs texture2D()
-        var portedBody = body.replace(Regex("\\btexture\\("), "texture2D(")
-        // GLES2 bans dynamic vector indexing in fragment shaders (the Anime4K
-        // x2 pass does tex(...)[i.y*2+i.x]) — rewrite to a select4() helper.
-        portedBody = rewriteDynamicVectorIndex(portedBody)
-        sb.append(portedBody)
-        sb.append("\nvoid main() { gl_FragColor = hook(); }\n")
-        return sb.toString()
+        targets.clear()
     }
 
-    /** Rewrites `NAME_tex(<balanced>)[<expr>]` into `select4(NAME_tex(<balanced>), <expr>)`. */
-    private fun rewriteDynamicVectorIndex(shader: String): String {
-        val out = StringBuilder()
-        var i = 0
-        while (i < shader.length) {
-            val texStart = shader.indexOf("_tex(", i)
-            if (texStart < 0) {
-                out.append(shader.substring(i))
-                break
-            }
-            // Backtrack over the identifier that owns this _tex call
-            var nameStart = texStart
-            while (nameStart > 0 &&
-                (shader[nameStart - 1].isLetterOrDigit() || shader[nameStart - 1] == '_')
-            ) {
-                nameStart--
-            }
-            out.append(shader.substring(i, nameStart)) // text before the identifier
-            val identifier = shader.substring(nameStart, texStart) // e.g. "conv2d_last_tf"
-            val openParen = texStart + 4
-            var depth = 0
-            var close = -1
-            for (j in openParen until shader.length) {
-                when (shader[j]) {
-                    '(' -> depth++
-                    ')' -> {
-                        depth--
-                        if (depth == 0) {
-                            close = j
-                            break
-                        }
-                    }
-                }
-            }
-            if (close < 0) {
-                out.append(identifier).append("_tex").append(shader.substring(openParen))
-                break
-            }
-            val callText = shader.substring(openParen, close + 1) // "(...)"
-            var next = close + 1
-            if (next < shader.length && shader[next] == '[') {
-                val closeBracket = shader.indexOf(']', next)
-                if (closeBracket > 0) {
-                    val expr = shader.substring(next + 1, closeBracket)
-                    out.append("select4(").append(identifier).append("_tex").append(callText)
-                        .append(", ").append(expr).append(")")
-                    next = closeBracket + 1
-                } else {
-                    out.append(identifier).append("_tex").append(callText)
-                }
-            } else {
-                out.append(identifier).append("_tex").append(callText)
-            }
-            i = next
-        }
-        return out.toString()
-    }
+    private class Target(val texture: Int, val framebuffer: Int, val width: Int, val height: Int)
 
-    override fun release() {
-        releaseInternal()
-        super.release()
-    }
+    private class BoundBinding(
+        val name: String,
+        val textureId: Int,
+        val isInput: Boolean,
+        val width: Int,
+        val height: Int,
+    )
 
-    private fun releaseInternal() {
-        glPasses.forEach { runCatching { it.program.delete() } }
-        glPasses = emptyList()
-        intermediateTextures.values.forEach { GLES20.glDeleteTextures(1, intArrayOf(it), 0) }
-        intermediateFbos.values.forEach { GLES20.glDeleteFramebuffers(1, intArrayOf(it), 0) }
-        intermediateTextures.clear()
-        intermediateFbos.clear()
-    }
+    private class CompiledPass(
+        val program: GlProgram,
+        val bindings: List<BoundBinding>,
+        val targetFramebuffer: Int,
+        val width: Int,
+        val height: Int,
+        val writesScreen: Boolean,
+    )
 
-    companion object {
-        private const val TAG = "Anime4KShaderProgram"
-
-        private const val VERTEX_SHADER = """
-            attribute vec4 aPosition;
-            attribute vec2 aTexCoor;
-            varying vec2 vTexCoor;
+    private companion object {
+        const val VERTEX_SHADER = """
+            attribute vec4 aFramePosition;
+            varying vec2 vTexCoord;
             void main() {
-                gl_Position = aPosition;
-                vTexCoor = aTexCoor;
+              gl_Position = aFramePosition;
+              vTexCoord = aFramePosition.xy * 0.5 + 0.5;
             }
-        """
+            """
 
-        private const val PASSTHROUGH_FRAGMENT = """
-            #version 100
-            precision highp float;
-            varying vec2 vTexCoor;
-            uniform sampler2D HOOKED_SAMPLER;
-            void main() { gl_FragColor = texture2D(HOOKED_SAMPLER, vTexCoor); }
-        """
-
-        // GLES2 forbids dynamic vector indexing in fragment shaders — Anime4K's
-        // x2 pass does tex(...)[i.y*2+i.x], rewritten to select4().
-        private const val SELECT4_HELPER = """
-            float select4(vec4 v, int i) {
-                if (i == 0) return v.x;
-                if (i == 1) return v.y;
-                if (i == 2) return v.z;
-                return v.w;
+        const val COPY_SHADER = """
+            precision mediump float;
+            uniform sampler2D uTexSampler;
+            varying vec2 vTexCoord;
+            void main() {
+              gl_FragColor = texture2D(uTexSampler, vTexCoord);
             }
-        """
+            """
 
-        // Media3 renders video textures with the first row at the TOP (y flipped
-        // vs GLES's bottom-left origin), so texcoords use 1-y.
-        private val QUAD_POSITIONS = floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
-        private val QUAD_TEXCOORDS = floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f)
+        /** media3's standard quad (float[] of x,y,1 per vertex). */
+        fun quadArray(): FloatArray = GlUtil.getNormalizedCoordinateBounds()
     }
 }
