@@ -59,6 +59,17 @@ class RepoLinkGenerator(
 
         /** Don't re-tag a link whose name already declares its variant. */
         private val DUB_SUB_WORD = Regex("""\b(dub|sub)\b""", RegexOption.IGNORE_CASE)
+
+        /**
+         * Drops cached links/subtitles for every episode of a provider after a
+         * source toggle — otherwise links from a just-disabled source would
+         * linger in the 20-minute link cache.
+         */
+        fun clearCacheFor(apiName: String) {
+            synchronized(cache) {
+                cache.keys.removeAll { it.first.equals(apiName, ignoreCase = true) }
+            }
+        }
     }
 
     override val hasCache = true
@@ -183,10 +194,21 @@ class RepoLinkGenerator(
         // Both sources load CONCURRENTLY: the linked source starts first so
         // its entry resolution overlaps the primary crawl, and links from
         // either stream live through the shared handlers — never batched.
+        // Per-entry source toggles (LinkedSourceManager.SourcePrefs): a
+        // disabled provider contributes no links, so e.g. the primary's
+        // metadata can be kept while links come only from the linked source.
+        val prefs = (page?.url ?: resultUrl)?.let {
+            LinkedSourceManager.getPrefs(current.apiName, it)
+        } ?: LinkedSourceManager.SourcePrefs()
         return coroutineScope {
             val linkedJob = async {
                 try {
-                    mergeLinkedSource(current, isCasting, onSubtitle, onLink)
+                    if (prefs.secondaryEnabled) {
+                        mergeLinkedSource(current, isCasting, onSubtitle, onLink)
+                    } else {
+                        Log.d(TAG, "[LINKED_SRC] secondary source disabled by user")
+                        false
+                    }
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
                     Log.e(TAG, "[LINKED_SRC] merge failed", t)
@@ -194,14 +216,19 @@ class RepoLinkGenerator(
                 }
             }
 
-            val result = APIRepository(
-                getApiFromNameNull(current.apiName) ?: throw Exception("This provider does not exist")
-            ).loadLinks(
-                current.data,
-                isCasting = isCasting,
-                subtitleCallback = onSubtitle,
-                callback = onLink,
-            )
+            val result = if (prefs.primaryEnabled) {
+                APIRepository(
+                    getApiFromNameNull(current.apiName) ?: throw Exception("This provider does not exist")
+                ).loadLinks(
+                    current.data,
+                    isCasting = isCasting,
+                    subtitleCallback = onSubtitle,
+                    callback = onLink,
+                )
+            } else {
+                Log.d(TAG, "[LINKED_SRC] primary source disabled by user")
+                false
+            }
 
             val linkedResult = linkedJob.await()
 

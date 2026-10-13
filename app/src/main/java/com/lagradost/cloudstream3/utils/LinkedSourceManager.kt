@@ -13,6 +13,7 @@ import com.lagradost.cloudstream3.CloudStreamApp
 object LinkedSourceManager {
     private const val TAG = "LinkedSource"
     private const val FOLDER = "linked_source_cache"
+    private const val PREFS_FOLDER = "source_toggle_cache"
 
     data class LinkedSource(
         val primaryApiName: String,
@@ -21,6 +22,39 @@ object LinkedSourceManager {
         val secondaryUrl: String,
         val secondaryName: String? = null,
     )
+
+    /**
+     * Per-entry source toggles: which of the two providers may feed episode
+     * links during playback/downloads. Defaults keep the original behavior
+     * (both enabled = merged links).
+     */
+    data class SourcePrefs(
+        val primaryEnabled: Boolean = true,
+        val secondaryEnabled: Boolean = true,
+    )
+
+    fun getPrefs(primaryApiName: String, primaryUrl: String): SourcePrefs {
+        return try {
+            CloudStreamApp.getKey<SourcePrefs>(PREFS_FOLDER, keyFor(primaryApiName, primaryUrl))
+                ?: SourcePrefs()
+        } catch (t: Throwable) {
+            Log.e(TAG, "getPrefs failed for $primaryApiName", t)
+            SourcePrefs()
+        }
+    }
+
+    fun setPrefs(primaryApiName: String, primaryUrl: String, prefs: SourcePrefs) {
+        try {
+            CloudStreamApp.setKey(PREFS_FOLDER, keyFor(primaryApiName, primaryUrl), prefs)
+            Log.i(
+                TAG,
+                "prefs for $primaryApiName: primary=${prefs.primaryEnabled} " +
+                        "secondary=${prefs.secondaryEnabled}"
+            )
+        } catch (t: Throwable) {
+            Log.e(TAG, "setPrefs failed for $primaryApiName", t)
+        }
+    }
 
     /**
      * Composite of apiName + url instead of a hash so distinct entries can

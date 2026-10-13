@@ -20,6 +20,8 @@ import android.widget.AbsListView
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -979,7 +981,10 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                 else R.string.linked_source_change
             ),
         )
-        if (linked != null) options += getString(R.string.linked_source_remove)
+        if (linked != null) {
+            options += getString(R.string.linked_source_toggle)
+            options += getString(R.string.linked_source_remove)
+        }
 
         act.showBottomDialogInstant(
             options,
@@ -992,13 +997,124 @@ open class ResultFragmentPhone : FullScreenPlayer() {
                     titleText
                 )
                 index == 1 -> startLinkSourceFlow()
-                linked != null && index == 2 -> {
+                linked != null && index == 2 -> showSourceTogglesSheet()
+                linked != null && index == 3 -> {
                     LinkedSourceManager.remove(response.apiName, response.url)
+                    // Without a linked source, a disabled primary is a dead end
+                    // — reset the toggles together with the binding.
+                    LinkedSourceManager.setPrefs(
+                        response.apiName,
+                        response.url,
+                        LinkedSourceManager.SourcePrefs()
+                    )
+                    com.lagradost.cloudstream3.ui.player.RepoLinkGenerator.clearCacheFor(response.apiName)
                     showToast(act, R.string.linked_source_removed)
                     refreshLinkedSourceChip()
                 }
             }
         }
+    }
+
+    /**
+     * "Enable/Disable sources" sheet: one switch per provider (the main entry
+     * and the linked one). Toggling persists [LinkedSourceManager.SourcePrefs]
+     * and drops the show's link cache so links from a just-disabled source
+     * disappear immediately. The last enabled source can't be switched off.
+     */
+    private fun showSourceTogglesSheet() {
+        val act = activity ?: return
+        val response = viewModel.currentResponse ?: return
+        val linked = LinkedSourceManager.get(response.apiName, response.url) ?: return
+        val prefs = LinkedSourceManager.getPrefs(response.apiName, response.url)
+
+        val density = resources.displayMetrics.density
+        val container = LinearLayout(act).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (20 * density).toInt(),
+                (4 * density).toInt(),
+                (20 * density).toInt(),
+                (4 * density).toInt(),
+            )
+        }
+
+        var primarySwitch: Switch? = null
+        var secondarySwitch: Switch? = null
+
+        fun addRow(
+            title: String,
+            subtitle: String,
+            initial: Boolean,
+            onChanged: (Boolean) -> Unit,
+        ): Switch {
+            val row = LinearLayout(act).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, (10 * density).toInt(), 0, (10 * density).toInt())
+            }
+            val textCol = LinearLayout(act).apply { orientation = LinearLayout.VERTICAL }
+            textCol.addView(TextView(act).apply {
+                text = title
+                textSize = 16f
+            })
+            textCol.addView(TextView(act).apply {
+                text = subtitle
+                textSize = 12f
+                alpha = 0.6f
+            })
+            row.addView(
+                textCol,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+            )
+            val sw = Switch(act).apply { isChecked = initial }
+            sw.setOnCheckedChangeListener { _, checked -> onChanged(checked) }
+            row.addView(sw)
+            container.addView(row)
+            return sw
+        }
+
+        fun persist() {
+            LinkedSourceManager.setPrefs(
+                response.apiName,
+                response.url,
+                LinkedSourceManager.SourcePrefs(
+                    primaryEnabled = primarySwitch?.isChecked ?: true,
+                    secondaryEnabled = secondarySwitch?.isChecked ?: true,
+                ),
+            )
+            com.lagradost.cloudstream3.ui.player.RepoLinkGenerator.clearCacheFor(response.apiName)
+        }
+
+        primarySwitch = addRow(
+            response.apiName,
+            getString(R.string.linked_source_primary_desc),
+            prefs.primaryEnabled,
+        ) { checked ->
+            if (!checked && secondarySwitch?.isChecked != true) {
+                primarySwitch?.isChecked = true
+                showToast(act, R.string.linked_source_need_one)
+                return@addRow
+            }
+            persist()
+        }
+        secondarySwitch = addRow(
+            linked.secondaryName ?: linked.secondaryApiName,
+            getString(R.string.linked_source_secondary_desc),
+            prefs.secondaryEnabled,
+        ) { checked ->
+            if (!checked && primarySwitch?.isChecked != true) {
+                secondarySwitch?.isChecked = true
+                showToast(act, R.string.linked_source_need_one)
+                return@addRow
+            }
+            persist()
+        }
+
+        AlertDialog.Builder(act, R.style.AlertDialogCustom)
+            .setTitle(R.string.linked_source_toggle)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     /**
