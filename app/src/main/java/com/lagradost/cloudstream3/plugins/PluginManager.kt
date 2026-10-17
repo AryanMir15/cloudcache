@@ -17,7 +17,9 @@ import androidx.annotation.WorkerThread
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
+import androidx.preference.PreferenceManager
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.APIHolder
 import com.lagradost.cloudstream3.APIHolder.removePluginMapping
@@ -203,6 +205,96 @@ object PluginManager {
 
     var loadedOnlinePlugins = false
         private set
+
+    // ------------------------------------------------------------------
+    // Extension popup blocking. Extensions load with the app classloader as
+    // parent (PathClassLoader(filePath, context.classLoader)), so a "popup
+    // spam" repo can show toasts/dialogs by calling app UI helpers directly.
+    // We attribute the call to its plugin via the classloader map and let the
+    // helpers suppress it when the plugin's source repository is blocked.
+    // ------------------------------------------------------------------
+
+    private const val BLOCKED_POPUP_REPOS_KEY = "blocked_popup_repos"
+
+    fun getBlockedPopupRepos(): List<String> {
+        return try {
+            val ctx = com.lagradost.cloudstream3.CloudStreamApp.context ?: return emptyList()
+            PreferenceManager.getDefaultSharedPreferences(ctx)
+                .getString(BLOCKED_POPUP_REPOS_KEY, "")
+                ?.split(',')
+                ?.map { it.trim().lowercase() }
+                ?.filter { it.isNotEmpty() } ?: emptyList()
+        } catch (t: Throwable) {
+            emptyList()
+        }
+    }
+
+    fun setBlockedPopupRepos(tokens: List<String>) {
+        val ctx = com.lagradost.cloudstream3.CloudStreamApp.context ?: return
+        try {
+            PreferenceManager.getDefaultSharedPreferences(ctx).edit {
+                putString(BLOCKED_POPUP_REPOS_KEY, tokens.joinToString(","))
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "setBlockedPopupRepos failed", t)
+        }
+    }
+
+    /**
+     * Returns the plugin that is calling the current UI helper, or null when
+     * the call comes from the app itself. Only frames exclusive to a plugin's
+     * dex count — shared library/app/framework classes resolve via the app
+     * classloader and are skipped, so app-initiated flows are never
+     * attributed to a plugin.
+     */
+    fun pluginFromStack(depth: Int = 8): BasePlugin? {
+        val appLoader = com.lagradost.cloudstream3.CloudStreamApp.context?.classLoader ?: return null
+        val trace = Thread.currentThread().stackTrace ?: return null
+        val start = 2 // skip pluginFromStack + isPopupBlocked frames
+        for (i in start until minOf(trace.size, start + depth)) {
+            val name = trace[i].className
+            try {
+                appLoader.loadClass(name)
+                continue // resolvable by the app — not plugin-exclusive
+            } catch (_: ClassNotFoundException) {
+            }
+            synchronized(classLoaders) {
+                for ((loader, plugin) in classLoaders) {
+                    try {
+                        loader.loadClass(name)
+                        return plugin
+                    } catch (_: ClassNotFoundException) {
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    /** Repo identifiers for a plugin, derived from its install path
+     * (<files>/Extensions/<sanitized-repo-url>/<plugin>.cs3). */
+    fun repoBlockTokens(plugin: BasePlugin): List<String> {
+        val filePath = synchronized(plugins) {
+            plugins.entries.firstOrNull { it.value === plugin }?.key
+        } ?: return emptyList()
+        val parts = filePath.replace('\\', '/').split('/')
+        val extIdx = parts.indexOf(ONLINE_PLUGINS_FOLDER)
+        if (extIdx < 0 || extIdx >= parts.size - 2) return emptyList()
+        val repoFolder = parts[extIdx + 1].lowercase()
+        return listOf(repoFolder) +
+            repoFolder.split(Regex("[^a-z0-9]+")).filter { it.length >= 3 }
+    }
+
+    /** True when the current UI call comes from a plugin whose repository is
+     * on the blocklist — the caller should suppress the popup. */
+    fun isPopupBlocked(): Boolean {
+        val blocked = getBlockedPopupRepos()
+        if (blocked.isEmpty()) return false
+        val plugin = pluginFromStack() ?: return false
+        return repoBlockTokens(plugin).any { token ->
+            blocked.any { it in token }
+        }
+    }
 
     private suspend fun maybeLoadPlugin(context: Context, file: File) {
         val name = file.name

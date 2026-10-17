@@ -53,6 +53,7 @@ object SnackbarHelper {
             Log.w(TAG, "Invalid showSnackbar: act = $act, message = $message")
             return
         }
+        if (com.lagradost.cloudstream3.plugins.PluginManager.isPopupBlocked()) return
         Log.i(TAG, "showSnackbar: $message")
 
         try {

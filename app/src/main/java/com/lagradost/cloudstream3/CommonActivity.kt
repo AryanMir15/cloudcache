@@ -171,6 +171,7 @@ object CommonActivity {
             Log.w(TAG, "invalid showToast act = $act message = $message")
             return
         }
+        if (com.lagradost.cloudstream3.plugins.PluginManager.isPopupBlocked()) return
         Log.i(TAG, "showToast = $message")
 
         try {

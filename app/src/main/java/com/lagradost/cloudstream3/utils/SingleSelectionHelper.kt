@@ -109,6 +109,7 @@ object SingleSelectionHelper {
         itemLayout: Int = R.layout.sort_bottom_single_choice
     ) {
         if (this == null) return
+        if (com.lagradost.cloudstream3.plugins.PluginManager.isPopupBlocked()) return
 
         val realShowApply = showApply || isMultiSelect
         val listView = binding.listview1
@@ -352,6 +353,9 @@ object SingleSelectionHelper {
         dismissCallback: () -> Unit,
         callback: (Int) -> Unit,
     ): BottomSheetDialog {
+        if (com.lagradost.cloudstream3.plugins.PluginManager.isPopupBlocked()) {
+            return BottomSheetDialog(this)
+        }
         val builder =
             BottomSheetDialog(this)
 

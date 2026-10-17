@@ -818,6 +818,10 @@
     <string name="volume_exceeded_100">Volume has exceeded 100%</string>
     <string name="slide_up_again_to_exceed_100">Slide up again to go beyond 100%</string>
     <string name="update_plugins">Update Plugins</string>
+    <string name="blocked_popup_repos">Block popup spam from repositories</string>
+    <string name="blocked_popup_repos_des">Extensions from these repositories cannot show popups, dialogs or toasts. Enter repo codes, comma-separated (e.g. phisherrepo).</string>
+    <string name="blocked_popup_repos_saved">Popup blocking updated</string>
+    <string name="blocked_popup_repos_none">No repositories blocked</string>
     <!--Manual Update Button-->
     <string name="update_plugins_manually">Update plugins manually</string>
     <string name="starting_plugin_update_manually">Starting plugin update process!</string>
