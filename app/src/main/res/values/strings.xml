@@ -822,6 +822,9 @@
     <string name="blocked_popup_repos_des">Extensions from these repositories cannot show popups, dialogs or toasts. Enter repo codes, comma-separated (e.g. phisherrepo).</string>
     <string name="blocked_popup_repos_saved">Popup blocking updated</string>
     <string name="blocked_popup_repos_none">No repositories blocked</string>
+    <string name="block_plugin_popups_menu">Block extension popups</string>
+    <string name="plugin_popups_on">Extension popups blocked for all repositories</string>
+    <string name="plugin_popups_off">Extension popups allowed again</string>
     <!--Manual Update Button-->
     <string name="update_plugins_manually">Update plugins manually</string>
     <string name="starting_plugin_update_manually">Starting plugin update process!</string>

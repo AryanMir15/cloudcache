@@ -1,16 +1,22 @@
 package com.lagradost.cloudstream3.ui.settings.extensions
 
+import android.app.Activity
 import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
 import android.view.View
 import androidx.appcompat.widget.SearchView
 import androidx.core.view.isVisible
 import androidx.lifecycle.ViewModelProvider
+import com.google.android.material.appbar.MaterialToolbar
 import com.lagradost.cloudstream3.AllLanguagesName
 import com.lagradost.cloudstream3.BuildConfig
+import com.lagradost.cloudstream3.CommonActivity.showToast
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.databinding.FragmentPluginsBinding
 import com.lagradost.cloudstream3.mvvm.observe
+import com.lagradost.cloudstream3.plugins.PluginManager
 import com.lagradost.cloudstream3.ui.BaseFragment
 import com.lagradost.cloudstream3.ui.home.HomeFragment.Companion.bindChips
 import com.lagradost.cloudstream3.ui.result.FOCUS_SELF
@@ -30,6 +36,39 @@ import com.lagradost.cloudstream3.utils.UIHelper.toPx
 const val PLUGINS_BUNDLE_NAME = "name"
 const val PLUGINS_BUNDLE_URL = "url"
 const val PLUGINS_BUNDLE_LOCAL = "isLocal"
+
+/** Menu id of the universal "block extension popups" toolbar toggle. */
+const val MENU_BLOCK_PLUGIN_POPUPS = 0x7f0b0001
+
+/** Adds (or refreshes) the top-right toolbar toggle that mutes popups from
+ * EVERY extension repository — the icon shows the current state. */
+fun MaterialToolbar.addPopupBlockToggle() {
+    var item = menu.findItem(MENU_BLOCK_PLUGIN_POPUPS)
+    if (item == null) {
+        item = menu.add(Menu.NONE, MENU_BLOCK_PLUGIN_POPUPS, Menu.NONE, R.string.block_plugin_popups_menu)
+        item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
+    }
+    item.setIcon(
+        if (PluginManager.isPopupBlockingEnabled())
+            R.drawable.baseline_notifications_none_24
+        else R.drawable.ic_baseline_notifications_active_24
+    )
+}
+
+/** Flips the universal popup kill switch and updates the toolbar icon. */
+fun MenuItem.togglePopupBlocking(activity: Activity?) {
+    val nowEnabled = !PluginManager.isPopupBlockingEnabled()
+    PluginManager.setPopupBlockingEnabled(nowEnabled)
+    setIcon(
+        if (nowEnabled)
+            R.drawable.baseline_notifications_none_24
+        else R.drawable.ic_baseline_notifications_active_24
+    )
+    showToast(
+        activity,
+        if (nowEnabled) R.string.plugin_popups_on else R.string.plugin_popups_off
+    )
+}
 
 class PluginsFragment : BaseFragment<FragmentPluginsBinding>(
     BaseFragment.BindingCreator.Inflate(FragmentPluginsBinding::inflate)
@@ -75,6 +114,7 @@ class PluginsFragment : BaseFragment<FragmentPluginsBinding>(
         setToolBarScrollFlags()
         setUpToolbar(name)
         binding.settingsToolbar.apply {
+            addPopupBlockToggle()
             setOnMenuItemClickListener { menuItem ->
                 when (menuItem?.itemId) {
                     R.id.download_all -> {
@@ -113,6 +153,10 @@ class PluginsFragment : BaseFragment<FragmentPluginsBinding>(
                                 selectedList.map { languagesTagName[it].first }
                             pluginViewModel.updateFilteredPlugins()
                         }
+                    }
+
+                    MENU_BLOCK_PLUGIN_POPUPS -> {
+                        menuItem?.togglePopupBlocking(activity)
                     }
 
                     else -> {}

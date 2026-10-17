@@ -76,6 +76,19 @@ class ExtensionsFragment : BaseFragment<FragmentExtensionsBinding>(
         setUpToolbar(R.string.extensions)
         setToolBarScrollFlags()
 
+        // Universal "block extension popups" toggle, top-right of the screen.
+        binding.settingsToolbar.apply {
+            addPopupBlockToggle()
+            setOnMenuItemClickListener { menuItem ->
+                if (menuItem.itemId == MENU_BLOCK_PLUGIN_POPUPS) {
+                    menuItem.togglePopupBlocking(activity)
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+
         binding.repoRecyclerView.apply {
             setLinearListLayout(
                 isHorizontal = false,

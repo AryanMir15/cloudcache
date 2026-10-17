@@ -215,6 +215,29 @@ object PluginManager {
     // ------------------------------------------------------------------
 
     private const val BLOCKED_POPUP_REPOS_KEY = "blocked_popup_repos"
+    private const val BLOCK_ALL_POPUPS_KEY = "block_all_plugin_popups"
+
+    /** Universal kill switch: mutes popups from EVERY extension repository. */
+    fun isPopupBlockingEnabled(): Boolean {
+        return try {
+            val ctx = com.lagradost.cloudstream3.CloudStreamApp.context ?: return false
+            PreferenceManager.getDefaultSharedPreferences(ctx)
+                .getBoolean(BLOCK_ALL_POPUPS_KEY, false)
+        } catch (t: Throwable) {
+            false
+        }
+    }
+
+    fun setPopupBlockingEnabled(enabled: Boolean) {
+        val ctx = com.lagradost.cloudstream3.CloudStreamApp.context ?: return
+        try {
+            PreferenceManager.getDefaultSharedPreferences(ctx).edit {
+                putBoolean(BLOCK_ALL_POPUPS_KEY, enabled)
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "setPopupBlockingEnabled failed", t)
+        }
+    }
 
     fun getBlockedPopupRepos(): List<String> {
         return try {
@@ -288,9 +311,11 @@ object PluginManager {
     /** True when the current UI call comes from a plugin whose repository is
      * on the blocklist — the caller should suppress the popup. */
     fun isPopupBlocked(): Boolean {
+        val plugin = pluginFromStack() ?: return false
+        // Universal kill switch: mute every extension repo at once.
+        if (isPopupBlockingEnabled()) return true
         val blocked = getBlockedPopupRepos()
         if (blocked.isEmpty()) return false
-        val plugin = pluginFromStack() ?: return false
         return repoBlockTokens(plugin).any { token ->
             blocked.any { it in token }
         }
