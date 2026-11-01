@@ -44,40 +44,103 @@
                 android:paddingTop="4dp"
                 android:paddingBottom="8dp">
 
-                <TextView
+                <com.google.android.material.chip.Chip
                     android:id="@+id/day_mon"
-                    style="@style/ScheduleDayPill"
-                    android:text="M" />
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="2dp"
+                    android:text="M"
+                    android:checkable="true"
+                    android:textSize="13sp"
+                    app:chipCornerRadius="16dp"
+                    app:chipMinHeight="36dp"
+                    app:chipBackgroundColor="@color/chip_color"
+                    android:textColor="@color/chip_color_text" />
 
-                <TextView
+                <com.google.android.material.chip.Chip
                     android:id="@+id/day_tue"
-                    style="@style/ScheduleDayPill"
-                    android:text="T" />
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="2dp"
+                    android:text="T"
+                    android:checkable="true"
+                    android:textSize="13sp"
+                    app:chipCornerRadius="16dp"
+                    app:chipMinHeight="36dp"
+                    app:chipBackgroundColor="@color/chip_color"
+                    android:textColor="@color/chip_color_text" />
 
-                <TextView
+                <com.google.android.material.chip.Chip
                     android:id="@+id/day_wed"
-                    style="@style/ScheduleDayPill"
-                    android:text="W" />
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="2dp"
+                    android:text="W"
+                    android:checkable="true"
+                    android:textSize="13sp"
+                    app:chipCornerRadius="16dp"
+                    app:chipMinHeight="36dp"
+                    app:chipBackgroundColor="@color/chip_color"
+                    android:textColor="@color/chip_color_text" />
 
-                <TextView
+                <com.google.android.material.chip.Chip
                     android:id="@+id/day_thu"
-                    style="@style/ScheduleDayPill"
-                    android:text="T" />
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="2dp"
+                    android:text="T"
+                    android:checkable="true"
+                    android:textSize="13sp"
+                    app:chipCornerRadius="16dp"
+                    app:chipMinHeight="36dp"
+                    app:chipBackgroundColor="@color/chip_color"
+                    android:textColor="@color/chip_color_text" />
 
-                <TextView
+                <com.google.android.material.chip.Chip
                     android:id="@+id/day_fri"
-                    style="@style/ScheduleDayPill"
-                    android:text="F" />
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="2dp"
+                    android:text="F"
+                    android:checkable="true"
+                    android:textSize="13sp"
+                    app:chipCornerRadius="16dp"
+                    app:chipMinHeight="36dp"
+                    app:chipBackgroundColor="@color/chip_color"
+                    android:textColor="@color/chip_color_text" />
 
-                <TextView
+                <com.google.android.material.chip.Chip
                     android:id="@+id/day_sat"
-                    style="@style/ScheduleDayPill"
-                    android:text="S" />
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="2dp"
+                    android:text="S"
+                    android:checkable="true"
+                    android:textSize="13sp"
+                    app:chipCornerRadius="16dp"
+                    app:chipMinHeight="36dp"
+                    app:chipBackgroundColor="@color/chip_color"
+                    android:textColor="@color/chip_color_text" />
 
-                <TextView
+                <com.google.android.material.chip.Chip
                     android:id="@+id/day_sun"
-                    style="@style/ScheduleDayPill"
-                    android:text="S" />
+                    style="@style/Widget.MaterialComponents.Chip.Choice"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="2dp"
+                    android:text="S"
+                    android:checkable="true"
+                    android:textSize="13sp"
+                    app:chipCornerRadius="16dp"
+                    app:chipMinHeight="36dp"
+                    app:chipBackgroundColor="@color/chip_color"
+                    android:textColor="@color/chip_color_text" />
 
             </LinearLayout>
 

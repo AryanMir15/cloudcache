@@ -123,4 +123,10 @@
     <color name="colorTestFail">#ea596e</color>
     <color name="colorTestWarning">#FF9800</color>
     <color name="playIconBackground">#B3000000</color>
+
+    <!-- Schedule day chips -->
+    <color name="schedule_chip_bg_selected">?attr/colorPrimary</color>
+    <color name="schedule_chip_bg_unselected">#33FFFFFF</color>
+    <color name="schedule_chip_text_selected">#FFFFFF</color>
+    <color name="schedule_chip_text_unselected">#E9EAEE</color>
 </resources>

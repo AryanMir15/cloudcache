@@ -266,11 +266,12 @@ object WeeklyScheduleManager {
      * [onEnriched] with the reloaded (backdrop/logo-enriched) items when done.
      */
     suspend fun fetchFreshSchedule(
+        includeTvShows: Boolean = true,
         onEnriched: (suspend (List<WeeklyScheduleItem>) -> Unit)? = null
     ): List<WeeklyScheduleItem> {
         val fresh = enrichMutex.withLock {
             android.util.Log.d("SCHEDULE_BACKDROP", "fetchFreshSchedule called, fetching items...")
-            val items = fetchAllSchedule()
+            val items = fetchAllSchedule(includeTvShows)
             android.util.Log.d("SCHEDULE_BACKDROP", "Fetched ${items.size} items, saving to cache and starting enrichment...")
             saveToCache(items)
             items
@@ -289,18 +290,20 @@ object WeeklyScheduleManager {
         return loadFromCache()
     }
 
-    private suspend fun fetchAllSchedule(): List<WeeklyScheduleItem> {
+    private suspend fun fetchAllSchedule(includeTvShows: Boolean): List<WeeklyScheduleItem> {
         val items = mutableListOf<WeeklyScheduleItem>()
 
         val animeItems = fetchAnimeSchedule()
         items.addAll(animeItems)
 
-        val ctx = context ?: return items
-        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(ctx)
-        val tmdbApiKey = prefs.getString("tmdb_api_key", null)
-        if (!tmdbApiKey.isNullOrBlank()) {
-            val tvItems = fetchTvSchedule(tmdbApiKey)
-            items.addAll(tvItems)
+        if (includeTvShows) {
+            val ctx = context ?: return items
+            val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(ctx)
+            val tmdbApiKey = prefs.getString("tmdb_api_key", null)
+            if (!tmdbApiKey.isNullOrBlank()) {
+                val tvItems = fetchTvSchedule(tmdbApiKey)
+                items.addAll(tvItems)
+            }
         }
 
         return items.sortedBy { it.airingAt }

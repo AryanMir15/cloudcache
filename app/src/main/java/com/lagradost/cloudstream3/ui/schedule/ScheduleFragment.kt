@@ -6,16 +6,17 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
+import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.chip.Chip
 import com.google.android.material.navigationrail.NavigationRailView
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.databinding.FragmentScheduleBinding
@@ -40,7 +41,7 @@ class ScheduleFragment : Fragment() {
     private var didAutoSelectDay = false
     private var cardAdapter: ScheduleCardAdapter? = null
 
-    private lateinit var dayPillMap: Map<DayOfWeek, TextView>
+    private lateinit var dayPillMap: Map<DayOfWeek, Chip>
     private var themeColor: Int = 0
 
     override fun onCreateView(
@@ -69,11 +70,23 @@ class ScheduleFragment : Fragment() {
             DayOfWeek.SUNDAY to binding.daySun
         )
 
-        dayPillMap.forEach { (day, pill) ->
-            pill.setOnClickListener {
-                onDaySelected(day)
+        dayPillMap.forEach { (day, chip) ->
+            chip.setOnCheckedChangeListener { _, isChecked ->
+                if (isChecked) {
+                    // Uncheck all other chips
+                    dayPillMap.values.forEach { other ->
+                        if (other != chip) other.isChecked = false
+                    }
+                    onDaySelected(day)
+                } else if (dayPillMap.values.none { it.isChecked }) {
+                    // Prevent unchecking the last one — re-check this
+                    chip.isChecked = true
+                }
             }
         }
+
+        // Set initial checked state for today or first day with items
+        // (will be properly set in autoSelectDay / updateContent)
 
         binding.scheduleToolbar.inflateMenu(R.menu.schedule_menu)
         binding.scheduleToolbar.setOnMenuItemClickListener { menuItem ->
@@ -81,6 +94,10 @@ class ScheduleFragment : Fragment() {
                 R.id.action_refresh_schedule -> {
                     Log.d(TAG, "──────── MANUAL REFRESH triggered → clearing caches + fresh fetch ────────")
                     viewModel.forceRefresh()
+                    true
+                }
+                R.id.action_filter_schedule -> {
+                    showFilterDialog()
                     true
                 }
                 else -> false
@@ -211,25 +228,11 @@ class ScheduleFragment : Fragment() {
 
     private fun highlightDayPill(selected: DayOfWeek) {
         val today = LocalDate.now().dayOfWeek
-        dayPillMap.forEach { (day, pill) ->
-            val isToday = day == today
+        dayPillMap.forEach { (day, chip) ->
             val isSelected = day == selected
 
-            when {
-                isSelected -> {
-                    pill.setBackgroundColor(themeColor)
-                    pill.typeface = Typeface.DEFAULT_BOLD
-                }
-                isToday -> {
-                    pill.setBackgroundResource(R.drawable.schedule_pill_today_bg)
-                    pill.typeface = Typeface.DEFAULT_BOLD
-                }
-                else -> {
-                    pill.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                    pill.setTextColor(ContextCompat.getColor(requireContext(), android.R.color.white))
-                    pill.typeface = Typeface.DEFAULT
-                }
-            }
+            // Chip handles selected/unselected via chip_color / chip_color_text selectors
+            chip.isChecked = isSelected
         }
     }
 
@@ -241,6 +244,27 @@ class ScheduleFragment : Fragment() {
         val navRail = activity?.findViewById<NavigationRailView>(R.id.nav_rail_view)
         bottomNav?.selectedItemId = R.id.navigation_search
         navRail?.selectedItemId = R.id.navigation_search
+    }
+
+    private fun showFilterDialog() {
+        val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
+        val currentValue = prefs.getBoolean("schedule_include_tv_shows", false)
+
+        val checkBox = androidx.appcompat.widget.AppCompatCheckBox(requireContext()).apply {
+            text = getString(R.string.schedule_include_tv_shows)
+            isChecked = currentValue
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean("schedule_include_tv_shows", isChecked).apply()
+                viewModel.setIncludeTvShows(isChecked)
+            }
+            setPadding(24, 24, 24, 24)
+        }
+
+        androidx.appcompat.app.AlertDialog.Builder(requireContext(), R.style.AlertDialogCustom)
+            .setTitle(R.string.filter)
+            .setView(checkBox)
+            .setPositiveButton(android.R.string.ok) { _, _ -> }
+            .show()
     }
 
     override fun onDestroyView() {
