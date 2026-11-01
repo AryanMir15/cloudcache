@@ -161,8 +161,7 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             
             val subscriptions = DataStoreHelper.getAllSubscriptions()
             if (subscriptions.isEmpty()) {
-                android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_SKIP] No subscriptions found, showing info notification")
-                showCompletionNotification(0, 0, 0)
+                android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_SKIP] No subscriptions found")
                 return Result.success()
             }
             
@@ -205,8 +204,10 @@ class EpisodeCheckWorkManager(val context: Context, workerParams: WorkerParamete
             
             android.util.Log.d("EpisodeCheck", "[EPISODE_CHECK_COMPLETE] Checked: $checked, Failures: $apiFailures, New episodes: $newEpisodesFound, Reasons: $failureReasons")
             
-            // Show completion notification
-            showCompletionNotification(checked, apiFailures, newEpisodesFound, failureReasons)
+            // Show per-episode notifications (kept); the checked-summary notification is removed per user request
+            // showCompletionNotification(checked, apiFailures, newEpisodesFound, failureReasons)
+            
+            
             
             return Result.success()
             
