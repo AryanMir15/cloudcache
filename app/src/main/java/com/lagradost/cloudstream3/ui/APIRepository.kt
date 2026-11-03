@@ -17,7 +17,7 @@ import com.lagradost.cloudstream3.mvvm.Resource
 import com.lagradost.cloudstream3.mvvm.logError
 import com.lagradost.cloudstream3.mvvm.safeApiCall
 import com.lagradost.cloudstream3.newSearchResponseList
-import com.lagradost.cloudstream3.utils.Coroutines.threadSafeListOf
+import com.lagradost.cloudstream3.utils.Coroutines.atomicListOf
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
@@ -55,25 +55,20 @@ class APIRepository(val api: MainAPI) {
             val hash: Pair<String, String>
         )
 
-        private val cache = threadSafeListOf<SavedLoadResponse>()
+        private val cache = atomicListOf<SavedLoadResponse>()
+
+        init {
+            afterPluginsLoadedEvent += { forceReload ->
+                if (forceReload) cache.clear()
+            }
+        }
+
         private var cacheIndex: Int = 0
         const val CACHE_SIZE = 20
 
         fun getTimeout(desired: Long?): Long {
             return (desired ?: DEFAULT_TIMEOUT).coerceIn(MIN_TIMEOUT, MAX_TIMEOUT)
         }
-    }
-
-    private fun afterPluginsLoaded(forceReload: Boolean) {
-        if (forceReload) {
-            synchronized(cache) {
-                cache.clear()
-            }
-        }
-    }
-
-    init {
-        afterPluginsLoadedEvent += ::afterPluginsLoaded
     }
 
     val hasMainPage = api.hasMainPage
@@ -91,24 +86,25 @@ class APIRepository(val api: MainAPI) {
                 val fixedUrl = api.fixUrl(url)
                 val lookingForHash = Pair(api.name, fixedUrl)
 
-                synchronized(cache) {
+                val cached = cache.withLock {
+                    var found: LoadResponse? = null
                     for (item in cache) {
                         // 10 min save
                         if (item.hash == lookingForHash && (unixTime - item.unixTime) < 60 * 10) {
-                            android.util.Log.d("BannerCache", "CACHE HIT - Returning cached response for: $fixedUrl, backgroundPosterUrl: ${item.response.backgroundPosterUrl?.take(50)}")
-                            return@withTimeout item.response
+                            found = item.response
+                            break
                         }
                     }
+                    found
                 }
 
-                android.util.Log.d("BannerCache", "API LOAD - Loading from API for: $fixedUrl")
+                if (cached != null) return@withTimeout cached
                 api.load(fixedUrl)?.also { response ->
-                    android.util.Log.d("BannerCache", "API LOAD SUCCESS - Got response from API, backgroundPosterUrl: ${response.backgroundPosterUrl?.take(50)}")
                     // Remove all blank tags as early as possible
                     response.tags = response.tags?.filter { it.isNotBlank() }
                     val add = SavedLoadResponse(unixTime, response, lookingForHash)
 
-                    synchronized(cache) {
+                    cache.withLock {
                         if (cache.size > CACHE_SIZE) {
                             cache[cacheIndex] = add // rolling cache
                             cacheIndex = (cacheIndex + 1) % CACHE_SIZE
@@ -117,38 +113,6 @@ class APIRepository(val api: MainAPI) {
                         }
                     }
                 } ?: throw ErrorLoadingException()
-            }
-        }
-    }
-
-    /**
-     * Updates the cached LoadResponse with new sync data.
-     * This ensures cached loads have the full sync data from API responses.
-     * FIX: Updates ALL matching entries to handle multiple cache entries with same URL.
-     */
-    fun updateCacheSyncData(url: String, syncData: Map<String, String>) {
-        if (syncData.isEmpty()) return
-        
-        val fixedUrl = api.fixUrl(url)
-        synchronized(cache) {
-            // FIX: Update ALL matching entries to ensure consistency
-            // The cache can have multiple entries with the same URL (e.g., from name-based lookup and API response)
-            var updatedCount = 0
-            for (i in cache.indices) {
-                if (cache[i].response.url == fixedUrl) {
-                    val existing = cache[i]
-                    // Merge new sync data with existing — existing (user-set) ids win,
-                    // response only contributes keys the cache doesn't have yet
-                    val mergedSyncData = syncData.toMutableMap()
-                    mergedSyncData.putAll(existing.response.syncData)
-                    
-                    // Update the response with merged sync data
-                    existing.response.syncData = mergedSyncData
-                    updatedCount++
-                }
-            }
-            if (updatedCount > 0) {
-                android.util.Log.d("[MINI_SYNC_FIX]", "Updated $updatedCount cache entries with sync data for: $fixedUrl, syncs: $syncData")
             }
         }
     }
