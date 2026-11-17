@@ -40,6 +40,7 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
 import java.io.InputStreamReader
+import java.util.concurrent.TimeUnit
 
 object InAppUpdater {
     private const val GITHUB_USER_NAME = "AryanMir15"
@@ -76,6 +77,21 @@ object InAppUpdater {
 
     private data class GithubTag(
         @JsonProperty("object") val githubObject: GithubObject?,
+    )
+
+    private data class GithubCompareCommit(
+        @JsonProperty("sha") val sha: String?,
+        @JsonProperty("commit") val commit: GithubCompareCommitInfo?,
+    )
+
+    private data class GithubCompareCommitInfo(
+        @JsonProperty("message") val message: String?,
+    )
+
+    private data class GithubCompare(
+        @JsonProperty("status") val status: String?,
+        @JsonProperty("ahead_by") val aheadBy: Int?,
+        @JsonProperty("commits") val commits: List<GithubCompareCommit>?,
     )
 
     private data class Update(
@@ -154,7 +170,7 @@ object InAppUpdater {
             shouldUpdate,
             foundAsset!!.browserDownloadUrl,
             foundVersion.groupValues[2],
-            found.body,
+            fetchChangelog(currentCommitHash(), found.targetCommitish ?: "master", found.body),
             found.nodeId,
             foundAsset.size?.toLong()
         )
@@ -202,10 +218,76 @@ object InAppUpdater {
             currentCommitHash() != updateCommitHash,
             foundAsset.browserDownloadUrl,
             updateCommitHash,
-            found.body,
+            fetchChangelog(currentCommitHash(), updateCommitHash, found.body),
             found.nodeId,
             foundAsset.size?.toLong()
         )
+    }
+
+    // ---------------------------------------------------------------------
+    // Changelog: rendered from the GitHub compare between the installed
+    // commit and the update's commit, so the update dialog says "Added … /
+    // Fixed …" instead of an empty "oldCommit -> newCommit". Falls back to
+    // the release body when the compare is unavailable.
+    // ---------------------------------------------------------------------
+
+    private const val MAX_CHANGELOG_ENTRIES = 40
+
+    private val CHANGELOG_TYPE_LABELS = mapOf(
+        "feat" to "Added",
+        "fix" to "Fixed",
+        "perf" to "Improved",
+        "refactor" to "Changed",
+        "chore" to "Changed",
+        "debug" to "Changed",
+        "ci" to "Build",
+        "docs" to "Docs",
+    )
+
+    private val COMMIT_PREFIX_REGEX = Regex("""^([a-z]+)(?:\([^)]*\))?:\s*(.*)$""")
+
+    /** "feat(player): Anime4K shaders" -> "Added: Anime4K shaders". */
+    private fun prettifyCommit(subject: String): String {
+        val match = COMMIT_PREFIX_REGEX.find(subject) ?: return subject
+        val (type, rest) = match.destructured
+        val label = CHANGELOG_TYPE_LABELS[type]
+        return if (label == null) rest else "$label: $rest"
+    }
+
+    private suspend fun fetchChangelog(
+        base: String?,
+        head: String?,
+        releaseBody: String?,
+    ): String? {
+        if (base.isNullOrBlank() || head.isNullOrBlank()) return releaseBody
+        val url = "https://api.github.com/repos/$GITHUB_USER_NAME/$GITHUB_REPO/compare/$base...$head"
+        return try {
+            val headers = mapOf("Accept" to "application/vnd.github.v3+json")
+            val compare = parseJson<GithubCompare>(
+                app.get(url, headers = headers, cacheTime = 10, cacheUnit = TimeUnit.MINUTES).text
+            )
+            val messages = compare.commits?.mapNotNull { commit ->
+                commit.commit?.message?.lineSequence()?.firstOrNull()?.trim()?.takeIf { it.isNotEmpty() }
+            }?.filterNot { subject ->
+                subject.startsWith("Merge ") ||
+                    subject.startsWith("Bump version") ||
+                    subject.startsWith("Generated with")
+            }
+            if (messages.isNullOrEmpty()) {
+                releaseBody
+            } else {
+                val listed = messages.take(MAX_CHANGELOG_ENTRIES)
+                    .joinToString("\n") { prettifyCommit(it) }
+                if (messages.size > MAX_CHANGELOG_ENTRIES) {
+                    "$listed\n+${messages.size - MAX_CHANGELOG_ENTRIES} more commits"
+                } else {
+                    listed
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(LOG_TAG, "Failed to fetch changelog compare: ${e.message}")
+            releaseBody
+        }
     }
 
     private val updateLock = Mutex()
