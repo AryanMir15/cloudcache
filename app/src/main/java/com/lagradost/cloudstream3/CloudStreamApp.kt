@@ -6,6 +6,8 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.os.Build
+import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
@@ -17,6 +19,7 @@ import com.lagradost.cloudstream3.BuildConfig
 import com.lagradost.cloudstream3.mvvm.safe
 import com.lagradost.cloudstream3.mvvm.safeAsync
 import com.lagradost.cloudstream3.plugins.PluginManager
+import com.lagradost.cloudstream3.plugins.PopupGuardWindowManager
 import com.lagradost.cloudstream3.ui.settings.Globals.EMULATOR
 import com.lagradost.cloudstream3.ui.settings.Globals.TV
 import com.lagradost.cloudstream3.ui.settings.Globals.isLayout
@@ -68,6 +71,40 @@ class ExceptionHandler(
 }
 
 class CloudStreamApp : Application(), SingletonImageLoader.Factory {
+
+    // Extensions share this process and can reach the application context, so
+    // its WindowManager is guarded too — a plugin's addView call made directly
+    // through the app context is dropped (tokenless floating overlays already
+    // require SYSTEM_ALERT_WINDOW, which the app does not hold).
+    private var popupGuardWindowManager: WindowManager? = null
+
+    override fun getSystemService(name: String): Any? {
+        return if (name == Context.WINDOW_SERVICE) {
+            popupGuardWindowManager ?: (super.getSystemService(name) as? WindowManager)?.also {
+                popupGuardWindowManager = PopupGuardWindowManager(it)
+            } ?: super.getSystemService(name)
+        } else {
+            super.getSystemService(name)
+        }
+    }
+
+    // A plugin with the app context can startActivity(FLAG_ACTIVITY_NEW_TASK)
+    // to pop other apps/browser pages — drop direct plugin-driven launches.
+    override fun startActivity(intent: Intent) {
+        if (PluginManager.isPopupBlocked(depth = 6)) {
+            Log.w(PluginManager.TAG, "Blocked startActivity(${intent.component ?: intent.action}) from a blocked plugin")
+            return
+        }
+        super.startActivity(intent)
+    }
+
+    override fun startActivity(intent: Intent, options: android.os.Bundle?) {
+        if (PluginManager.isPopupBlocked(depth = 6)) {
+            Log.w(PluginManager.TAG, "Blocked startActivity(${intent.component ?: intent.action}) from a blocked plugin")
+            return
+        }
+        super.startActivity(intent, options)
+    }
 
     override fun onCreate() {
         super.onCreate()
