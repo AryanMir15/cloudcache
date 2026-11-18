@@ -11,9 +11,9 @@
       "type": "SINGLE",
       "filters": [],
       "attributes": [],
-      "versionCode": 71,
-      "versionName": "4.10.0",
-      "outputFile": "CloudCache-4.10.0-release.apk"
+      "versionCode": 74,
+      "versionName": "4.11.0",
+      "outputFile": "app-stable-release.apk"
     }
   ],
   "elementType": "File",
@@ -22,14 +22,14 @@
       "minApi": 28,
       "maxApi": 30,
       "baselineProfiles": [
-        "baselineProfiles/1/CloudCache-4.10.0-release.dm"
+        "baselineProfiles/1/app-stable-release.dm"
       ]
     },
     {
       "minApi": 31,
       "maxApi": 2147483647,
       "baselineProfiles": [
-        "baselineProfiles/0/CloudCache-4.10.0-release.dm"
+        "baselineProfiles/0/app-stable-release.dm"
       ]
     }
   ],

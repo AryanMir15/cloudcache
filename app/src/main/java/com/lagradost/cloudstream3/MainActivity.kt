@@ -89,7 +89,6 @@ import com.lagradost.cloudstream3.network.initClient
 import com.lagradost.cloudstream3.plugins.PluginManager
 import com.lagradost.cloudstream3.plugins.PluginManager.___DO_NOT_CALL_FROM_A_PLUGIN_loadAllOnlinePlugins
 import com.lagradost.cloudstream3.plugins.PluginManager.loadSinglePlugin
-import com.lagradost.cloudstream3.plugins.PopupGuardWindowManager
 import com.lagradost.cloudstream3.receivers.VideoDownloadRestartReceiver
 import com.lagradost.cloudstream3.syncproviders.AccountManager
 import com.lagradost.cloudstream3.syncproviders.AccountManager.Companion.APP_STRING
@@ -195,27 +194,6 @@ import kotlin.system.exitProcess
 import com.lagradost.cloudstream3.utils.downloader.DownloadQueueManager
 
 class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCallback {
-    // Every dialog/overlay a plugin shows with this Activity as context is
-    // routed through the WindowManager — the guarded wrapper drops addView
-    // calls made directly by popup-blocked plugins (see PopupGuardWindowManager).
-    private var popupGuardWindowManager: WindowManager? = null
-
-    override fun getSystemService(name: String): Any? {
-        return if (name == Context.WINDOW_SERVICE) {
-            popupGuardWindowManager ?: (super.getSystemService(name) as? WindowManager)?.also {
-                popupGuardWindowManager = PopupGuardWindowManager(it)
-            } ?: super.getSystemService(name)
-        } else {
-            super.getSystemService(name)
-        }
-    }
-
-    override fun getWindowManager(): WindowManager {
-        return popupGuardWindowManager ?: super.getWindowManager().also {
-            popupGuardWindowManager = PopupGuardWindowManager(it)
-        }
-    }
-
     companion object {
         var activityResultLauncher: ActivityResultLauncher<Intent>? = null
 
