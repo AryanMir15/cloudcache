@@ -22,12 +22,14 @@ enum class ListSorting(@StringRes val stringRes: Int) {
     RatingLow(R.string.sort_rating_asc),
     UpdatedNew(R.string.sort_updated_new),
     UpdatedOld(R.string.sort_updated_old),
-    LastWatched(R.string.sort_last_watched),
     AlphabeticalA(R.string.sort_alphabetical_a),
     AlphabeticalZ(R.string.sort_alphabetical_z),
     ReleaseDateNew(R.string.sort_release_date_new),
     ReleaseDateOld(R.string.sort_release_date_old),
     CacheFirst(R.string.sort_cache_first),
+    // Added last: the ordinal is persisted as librarySortingMode, so new
+    // entries must never shift the positions of existing ones.
+    LastWatched(R.string.sort_last_watched),
 }
 
 const val LAST_SYNC_API_KEY = "last_sync_api"

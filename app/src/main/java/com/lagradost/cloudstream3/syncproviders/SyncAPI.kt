@@ -182,20 +182,25 @@ abstract class SyncAPI : AuthAPI() {
                     // Local library items key by the app's show id (syncId is
                     // numeric) — use the resume-watching timestamps, falling
                     // back to lastUpdatedUnixTime (e.g. Simkl's last-watched).
-                    val lastWatchedByParent = HashMap<Int, Long>()
-                    com.lagradost.cloudstream3.utils.DataStoreHelper.getAllResumeStateIds()
-                        ?.forEach { id ->
-                            com.lagradost.cloudstream3.utils.DataStoreHelper.getLastWatched(id)
-                                ?.let { rw ->
-                                    val t = rw.updateTime
-                                    if (t > (lastWatchedByParent[rw.parentId] ?: Long.MIN_VALUE)) {
-                                        lastWatchedByParent[rw.parentId] = t
+                    // Any lookup failure degrades to no sorting, never a crash.
+                    try {
+                        val lastWatchedByParent = HashMap<Int, Long>()
+                        com.lagradost.cloudstream3.utils.DataStoreHelper.getAllResumeStateIds()
+                            ?.forEach { id ->
+                                com.lagradost.cloudstream3.utils.DataStoreHelper.getLastWatched(id)
+                                    ?.let { rw ->
+                                        val t = rw.updateTime
+                                        if (t > (lastWatchedByParent[rw.parentId] ?: Long.MIN_VALUE)) {
+                                            lastWatchedByParent[rw.parentId] = t
+                                        }
                                     }
-                                }
+                            }
+                        items.sortedByDescending { item ->
+                            lastWatchedByParent[item.syncId.toIntOrNull()]
+                                ?: item.lastUpdatedUnixTime ?: Long.MIN_VALUE
                         }
-                    items.sortedByDescending { item ->
-                        lastWatchedByParent[item.syncId.toIntOrNull()]
-                            ?: item.lastUpdatedUnixTime ?: Long.MIN_VALUE
+                    } catch (t: Throwable) {
+                        items
                     }
                 }
                 ListSorting.ReleaseDateNew -> items.sortedByDescending { it.releaseDate }
