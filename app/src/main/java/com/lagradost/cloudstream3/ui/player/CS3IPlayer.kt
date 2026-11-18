@@ -1084,6 +1084,39 @@ class CS3IPlayer : IPlayer {
         }
     }
 
+    /**
+     * Re-reads the Anime4K/saturation prefs and rebuilds the live video
+     * effects — used by the in-player shader sheet so changes apply without
+     * restarting playback. An empty effect list clears everything.
+     */
+    fun refreshShaderEffects(context: Context) {
+        val player = exoPlayer ?: return
+        try {
+            val settingsManager = PreferenceManager.getDefaultSharedPreferences(context)
+            val shaderMode = settingsManager.getInt(
+                context.getString(R.string.anime4k_shader_key), 0
+            )
+            val sharpen = settingsManager.getInt(
+                context.getString(R.string.anime4k_sharpen_key), 100
+            ) / 100f
+            val canvasAware = settingsManager.getBoolean(
+                context.getString(R.string.anime4k_canvas_aware_key), false
+            )
+            val saturation = settingsManager.getInt(
+                context.getString(R.string.saturation_key), 0
+            ) / 100f
+            Log.i(
+                "Anime4KEffect",
+                "refreshShaderEffects mode=$shaderMode sharpen=$sharpen canvasAware=$canvasAware saturation=$saturation"
+            )
+            val effects = com.lagradost.cloudstream3.ui.player.shaders.Anime4KEffect
+                .buildEffects(context, shaderMode, sharpen, canvasAware, saturation)
+            player.setVideoEffects(effects)
+        } catch (t: Throwable) {
+            Log.e("Anime4KEffect", "Failed to refresh Anime4K shaders", t)
+        }
+    }
+
     private fun buildExoPlayer(
         context: Context,
         mediaItemSlices: List<MediaItemSlice>,

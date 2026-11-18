@@ -12,18 +12,23 @@ import android.os.Build
 import android.os.Bundle
 import android.text.Spanned
 import android.util.Log
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AbsListView
 import android.widget.ArrayAdapter
+import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.MainThread
 import androidx.annotation.OptIn
+import androidx.appcompat.app.AlertDialog
 import androidx.core.animation.addListener
 import androidx.core.app.NotificationCompat
 import androidx.core.app.PendingIntentCompat
@@ -2148,12 +2153,180 @@ class GeneratorPlayer : FullScreenPlayer() {
 
         val root = super.onCreateView(inflater, container, savedInstanceState) ?: return null
         binding = FragmentPlayerBinding.bind(root)
+        setupShaderButton()
         return root
     }
 
     override fun onDestroyView() {
         binding = null
+        shaderButton = null
         super.onDestroyView()
+    }
+
+    private var shaderButton: ImageButton? = null
+
+    /**
+     * Crash-safe in-player shader quick-switch. The button is added as an
+     * overlay on the PlayerView (present in every player layout), never into
+     * the controller layout that the generated binding demands — the previous
+     * attempt crashed on player variants whose controller lacks the id.
+     */
+    private fun setupShaderButton() {
+        val pv = playerView ?: return
+        if (shaderButton != null) return
+        val ctx = context ?: return
+        val show = PreferenceManager.getDefaultSharedPreferences(ctx)
+            .getBoolean(ctx.getString(R.string.player_shader_controls_key), true)
+        if (!show) return
+
+        val density = resources.displayMetrics.density
+        val size = (40 * density).toInt()
+        val btn = ImageButton(ctx).apply {
+            setImageResource(R.drawable.ic_baseline_tune_24)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(0x66000000.toInt())
+            }
+            imageTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
+            contentDescription = ctx.getString(R.string.player_shader_controls)
+            isFocusable = true
+            setOnClickListener { showShaderSheet() }
+        }
+        val params = FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.END)
+        params.setMargins(0, (8 * density).toInt(), (8 * density).toInt(), 0)
+        pv.addView(btn, params)
+        shaderButton = btn
+    }
+
+    /** In-player shader sheet: one-tap presets + the same mode/sharpen/canvas
+     * controls as the Settings screen, applied live without leaving playback. */
+    private fun showShaderSheet() {
+        val act = activity ?: return
+        val ctx = context ?: return
+        val settingsManager = PreferenceManager.getDefaultSharedPreferences(ctx)
+        val density = resources.displayMetrics.density
+
+        fun currentMode() = settingsManager.getInt(ctx.getString(R.string.anime4k_shader_key), 0)
+        fun currentSharpen() = settingsManager.getInt(ctx.getString(R.string.anime4k_sharpen_key), 100)
+        fun currentCanvas() = settingsManager.getBoolean(ctx.getString(R.string.anime4k_canvas_aware_key), false)
+
+        fun apply(mode: Int, sharpen: Int, canvas: Boolean) {
+            settingsManager.edit {
+                putInt(ctx.getString(R.string.anime4k_shader_key), mode)
+                putInt(ctx.getString(R.string.anime4k_sharpen_key), sharpen)
+                putBoolean(ctx.getString(R.string.anime4k_canvas_aware_key), canvas)
+            }
+            (player as? CS3IPlayer)?.refreshShaderEffects(ctx)
+        }
+
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((16 * density).toInt(), (8 * density).toInt(), (16 * density).toInt(), (8 * density).toInt())
+        }
+
+        // One-tap presets: the combos actually used
+        container.addView(TextView(ctx).apply {
+            text = ctx.getString(R.string.player_shader_presets)
+            textSize = 13f
+            alpha = 0.7f
+            setPadding(0, (4 * density).toInt(), 0, (6 * density).toInt())
+        })
+        val presetRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val presets = listOf(
+            Triple(ctx.getString(R.string.off), 0, 100),
+            Triple("Mode A", 3, 75),
+            Triple(ctx.getString(R.string.player_shader_preset_strong), 3, 100),
+            Triple("A+A", 4, 100),
+        )
+        presets.forEach { (label, mode, sharpen) ->
+            presetRow.addView(
+                TextView(ctx).apply {
+                    text = label
+                    textSize = 13f
+                    setPadding((12 * density).toInt(), (6 * density).toInt(), (12 * density).toInt(), (6 * density).toInt())
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.RECTANGLE
+                        cornerRadius = (16 * density).toFloat()
+                        setColor(0x22FFFFFF.toInt())
+                    }
+                    setOnClickListener {
+                        apply(mode, sharpen, currentCanvas())
+                        com.lagradost.cloudstream3.CommonActivity.showToast(
+                            act, ctx.getString(R.string.player_shader_applied, label), Toast.LENGTH_SHORT
+                        )
+                    }
+                },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    setMargins(0, 0, (4 * density).toInt(), 0)
+                }
+            )
+        }
+        container.addView(presetRow)
+
+        fun rowLabel(text: String, onClick: () -> Unit): TextView {
+            return TextView(ctx).apply {
+                this.text = text
+                textSize = 15f
+                setPadding(0, (12 * density).toInt(), 0, (12 * density).toInt())
+                setOnClickListener { onClick() }
+            }
+        }
+
+        // Shader mode picker — same options as the Settings screen
+        val modeNames = resources.getStringArray(R.array.anime4k_shader_switch)
+        val modeValues = resources.getIntArray(R.array.anime4k_shader_switch_values)
+        container.addView(rowLabel(ctx.getString(R.string.anime4k_shader)) {
+            act.showDialog(
+                modeNames.toList(),
+                modeValues.indexOf(currentMode()),
+                ctx.getString(R.string.anime4k_shader),
+                true,
+                {}
+            ) { index ->
+                apply(modeValues[index], currentSharpen(), currentCanvas())
+            }
+        })
+
+        // Sharpen picker — same options as the Settings screen
+        val sharpenNames = resources.getStringArray(R.array.anime4k_sharpen_switch)
+        val sharpenValues = resources.getIntArray(R.array.anime4k_sharpen_switch_values)
+        container.addView(rowLabel(ctx.getString(R.string.anime4k_sharpen)) {
+            act.showDialog(
+                sharpenNames.toList(),
+                sharpenValues.indexOf(currentSharpen()),
+                ctx.getString(R.string.anime4k_sharpen),
+                true,
+                {}
+            ) { index ->
+                apply(currentMode(), sharpenValues[index], currentCanvas())
+            }
+        })
+
+        // Canvas-aware switch
+        val canvasRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        canvasRow.addView(
+            TextView(ctx).apply {
+                text = ctx.getString(R.string.anime4k_canvas_aware)
+                textSize = 15f
+            },
+            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        canvasRow.addView(Switch(ctx).apply {
+            isChecked = currentCanvas()
+            setOnCheckedChangeListener { _, checked ->
+                apply(currentMode(), currentSharpen(), checked)
+            }
+        })
+        container.addView(canvasRow)
+
+        AlertDialog.Builder(act, R.style.AlertDialogCustom)
+            .setTitle(R.string.player_shader_controls)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     var skipAnimator: ValueAnimator? = null

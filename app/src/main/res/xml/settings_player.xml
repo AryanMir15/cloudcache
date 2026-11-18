@@ -44,6 +44,12 @@
             android:title="@string/anime4k_canvas_aware"
             app:defaultValue="false"
             app:key="@string/anime4k_canvas_aware_key" />
+        <SwitchPreference
+            android:defaultValue="true"
+            android:icon="@drawable/ic_baseline_tune_24"
+            android:key="@string/player_shader_controls_key"
+            android:summary="@string/player_shader_controls_des"
+            android:title="@string/player_shader_controls" />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/pref_category_player_layout">
