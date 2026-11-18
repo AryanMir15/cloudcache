@@ -1,19 +1,40 @@
 package com.lagradost.cloudstream3.ui.player
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
+import android.view.WindowManager
 import androidx.appcompat.app.AppCompatActivity
 import com.lagradost.cloudstream3.CommonActivity
 import com.lagradost.cloudstream3.R
 import com.lagradost.cloudstream3.mvvm.safe
+import com.lagradost.cloudstream3.plugins.PopupGuardWindowManager
 import com.lagradost.cloudstream3.ui.player.OfflinePlaybackHelper.playLink
 import com.lagradost.cloudstream3.ui.player.OfflinePlaybackHelper.playUri
 import com.lagradost.cloudstream3.utils.BackPressedCallbackHelper.attachBackPressedCallback
 import com.lagradost.cloudstream3.utils.UIHelper.enableEdgeToEdgeCompat
 
 class DownloadedPlayerActivity : AppCompatActivity() {
+    private var popupGuardWindowManager: WindowManager? = null
+
+    override fun getSystemService(name: String): Any? {
+        return if (name == Context.WINDOW_SERVICE) {
+            popupGuardWindowManager ?: (super.getSystemService(name) as? WindowManager)?.also {
+                popupGuardWindowManager = PopupGuardWindowManager(it)
+            } ?: super.getSystemService(name)
+        } else {
+            super.getSystemService(name)
+        }
+    }
+
+    override fun getWindowManager(): WindowManager {
+        return popupGuardWindowManager ?: super.getWindowManager().also {
+            popupGuardWindowManager = PopupGuardWindowManager(it)
+        }
+    }
+
     companion object {
         const val TAG = "DownloadedPlayerActivity"
     }

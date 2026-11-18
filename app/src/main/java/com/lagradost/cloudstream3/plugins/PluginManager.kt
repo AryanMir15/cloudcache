@@ -309,13 +309,15 @@ object PluginManager {
     }
 
     /** True when the current UI call comes from a plugin whose repository is
-     * on the blocklist — the caller should suppress the popup. */
-    fun isPopupBlocked(): Boolean {
-        val plugin = pluginFromStack() ?: return false
+     * on the blocklist — the caller should suppress the popup. [depth] limits
+     * how close to the call the plugin frame must be (shallow = only direct
+     * callers, so app-driven flows during a plugin request are not caught). */
+    fun isPopupBlocked(depth: Int = 8): Boolean {
+        val blocked = getBlockedPopupRepos()
+        if (blocked.isEmpty() && !isPopupBlockingEnabled()) return false
+        val plugin = pluginFromStack(depth) ?: return false
         // Universal kill switch: mute every extension repo at once.
         if (isPopupBlockingEnabled()) return true
-        val blocked = getBlockedPopupRepos()
-        if (blocked.isEmpty()) return false
         return repoBlockTokens(plugin).any { token ->
             blocked.any { it in token }
         }
