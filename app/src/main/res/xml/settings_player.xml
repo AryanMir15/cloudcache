@@ -45,7 +45,7 @@
             app:defaultValue="false"
             app:key="@string/anime4k_canvas_aware_key" />
         <SwitchPreference
-            android:defaultValue="true"
+            android:defaultValue="false"
             android:icon="@drawable/ic_baseline_tune_24"
             android:key="@string/player_shader_controls_key"
             android:summary="@string/player_shader_controls_des"

@@ -2176,7 +2176,7 @@ class GeneratorPlayer : FullScreenPlayer() {
         if (shaderButton != null) return
         val ctx = context ?: return
         val show = PreferenceManager.getDefaultSharedPreferences(ctx)
-            .getBoolean(ctx.getString(R.string.player_shader_controls_key), true)
+            .getBoolean(ctx.getString(R.string.player_shader_controls_key), false)
         if (!show) return
 
         val density = resources.displayMetrics.density
