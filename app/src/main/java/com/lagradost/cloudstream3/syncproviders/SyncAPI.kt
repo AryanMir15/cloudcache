@@ -178,6 +178,26 @@ abstract class SyncAPI : AuthAPI() {
                 ListSorting.AlphabeticalZ -> items.sortedBy { it.name }.reversed()
                 ListSorting.UpdatedNew -> items.sortedBy { it.lastUpdatedUnixTime?.times(-1) }
                 ListSorting.UpdatedOld -> items.sortedBy { it.lastUpdatedUnixTime }
+                ListSorting.LastWatched -> {
+                    // Local library items key by the app's show id (syncId is
+                    // numeric) — use the resume-watching timestamps, falling
+                    // back to lastUpdatedUnixTime (e.g. Simkl's last-watched).
+                    val lastWatchedByParent = HashMap<Int, Long>()
+                    com.lagradost.cloudstream3.utils.DataStoreHelper.getAllResumeStateIds()
+                        ?.forEach { id ->
+                            com.lagradost.cloudstream3.utils.DataStoreHelper.getLastWatched(id)
+                                ?.let { rw ->
+                                    val t = rw.updateTime
+                                    if (t > (lastWatchedByParent[rw.parentId] ?: Long.MIN_VALUE)) {
+                                        lastWatchedByParent[rw.parentId] = t
+                                    }
+                                }
+                        }
+                    items.sortedByDescending { item ->
+                        lastWatchedByParent[item.syncId.toIntOrNull()]
+                            ?: item.lastUpdatedUnixTime ?: Long.MIN_VALUE
+                    }
+                }
                 ListSorting.ReleaseDateNew -> items.sortedByDescending { it.releaseDate }
                 ListSorting.ReleaseDateOld -> items.sortedBy { it.releaseDate }
                 else -> items

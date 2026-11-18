@@ -22,6 +22,7 @@ enum class ListSorting(@StringRes val stringRes: Int) {
     RatingLow(R.string.sort_rating_asc),
     UpdatedNew(R.string.sort_updated_new),
     UpdatedOld(R.string.sort_updated_old),
+    LastWatched(R.string.sort_last_watched),
     AlphabeticalA(R.string.sort_alphabetical_a),
     AlphabeticalZ(R.string.sort_alphabetical_z),
     ReleaseDateNew(R.string.sort_release_date_new),

@@ -2,6 +2,7 @@ package com.lagradost.cloudstream3.ui.settings
 
 import android.os.Bundle
 import android.view.View
+import androidx.core.widget.doOnTextChanged
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -19,6 +20,8 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
     BaseFragment.BindingCreator.Inflate(FragmentCacheManagementBinding::inflate)
 ) {
     private val cacheEntries = mutableListOf<CacheEntry>()
+    private val allCacheEntries = mutableListOf<CacheEntry>()
+    private var searchQuery: String = ""
     private lateinit var adapter: CacheEntryAdapter
 
     override fun onBindingCreated(binding: FragmentCacheManagementBinding) {
@@ -37,6 +40,11 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
             clearAllCache()
         }
 
+        binding.cacheSearchInput.doOnTextChanged { text, _, _, _ ->
+            searchQuery = text?.toString().orEmpty()
+            applyFilter()
+        }
+
         loadCacheEntries()
     }
 
@@ -47,7 +55,7 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
     private fun loadCacheEntries() {
         try {
             val keys = com.lagradost.cloudstream3.CloudStreamApp.getKeys(DOWNLOAD_EPISODE_CACHE)
-            cacheEntries.clear()
+            allCacheEntries.clear()
 
             var totalSize = 0L
 
@@ -82,7 +90,7 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
                 val size = episodes.sumOf { (key, _) -> calculateCacheSize(key) }
                 totalSize += size
 
-                cacheEntries.add(
+                allCacheEntries.add(
                     CacheEntry(
                         key = parentId.toString(),
                         name = "$animeName ($episodeCount episodes)",
@@ -92,13 +100,26 @@ class CacheManagementFragment : BaseFragment<FragmentCacheManagementBinding>(
                 )
             }
 
+            // Always alphabetical — predictable, unlike the insertion order
+            allCacheEntries.sortBy { it.name.lowercase() }
+
             binding?.totalCacheSizeText?.text = formatSize(totalSize)
-            binding?.cacheCountText?.text = "${cacheEntries.size} anime"
-            adapter.notifyDataSetChanged()
+            applyFilter()
 
         } catch (e: Exception) {
             logError(e)
         }
+    }
+
+    /** Shows entries matching [searchQuery] (case-insensitive) from the sorted list. */
+    private fun applyFilter() {
+        cacheEntries.clear()
+        cacheEntries.addAll(
+            if (searchQuery.isBlank()) allCacheEntries
+            else allCacheEntries.filter { it.name.contains(searchQuery, ignoreCase = true) }
+        )
+        binding?.cacheCountText?.text = "${cacheEntries.size} anime"
+        adapter.notifyDataSetChanged()
     }
 
     private fun calculateCacheSize(entryKey: String): Long {

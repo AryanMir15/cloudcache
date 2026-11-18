@@ -683,6 +683,7 @@
     <string name="sort_rating_asc">Rating (Low to High)</string>
     <string name="sort_updated_new">Updated (New to Old)</string>
     <string name="sort_updated_old">Updated (Old to New)</string>
+    <string name="sort_last_watched">Last Watched</string>
     <string name="sort_alphabetical_a">Alphabetical (A to Z)</string>
     <string name="sort_alphabetical_z">Alphabetical (Z to A)</string>
     <string name="sort_episodes_number_asc">Episode (Ascending)</string>

@@ -81,6 +81,7 @@ class LocalList : SyncAPI() {
                 ListSorting.AlphabeticalZ,
                 ListSorting.UpdatedNew,
                 ListSorting.UpdatedOld,
+                ListSorting.LastWatched,
                 ListSorting.ReleaseDateNew,
                 ListSorting.ReleaseDateOld,
 //                ListSorting.RatingHigh,

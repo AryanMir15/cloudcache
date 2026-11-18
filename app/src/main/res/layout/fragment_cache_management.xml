@@ -65,8 +65,20 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="Clear All Cache"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="12dp"
         app:icon="@drawable/ic_baseline_delete_outline_24"/>
+
+    <EditText
+        android:id="@+id/cache_search_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Search cached shows..."
+        android:inputType="text"
+        android:maxLines="1"
+        android:drawableStart="@drawable/search_icon"
+        android:drawablePadding="8dp"
+        android:padding="12dp"
+        android:layout_marginBottom="12dp"/>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/cache_recycler_view"
