@@ -2196,6 +2196,18 @@ class GeneratorPlayer : FullScreenPlayer() {
         params.setMargins(0, (8 * density).toInt(), (8 * density).toInt(), 0)
         pv.addView(btn, params)
         shaderButton = btn
+
+        // Only show the button while the player controls are visible: it
+        // appears with the controls on tap and disappears with them.
+        val controller = pv.findViewById<androidx.media3.ui.PlayerControlView>(
+            androidx.media3.ui.R.id.exo_controller
+        )
+        btn.isVisible = controller != null && controller.visibility == View.VISIBLE
+        pv.setControllerVisibilityListener(
+            androidx.media3.ui.PlayerView.ControllerVisibilityListener { visibility: Int ->
+                btn.isVisible = visibility == View.VISIBLE
+            }
+        )
     }
 
     /** In-player shader sheet: one-tap presets + the same mode/sharpen/canvas
