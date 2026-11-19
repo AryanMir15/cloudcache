@@ -222,7 +222,6 @@ class SettingsFragment : BaseFragment<MainSettingsBinding>(
 
         binding.apply {
             listOf(
-                settingsProfile to R.id.action_navigation_global_to_navigation_settings_account,
                 settingsGeneral to R.id.action_navigation_global_to_navigation_settings_general,
                 settingsPlayer to R.id.action_navigation_global_to_navigation_settings_player,
                 settingsCredits to R.id.action_navigation_global_to_navigation_settings_account,

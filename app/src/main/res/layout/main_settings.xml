@@ -15,232 +15,110 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_horizontal"
+            android:gravity="center_vertical"
             android:orientation="vertical">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="@string/profile"
-                android:textColor="?attr/textColor"
-                android:textSize="20sp"
-                android:textStyle="bold" />
-
-            <!-- Profile header: centered avatar + accent edit badge + name -->
             <LinearLayout
                 android:id="@+id/settings_profile"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center"
-                android:orientation="vertical"
-                android:paddingTop="20dp"
-                android:paddingBottom="24dp">
+                android:orientation="horizontal"
+                android:padding="20dp"
+                tools:visibility="visible">
 
-                <FrameLayout
-                    android:layout_width="92dp"
-                    android:layout_height="92dp">
+                <androidx.cardview.widget.CardView
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
+                    android:foreground="@drawable/outline_big_25_gray"
+                    app:cardCornerRadius="25dp">
 
-                    <androidx.cardview.widget.CardView
-                        android:layout_width="88dp"
-                        android:layout_height="88dp"
-                        android:layout_gravity="center"
-                        app:cardCornerRadius="44dp">
+                    <ImageView
+                        android:id="@+id/settings_profile_pic"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:contentDescription="@string/account"
+                        android:scaleType="centerCrop"
+                        tools:src="@drawable/profile_bg_orange" />
 
-                        <ImageView
-                            android:id="@+id/settings_profile_pic"
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:contentDescription="@string/account"
-                            android:scaleType="centerCrop"
-                            tools:src="@drawable/profile_bg_orange" />
-                    </androidx.cardview.widget.CardView>
-
-                    <FrameLayout
-                        android:layout_width="30dp"
-                        android:layout_height="30dp"
-                        android:layout_gravity="bottom|end"
-                        android:background="@drawable/bg_settings_edit_badge">
-
-                        <ImageView
-                            android:layout_width="15dp"
-                            android:layout_height="15dp"
-                            android:layout_gravity="center"
-                            android:contentDescription="@string/account"
-                            android:src="@drawable/ic_settings_edit_pencil"
-                            android:tint="?attr/white" />
-                    </FrameLayout>
-                </FrameLayout>
+                </androidx.cardview.widget.CardView>
 
                 <TextView
                     android:id="@+id/settings_profile_text"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:gravity="center"
+                    android:layout_gravity="center_vertical"
+                    android:gravity="center_vertical"
+                    android:paddingStart="10dp"
+                    android:paddingEnd="10dp"
                     android:textColor="?attr/textColor"
-                    android:textSize="20sp"
-                    android:textStyle="bold"
+                    android:textSize="18sp"
+                    android:textStyle="normal"
                     tools:text="Quick Brown Fox" />
             </LinearLayout>
 
-            <!-- Settings rows -->
-            <LinearLayout
+            <TextView
                 android:id="@+id/settings_general"
-                style="@style/SettingsRow"
-                android:nextFocusDown="@id/settings_player">
 
-                <FrameLayout style="@style/SettingsRowIconBg">
-                    <ImageView style="@style/SettingsRowIcon"
-                        android:src="@drawable/ic_settings_row_general" />
-                </FrameLayout>
+                style="@style/SettingsItem"
+                android:nextFocusDown="@id/settings_player"
+                android:text="@string/category_general" />
 
-                <TextView style="@style/SettingsRowLabel"
-                    android:text="@string/category_general" />
-
-                <ImageView style="@style/SettingsRowChevron" />
-            </LinearLayout>
-
-            <View style="@style/SettingsRowDivider" />
-
-            <LinearLayout
+            <TextView
                 android:id="@+id/settings_player"
-                style="@style/SettingsRow"
+                style="@style/SettingsItem"
+
                 android:nextFocusUp="@id/settings_general"
-                android:nextFocusDown="@id/settings_providers">
+                android:nextFocusDown="@id/settings_providers"
+                android:text="@string/category_player" />
 
-                <FrameLayout style="@style/SettingsRowIconBg">
-                    <ImageView style="@style/SettingsRowIcon"
-                        android:src="@drawable/ic_settings_row_player" />
-                </FrameLayout>
-
-                <TextView style="@style/SettingsRowLabel"
-                    android:text="@string/category_player" />
-
-                <ImageView style="@style/SettingsRowChevron" />
-            </LinearLayout>
-
-            <View style="@style/SettingsRowDivider" />
-
-            <LinearLayout
+            <TextView
                 android:id="@+id/settings_providers"
-                style="@style/SettingsRow"
+                style="@style/SettingsItem"
+
                 android:nextFocusUp="@id/settings_player"
-                android:nextFocusDown="@id/settings_ui">
+                android:nextFocusDown="@id/settings_ui"
+                android:text="@string/category_providers" />
 
-                <FrameLayout style="@style/SettingsRowIconBg">
-                    <ImageView style="@style/SettingsRowIcon"
-                        android:src="@drawable/ic_settings_row_providers" />
-                </FrameLayout>
-
-                <TextView style="@style/SettingsRowLabel"
-                    android:text="@string/category_providers" />
-
-                <ImageView style="@style/SettingsRowChevron" />
-            </LinearLayout>
-
-            <View style="@style/SettingsRowDivider" />
-
-            <LinearLayout
+            <TextView
                 android:id="@+id/settings_ui"
-                style="@style/SettingsRow"
+                style="@style/SettingsItem"
+
                 android:nextFocusUp="@id/settings_providers"
-                android:nextFocusDown="@id/settings_updates">
+                android:nextFocusDown="@id/settings_updates"
+                android:text="@string/category_ui" />
 
-                <FrameLayout style="@style/SettingsRowIconBg">
-                    <ImageView style="@style/SettingsRowIcon"
-                        android:src="@drawable/ic_settings_row_ui" />
-                </FrameLayout>
-
-                <TextView style="@style/SettingsRowLabel"
-                    android:text="@string/category_ui" />
-
-                <ImageView style="@style/SettingsRowChevron" />
-            </LinearLayout>
-
-            <View style="@style/SettingsRowDivider" />
-
-            <LinearLayout
+            <TextView
                 android:id="@+id/settings_updates"
-                style="@style/SettingsRow"
+                style="@style/SettingsItem"
+
                 android:nextFocusUp="@id/settings_ui"
-                android:nextFocusDown="@id/settings_credits">
+                android:nextFocusDown="@id/settings_credits"
+                android:text="@string/category_updates" />
 
-                <FrameLayout style="@style/SettingsRowIconBg">
-                    <ImageView style="@style/SettingsRowIcon"
-                        android:src="@drawable/ic_settings_row_updates" />
-                </FrameLayout>
-
-                <TextView style="@style/SettingsRowLabel"
-                    android:text="@string/category_updates" />
-
-                <ImageView style="@style/SettingsRowChevron" />
-            </LinearLayout>
-
-            <View style="@style/SettingsRowDivider" />
-
-            <LinearLayout
+            <TextView
                 android:id="@+id/settings_credits"
-                style="@style/SettingsRow"
+                style="@style/SettingsItem"
                 android:nextFocusUp="@id/settings_updates"
-                android:nextFocusDown="@id/settings_extensions">
+                android:text="@string/category_account" />
 
-                <FrameLayout style="@style/SettingsRowIconBg">
-                    <ImageView style="@style/SettingsRowIcon"
-                        android:src="@drawable/ic_settings_row_account" />
-                </FrameLayout>
-
-                <TextView style="@style/SettingsRowLabel"
-                    android:text="@string/category_account" />
-
-                <ImageView style="@style/SettingsRowChevron" />
-            </LinearLayout>
-
-            <View style="@style/SettingsRowDivider" />
-
-            <LinearLayout
+            <TextView
                 android:id="@+id/settings_extensions"
-                style="@style/SettingsRow"
+                style="@style/SettingsItem"
                 android:nextFocusUp="@id/settings_credits"
-                android:nextFocusDown="@id/settings_downloads">
+                android:nextFocusDown="@id/settings_downloads"
+                android:text="@string/extensions" />
 
-                <FrameLayout style="@style/SettingsRowIconBg">
-                    <ImageView style="@style/SettingsRowIcon"
-                        android:src="@drawable/ic_settings_row_extensions" />
-                </FrameLayout>
-
-                <TextView style="@style/SettingsRowLabel"
-                    android:text="@string/extensions" />
-
-                <ImageView style="@style/SettingsRowChevron" />
-            </LinearLayout>
-
-            <View style="@style/SettingsRowDivider" />
-
-            <LinearLayout
+            <TextView
                 android:id="@+id/settings_downloads"
-                style="@style/SettingsRow"
-                android:nextFocusUp="@id/settings_extensions">
-
-                <FrameLayout style="@style/SettingsRowIconBg">
-                    <ImageView style="@style/SettingsRowIcon"
-                        android:src="@drawable/ic_settings_row_downloads" />
-                </FrameLayout>
-
-                <TextView style="@style/SettingsRowLabel"
-                    android:text="@string/title_downloads" />
-
-                <ImageView style="@style/SettingsRowChevron" />
-            </LinearLayout>
-
-            <View style="@style/SettingsRowDivider" />
+                style="@style/SettingsItem"
+                android:nextFocusUp="@id/settings_extensions"
+                android:text="@string/title_downloads" />
 
             <LinearLayout
                 android:id="@+id/app_version_info"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:layout_gravity="center"
-                android:layout_marginTop="20dp"
                 android:orientation="horizontal">
 
                 <TextView
@@ -248,8 +126,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:padding="10dp"
-                    android:textColor="?attr/grayTextColor"
-                    android:textSize="12sp"
+                    android:textColor="?attr/textColor"
                     tools:text="0.0.0" />
 
                 <TextView
@@ -257,16 +134,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="•"
-                    android:textColor="?attr/grayTextColor"
-                    android:textSize="12sp" />
+                    android:textColor="?attr/textColor" />
 
                 <TextView
                     android:id="@+id/commit_hash"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:padding="10dp"
-                    android:textColor="?attr/grayTextColor"
-                    android:textSize="12sp"
+                    android:textColor="?attr/textColor"
                     tools:text="1234567" />
 
                 <TextView
@@ -274,16 +149,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="•"
-                    android:textColor="?attr/grayTextColor"
-                    android:textSize="12sp" />
+                    android:textColor="?attr/textColor" />
 
                 <TextView
                     android:id="@+id/build_date"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:padding="10dp"
-                    android:textColor="?attr/grayTextColor"
-                    android:textSize="12sp"
+                    android:textColor="?attr/textColor"
                     tools:text="21/03/2024 09:02 pm" />
             </LinearLayout>
         </LinearLayout>
