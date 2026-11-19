@@ -467,6 +467,7 @@
     <string name="example_lang_name">Language code (en)</string>
     <string name="login_format" formatted="true">%1$s %2$s</string>
     <string name="account">account</string>
+    <string name="profile">Profile</string>
     <string name="logout">Log out</string>
     <string name="login">Log in</string>
     <string name="auth_locally">Auth Locally</string>
