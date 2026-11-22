@@ -134,7 +134,7 @@ object InAppUpdater {
         val versionRegex = Regex("""(.*?((\d+)\.(\d+)\.(\d+)).*\.apk)""")
         val versionRegexLocal = Regex("""(.*?((\d+)\.(\d+)\.(\d+)).*)""")
         val foundList = response.filter { rel ->
-            rel.prerelease == true
+            rel.prerelease != true
         }.sortedWith(compareBy { release ->
             release.assets?.firstOrNull { it.contentType == "application/vnd.android.package-archive" }?.name?.let { it1 ->
                 versionRegex.find(
