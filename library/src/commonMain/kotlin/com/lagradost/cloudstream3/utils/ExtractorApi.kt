@@ -3,7 +3,7 @@
 package com.lagradost.cloudstream3.utils
 
 import com.fasterxml.jackson.annotation.JsonIgnore
-import com.fleeksoft.ksoup.Ksoup
+import org.jsoup.Jsoup
 import com.lagradost.cloudstream3.AudioFile
 import com.lagradost.cloudstream3.IDownloadableMinimum
 import com.lagradost.cloudstream3.Prerelease
@@ -1364,7 +1364,7 @@ fun httpsify(url: String): String {
 }
 
 suspend fun getPostForm(requestUrl: String, html: String): String? {
-    val document = Ksoup.parse(html)
+    val document = Jsoup.parse(html)
     val inputs = document.select("Form > input")
     if (inputs.size < 4) return null
     var op: String? = null

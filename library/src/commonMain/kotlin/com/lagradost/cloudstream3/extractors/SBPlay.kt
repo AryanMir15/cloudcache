@@ -1,6 +1,6 @@
 package com.lagradost.cloudstream3.extractors
 
-import com.fleeksoft.ksoup.Ksoup
+import org.jsoup.Jsoup
 import com.lagradost.cloudstream3.APIHolder.unixTimeMS
 import com.lagradost.cloudstream3.app
 import com.lagradost.cloudstream3.mvvm.logError
@@ -25,7 +25,7 @@ open class SBPlay : ExtractorApi() {
 
     override suspend fun getUrl(url: String, referer: String?): List<ExtractorLink> {
         val response = app.get(url, referer = referer).text
-        val document = Ksoup.parse(response)
+        val document = Jsoup.parse(response)
 
         val links = ArrayList<ExtractorLink>()
 
@@ -44,11 +44,11 @@ open class SBPlay : ExtractorApi() {
                         "https://sbplay.one/?op=notifications&open=&_=$unixTimeMS",
                         referer = href
                     )
-                    val hrefDocument = Ksoup.parse(hrefResponse)
+                    val hrefDocument = Jsoup.parse(hrefResponse)
                     val hrefSpan = hrefDocument.selectFirst("span > a")
                     if (hrefSpan == null) {
                         getPostForm(href, hrefResponse)?.let { form ->
-                            val postDocument = Ksoup.parse(form)
+                            val postDocument = Jsoup.parse(form)
                             val downloadBtn =
                                 postDocument.selectFirst("a.downloadbtn")?.attr("href")
                             if (downloadBtn.isNullOrEmpty()) {

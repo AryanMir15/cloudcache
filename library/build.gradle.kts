@@ -61,7 +61,7 @@ kotlin {
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
             implementation(libs.kotlinx.serialization.json) // JSON Parser
-            implementation(libs.ksoup) // HTML Parser
+            implementation(libs.jsoup) // HTML Parser (provided to plugins)
             implementation(libs.ktor.http)
             implementation(libs.nicehttp) // HTTP Library
             implementation(libs.rhino) // Run JavaScript
