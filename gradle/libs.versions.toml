@@ -1,4 +1,4 @@
-﻿# https://docs.gradle.org/current/userguide/plugins.html#sec:version_catalog_plugin_application
+# https://docs.gradle.org/current/userguide/plugins.html#sec:version_catalog_plugin_application
 # https://docs.gradle.org/current/userguide/dependency_versions.html#sec:strict-version
 [versions]
 activityKtx = "1.13.0"
