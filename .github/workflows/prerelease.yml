@@ -61,7 +61,10 @@ jobs:
 
     - name: Delete old pre-release if exists
       continue-on-error: true
-      run: gh release delete pre-release --yes --cleanup-tag
+      # NOTE: no --cleanup-tag here — the tag was just force-pushed to HEAD
+      # and deleting it makes the next step create an untagged DRAFT that the
+      # in-app updater can never see.
+      run: gh release delete pre-release --yes
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -71,4 +74,5 @@ jobs:
         tag_name: "pre-release"
         name: "Pre-release Build"
         prerelease: true
+        draft: false
         files: app/build/outputs/apk/prerelease/release/*.apk
