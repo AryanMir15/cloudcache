@@ -1,4 +1,4 @@
-# https://docs.gradle.org/current/userguide/plugins.html#sec:version_catalog_plugin_application
+﻿# https://docs.gradle.org/current/userguide/plugins.html#sec:version_catalog_plugin_application
 # https://docs.gradle.org/current/userguide/dependency_versions.html#sec:strict-version
 [versions]
 activityKtx = "1.13.0"
@@ -35,7 +35,7 @@ kotlinGradlePlugin = "2.3.20"
 kotlinxAtomicfu = "0.33.0"
 kotlinxCollectionsImmutable = "0.4.0"
 kotlinxCoroutines = "1.11.0"
-ktor = "2.3.12" # Required for plugin ABI compatibility (plugins use io.ktor.http.*)
+ktor = "3.5.0" # Match upstream: modern plugins use ktor 3 APIs (provided by the app)
 kotlinxDatetime = "0.8.0"
 kotlinxSerializationJson = "1.11.0"
 ksoup = "0.2.6"
