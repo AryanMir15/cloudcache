@@ -330,8 +330,7 @@ class AniListApi : SyncAPI() {
 
             val filtered =
                 shows?.data?.page?.media?.filter {
-                    (((it.startDate.year ?: year.toString()) == year.toString()
-                            || year == null))
+                    year == null || (it.startDate?.year?.toIntOrNull() ?: year) == year
                 }
             filtered?.forEach {
                 it.title.romaji?.let { romaji ->
@@ -568,9 +567,9 @@ class AniListApi : SyncAPI() {
     )
 
     data class CompletedAt(
-        @JsonProperty("year") val year: Int,
-        @JsonProperty("month") val month: Int,
-        @JsonProperty("day") val day: Int
+        @JsonProperty("year") val year: Int?,
+        @JsonProperty("month") val month: Int?,
+        @JsonProperty("day") val day: Int?
     )
 
     data class StartedAt(
@@ -594,10 +593,10 @@ class AniListApi : SyncAPI() {
         @JsonProperty("id") val id: Int,
         @JsonProperty("idMal") val idMal: Int?,
         @JsonProperty("season") val season: String?,
-        @JsonProperty("seasonYear") val seasonYear: Int,
+        @JsonProperty("seasonYear") val seasonYear: Int?,
         @JsonProperty("format") val format: String?,
         //@JsonProperty("source") val source: String,
-        @JsonProperty("episodes") val episodes: Int,
+        @JsonProperty("episodes") val episodes: Int?,
         @JsonProperty("title") val title: Title,
         @JsonProperty("description") val description: String?,
         @JsonProperty("coverImage") val coverImage: CoverImage,
@@ -607,9 +606,9 @@ class AniListApi : SyncAPI() {
 
     data class Entries(
         @JsonProperty("status") val status: String?,
-        @JsonProperty("completedAt") val completedAt: CompletedAt,
-        @JsonProperty("startedAt") val startedAt: StartedAt,
-        @JsonProperty("updatedAt") val updatedAt: Int,
+        @JsonProperty("completedAt") val completedAt: CompletedAt?,
+        @JsonProperty("startedAt") val startedAt: StartedAt?,
+        @JsonProperty("updatedAt") val updatedAt: Int?,
         @JsonProperty("progress") val progress: Int,
         @JsonProperty("score") val score: Int,
         @JsonProperty("private") val private: Boolean,
@@ -626,14 +625,14 @@ class AniListApi : SyncAPI() {
                 this.progress,
                 this.media.episodes,
                 Score.from100(this.score),
-                this.updatedAt.toLong(),
+                this.updatedAt?.toLong(),
                 "AniList",
                 TvType.Anime,
                 this.media.coverImage.extraLarge ?: this.media.coverImage.large
                 ?: this.media.coverImage.medium,
                 null,
                 null,
-                this.media.seasonYear.toYear(),
+                this.media.seasonYear?.toYear(),
                 null,
                 plot = this.media.description,
             )
@@ -802,17 +801,25 @@ class AniListApi : SyncAPI() {
             } else {
                 val startedAtArg = startDate?.toFuzzyDateArg()
                 val completedAtArg = endDate?.toFuzzyDateArg()
-                """mutation (${'$'}id: Int = $id, ${'$'}status: MediaListStatus = ${
-                    aniListStatusString[maxOf(
-                        0,
-                        type.value
-                    )]
-                }, ${if (score != null) "${'$'}scoreRaw: Int = ${score.toInt(100)}" else ""} , ${if (progress != null) "${'$'}progress: Int = $progress" else ""}) {
-                    SaveMediaListEntry (mediaId: ${'$'}id, status: ${'$'}status, scoreRaw: ${'$'}scoreRaw, progress: ${'$'}progress${
-                        if (startedAtArg != null) ", startedAt: $startedAtArg" else ""
-                    }${
-                        if (completedAtArg != null) ", completedAt: $completedAtArg" else ""
-                    }) {
+                // Only declare and pass the optional variables that have a value,
+                // AniList rejects the whole mutation if an undeclared variable is used
+                val variables = mutableListOf(
+                    "${'$'}id: Int = $id",
+                    "${'$'}status: MediaListStatus = ${aniListStatusString[maxOf(0, type.value)]}",
+                )
+                val arguments = mutableListOf("mediaId: ${'$'}id", "status: ${'$'}status")
+                if (score != null) {
+                    variables += "${'$'}scoreRaw: Int = ${score.toInt(100)}"
+                    arguments += "scoreRaw: ${'$'}scoreRaw"
+                }
+                if (progress != null) {
+                    variables += "${'$'}progress: Int = $progress"
+                    arguments += "progress: ${'$'}progress"
+                }
+                if (startedAtArg != null) arguments += "startedAt: $startedAtArg"
+                if (completedAtArg != null) arguments += "completedAt: $completedAtArg"
+                """mutation (${variables.joinToString()}) {
+                    SaveMediaListEntry (${arguments.joinToString()}) {
                         id
                         status
                         progress
@@ -822,8 +829,22 @@ class AniListApi : SyncAPI() {
             }
 
         val data = postApi(auth.token, q)
-        return data != ""
+        if (data.isNullOrBlank()) return false
+        val errors = tryParseJson<GraphQLErrorRoot>(data)?.errors
+        if (!errors.isNullOrEmpty()) {
+            logError(ErrorLoadingException("AniList: ${errors.joinToString { it.message.toString() }}"))
+            return false
+        }
+        return true
     }
+
+    data class GraphQLError(
+        @JsonProperty("message") val message: String?,
+    )
+
+    data class GraphQLErrorRoot(
+        @JsonProperty("errors") val errors: List<GraphQLError>?,
+    )
 
     private fun Long.toFuzzyDateArg(): String {
         val cal = java.util.Calendar.getInstance().apply { timeInMillis = this@toFuzzyDateArg }
@@ -1165,9 +1186,9 @@ class AniListApi : SyncAPI() {
     data class GetSearchMedia(
         @JsonProperty("id") val id: Int,
         @JsonProperty("idMal") val idMal: Int?,
-        @JsonProperty("seasonYear") val seasonYear: Int,
+        @JsonProperty("seasonYear") val seasonYear: Int?,
         @JsonProperty("title") val title: GetSearchTitle,
-        @JsonProperty("startDate") val startDate: StartedAt,
+        @JsonProperty("startDate") val startDate: StartedAt?,
         @JsonProperty("endDate") val endDate: StartedAt? = null,
         @JsonProperty("averageScore") val averageScore: Int?,
         @JsonProperty("meanScore") val meanScore: Int?,
@@ -1421,11 +1442,12 @@ private fun AniListApi.StartedAt.toEpochMillis(): Long? {
 }
 
 private fun AniListApi.CompletedAt.toEpochMillis(): Long? {
+    val year = year ?: return null
     if (year <= 0) return null
     return try {
         java.util.Calendar.getInstance().apply {
             clear()
-            set(year, month - 1, day, 0, 0, 0)
+            set(year, (month ?: 1) - 1, day ?: 1, 0, 0, 0)
         }.timeInMillis
     } catch (e: Exception) {
         null
