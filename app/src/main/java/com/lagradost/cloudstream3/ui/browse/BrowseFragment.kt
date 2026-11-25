@@ -31,6 +31,7 @@ import com.lagradost.cloudstream3.syncproviders.providers.TmdbApi
 import com.lagradost.cloudstream3.ui.AniListFilterUtils
 import com.lagradost.cloudstream3.SearchResponse
 import com.lagradost.cloudstream3.ui.search.SearchHelper
+import com.lagradost.cloudstream3.ui.home.HomeFragment
 import com.lagradost.cloudstream3.ui.search.SearchAdapter
 import com.lagradost.cloudstream3.AnimeSearchResponse
 import com.lagradost.cloudstream3.TvType
@@ -143,6 +144,14 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
         // Set span count based on user preference
         val currentSpan = view.context.getSpanCount()
         binding?.browseResults?.spanCount = currentSpan
+        HomeFragment.configEvent.invoke()
+    }
+
+    /** Re-applies the grid-size setting when it changes, like the other grids. */
+    private val spanListener = Runnable {
+        val ctx = view?.context ?: return@Runnable
+        binding?.browseResults?.spanCount = ctx.getSpanCount()
+        (binding?.browseResults?.adapter as? SearchAdapter)?.notifyDataSetChanged()
     }
 
     override fun onBindingCreated(
@@ -378,6 +387,7 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
     }
 
     override fun onDestroyView() {
+        HomeFragment.configEvent -= spanListener
         super.onDestroyView()
         android.util.Log.d("CONFIG_CHANGE_FIX", "========== BrowseFragment.onDestroyView called ==========")
         android.util.Log.d("CONFIG_CHANGE_FIX", "CONFIG_CHANGE_FIX: Fragment instance = ${this.hashCode()}")
@@ -754,6 +764,9 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
             browseResults.setRecycledViewPool(SearchAdapter.sharedPool)
             browseResults.adapter = adapter
             android.util.Log.d("BrowseFragment", "setupUI: Set adapter to browseResults")
+
+            // Keep the genre grid in sync with the global grid-size setting
+            HomeFragment.configEvent += spanListener
 
             // Restore RecyclerView layout state if available
             recyclerViewLayoutState?.let { state ->
@@ -2099,6 +2112,11 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 toggleAccordion(dialogBinding.tmdbSortRecycler, dialogBinding.tmdbSortExpandIcon)
             }
 
+            // Expand the sort section by default so all options are visible
+            // without an extra tap (it used to look like a single value row).
+            dialogBinding.tmdbSortRecycler.visibility = View.VISIBLE
+            dialogBinding.tmdbSortExpandIcon.rotation = 90f
+
             // Setup Minimum Votes - Radio mode
             val minVotesOptions = listOf("0", "1", "5", "10", "20", "30", "50", "100", "200", "300", "400", "500", "1000", "2000", "3000", "5000", "10000")
             var minVotesAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null
@@ -2923,16 +2941,17 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 }
             }
             FilterProvider.TMDB -> {
-                // Map AniList sort to TMDB sort
+                // Map AniList sort to TMDB sort. TMDB display names are
+                // already in the target format, so pass them through —
+                // otherwise reopening the dialog reset any non-mapped sort
+                // (e.g. "Title (A-Z)") back to the default.
                 when (currentSort) {
                     "Popularity" -> "Popularity (High to Low)"
                     "Average Score" -> "Rating (High to Low)"
                     "Release Date" -> "Release Date (Newest)"
                     "Title" -> "Title (A-Z)"
-                    "Trending" -> "Popularity (High to Low)" // TMDB doesn't have trending
-                    "Favorites" -> "Popularity (High to Low)" // TMDB doesn't have favorites
-                    "Date Added" -> "Popularity (High to Low)" // TMDB doesn't have date added
-                    else -> "Popularity (High to Low)" // Default fallback
+                    "Trending", "Favorites", "Date Added" -> "Popularity (High to Low)" // AniList-only sorts
+                    else -> currentSort
                 }
             }
         }

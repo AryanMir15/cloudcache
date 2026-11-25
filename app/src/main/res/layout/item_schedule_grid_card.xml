@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="0dp"
+    android:layout_marginHorizontal="4dp"
+    android:layout_marginVertical="4dp"
+    app:layout_constraintDimensionRatio="H,2:3">
+
+    <androidx.cardview.widget.CardView
+        android:id="@+id/schedule_card"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="4dp"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent">
+
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <ImageView
+                android:id="@+id/schedule_poster_bg"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scaleType="centerCrop"
+                tools:src="@drawable/example_poster" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/schedule_card_vintage_shadow" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/schedule_watch_btn"
+                style="@style/SmallWhiteButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_margin="6dp"
+                android:minHeight="24dp"
+                android:minWidth="32dp"
+                android:paddingHorizontal="8dp"
+                android:text="@string/schedule_watch"
+                android:textAllCaps="false"
+                android:textSize="10sp"
+                app:icon="@drawable/ic_baseline_play_arrow_24"
+                app:iconGravity="textStart"
+                app:iconPadding="3dp"
+                app:iconSize="10dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom"
+                android:orientation="vertical"
+                android:padding="8dp">
+
+                <TextView
+                    android:id="@+id/schedule_time"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:shadowColor="#CC000000"
+                    android:shadowDx="1"
+                    android:shadowDy="1"
+                    android:shadowRadius="4"
+                    android:textColor="#EEFFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    tools:text="8:00 PM" />
+
+                <TextView
+                    android:id="@+id/schedule_episode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:includeFontPadding="false"
+                    android:shadowColor="#CC000000"
+                    android:shadowDx="1"
+                    android:shadowDy="1"
+                    android:shadowRadius="4"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="10sp"
+                    android:visibility="gone"
+                    tools:text="Episode 12" />
+
+                <ImageView
+                    android:id="@+id/schedule_logo"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:adjustViewBounds="true"
+                    android:maxHeight="34dp"
+                    android:scaleType="fitStart"
+                    android:visibility="gone"
+                    tools:src="@android:drawable/ic_menu_gallery"
+                    tools:visibility="visible" />
+
+                <TextView
+                    android:id="@+id/schedule_name"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:includeFontPadding="false"
+                    android:lineSpacingMultiplier="1.05"
+                    android:maxLines="2"
+                    android:paddingVertical="1dp"
+                    android:shadowColor="#CC000000"
+                    android:shadowDx="1"
+                    android:shadowDy="1"
+                    android:shadowRadius="6"
+                    android:textColor="@android:color/white"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    tools:text="A show name that is long enough to wrap" />
+            </LinearLayout>
+
+        </FrameLayout>
+
+    </androidx.cardview.widget.CardView>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

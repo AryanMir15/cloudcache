@@ -918,6 +918,9 @@
     <string name="refresh">Refresh</string>
     <string name="filter">Filter</string>
     <string name="schedule_include_tv_shows">Include TV shows from TMDB</string>
+    <string name="schedule_view_style">Card style</string>
+    <string name="schedule_view_style_list">List</string>
+    <string name="schedule_view_style_grid">Grid</string>
     <string name="show_poster_title_settings">Show titles on posters</string>
     <string name="show_poster_title_settings_des">Turn off to show only poster art (hides titles in search, filters and library)</string>
     <string name="no_episodes_scheduled">No episodes scheduled</string>

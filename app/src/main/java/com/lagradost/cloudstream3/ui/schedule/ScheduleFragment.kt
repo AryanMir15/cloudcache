@@ -9,12 +9,15 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.preference.PreferenceManager
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -112,7 +115,6 @@ class ScheduleFragment : Fragment() {
             navigateToResult(item)
         }
         binding.scheduleRecycler.apply {
-            layoutManager = LinearLayoutManager(requireContext())
             adapter = cardAdapter
             // Swipe left/right to hop between days (the day pills are tiny on
             // phones, so a horizontal fling over the list changes the day).
@@ -121,6 +123,11 @@ class ScheduleFragment : Fragment() {
                 false // keep vertical scrolling on the RecyclerView
             }
         }
+        // Honor the saved card style (list/grid) from the filter dialog
+        val savedStyle = if (PreferenceManager.getDefaultSharedPreferences(requireContext())
+                .getString("schedule_view_style", "list") == "grid"
+        ) ScheduleViewStyle.GRID else ScheduleViewStyle.LIST
+        applyViewStyle(savedStyle)
 
         viewModel.scheduleItems.observe(viewLifecycleOwner) { items ->
             Log.d(TAG, "════════ scheduleItems EMITTED: ${items.size} total items ════════")
@@ -246,10 +253,10 @@ class ScheduleFragment : Fragment() {
 
             // The row is one line on phones: keep unselected days slim and
             // subtle, and let the selected day pop with a fuller pill.
-            chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isSelected) 14f else 11f)
+            chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isSelected) 15f else 12f)
             chip.setTypeface(null, if (isSelected) Typeface.BOLD else Typeface.NORMAL)
-            chip.chipMinHeight = (if (isSelected) 38f else 28f) * density
-            chip.alpha = if (isSelected) 1f else 0.5f
+            chip.chipMinHeight = (if (isSelected) 42f else 32f) * density
+            chip.alpha = if (isSelected) 1f else 0.55f
         }
     }
 
@@ -296,6 +303,11 @@ class ScheduleFragment : Fragment() {
     private fun showFilterDialog() {
         val prefs = PreferenceManager.getDefaultSharedPreferences(requireContext())
         val currentValue = prefs.getBoolean("schedule_include_tv_shows", false)
+        val currentStyle = if (prefs.getString("schedule_view_style", "list") == "grid") {
+            ScheduleViewStyle.GRID
+        } else {
+            ScheduleViewStyle.LIST
+        }
 
         val checkBox = androidx.appcompat.widget.AppCompatCheckBox(requireContext()).apply {
             text = getString(R.string.schedule_include_tv_shows)
@@ -307,11 +319,65 @@ class ScheduleFragment : Fragment() {
             setPadding(24, 24, 24, 24)
         }
 
+        // Card style: full-width rows or a poster grid
+        val styleGroup = com.google.android.material.button.MaterialButtonToggleGroup(requireContext()).apply {
+            addView(com.google.android.material.button.MaterialButton(requireContext()).apply {
+                text = getString(R.string.schedule_view_style_list)
+                isAllCaps = false
+                id = ScheduleViewStyle.LIST.ordinal
+            })
+            addView(com.google.android.material.button.MaterialButton(requireContext()).apply {
+                text = getString(R.string.schedule_view_style_grid)
+                isAllCaps = false
+                id = ScheduleViewStyle.GRID.ordinal
+            })
+            check(currentStyle.ordinal)
+            setPadding(24, 8, 24, 8)
+        }
+
+        val styleLabel = android.widget.TextView(requireContext()).apply {
+            text = getString(R.string.schedule_view_style)
+            setPadding(24, 16, 24, 0)
+            setTextColor(requireContext().colorFromAttribute(R.attr.textColor))
+            textSize = 14f
+        }
+
+        val container = android.widget.LinearLayout(requireContext()).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            addView(checkBox)
+            addView(styleLabel)
+            addView(styleGroup)
+        }
+
         androidx.appcompat.app.AlertDialog.Builder(requireContext(), R.style.AlertDialogCustom)
             .setTitle(R.string.filter)
-            .setView(checkBox)
-            .setPositiveButton(android.R.string.ok) { _, _ -> }
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val selected = styleGroup.checkedButtonId
+                val style = if (selected == ScheduleViewStyle.GRID.ordinal) {
+                    ScheduleViewStyle.GRID
+                } else {
+                    ScheduleViewStyle.LIST
+                }
+                prefs.edit().putString(
+                    "schedule_view_style",
+                    if (style == ScheduleViewStyle.GRID) "grid" else "list"
+                ).apply()
+                applyViewStyle(style)
+            }
             .show()
+    }
+
+    private fun applyViewStyle(style: ScheduleViewStyle) {
+        Log.d(TAG, "applyViewStyle → $style")
+        cardAdapter?.style = style
+        binding.scheduleRecycler.layoutManager =
+            if (style == ScheduleViewStyle.GRID) {
+                GridLayoutManager(requireContext(), 2)
+            } else {
+                LinearLayoutManager(requireContext())
+            }
+        binding.scheduleRecycler.scrollToPosition(0)
     }
 
     override fun onDestroyView() {
@@ -332,59 +398,91 @@ class ScheduleFragment : Fragment() {
 
 // --- Card Adapter with DiffUtil for stable tab switching ---
 
+/** How schedule cards render: full-width banner rows or a poster grid. */
+enum class ScheduleViewStyle { LIST, GRID }
+
 class ScheduleCardAdapter(
     private val onItemClick: (WeeklyScheduleItem) -> Unit
-) : ListAdapter<WeeklyScheduleItem, ScheduleCardAdapter.CardViewHolder>(ScheduleDiffCallback()) {
+) : RecyclerView.Adapter<ScheduleCardAdapter.CardViewHolder>() {
+
+    var style: ScheduleViewStyle = ScheduleViewStyle.LIST
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
+    private var items: List<WeeklyScheduleItem> = emptyList()
+
+    fun submitList(list: List<WeeklyScheduleItem>) {
+        items = list
+        notifyDataSetChanged()
+    }
+
+    override fun getItemCount(): Int = items.size
+
+    override fun getItemViewType(position: Int): Int = style.ordinal
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CardViewHolder {
-        val binding = ItemScheduleCardBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return CardViewHolder(binding)
+        val layout = if (viewType == ScheduleViewStyle.GRID.ordinal) {
+            R.layout.item_schedule_grid_card
+        } else {
+            R.layout.item_schedule_card
+        }
+        val root = LayoutInflater.from(parent.context).inflate(layout, parent, false)
+        return CardViewHolder(root)
     }
 
     override fun onBindViewHolder(holder: CardViewHolder, position: Int) {
-        holder.bind(getItem(position), position)
+        holder.bind(items[position], position)
     }
 
-    inner class CardViewHolder(
-        private val binding: ItemScheduleCardBinding
-    ) : RecyclerView.ViewHolder(binding.root) {
-
+    inner class CardViewHolder(root: View) : RecyclerView.ViewHolder(root) {
         private val timeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault())
+
+        private val card: View = root.findViewById(R.id.schedule_card)
+        private val posterBg: ImageView = root.findViewById(R.id.schedule_poster_bg)
+        private val logo: ImageView = root.findViewById(R.id.schedule_logo)
+        private val time: TextView = root.findViewById(R.id.schedule_time)
+        private val episode: TextView = root.findViewById(R.id.schedule_episode)
+        private val name: TextView = root.findViewById(R.id.schedule_name)
+        private val watchBtn: View = root.findViewById(R.id.schedule_watch_btn)
 
         fun bind(item: WeeklyScheduleItem, position: Int) {
             Log.d(ScheduleFragment.TAG, "bind[pos=$position] CONTAINER=[${item.scheduleName}] ← " +
                 "banner=${ScheduleFragment.shortUrl(item.scheduleBannerUrl)} " +
                 "poster=${ScheduleFragment.shortUrl(item.schedulePosterUrl)} " +
                 "logo=${ScheduleFragment.shortUrl(item.scheduleLogoUrl)}")
-            binding.schedulePosterBg.setImageDrawable(null)
-            binding.scheduleLogo.setImageDrawable(null)
+            posterBg.setImageDrawable(null)
+            logo.setImageDrawable(null)
 
             val airTime = Instant.ofEpochMilli(item.airingAt)
                 .atZone(ZoneId.systemDefault())
-            binding.scheduleTime.text = airTime.format(timeFormatter)
+            time.text = airTime.format(timeFormatter)
 
             if (item.episodeNumber != null) {
-                binding.scheduleEpisode.isVisible = true
-                binding.scheduleEpisode.text = "Episode ${item.episodeNumber}"
+                episode.isVisible = true
+                episode.text = "Episode ${item.episodeNumber}"
             } else {
-                binding.scheduleEpisode.isVisible = false
+                episode.isVisible = false
             }
 
             val logoUrl = item.scheduleLogoUrl
             if (!logoUrl.isNullOrBlank() && logoUrl.startsWith("http")) {
                 Log.d(ScheduleFragment.TAG, "  → [${item.scheduleName}] showing LOGO (title text hidden): ${ScheduleFragment.shortUrl(logoUrl)}")
-                binding.scheduleLogo.isVisible = true
-                binding.scheduleName.isVisible = false
+                logo.isVisible = true
+                name.isVisible = false
                 // error(null) ensures a failed/404 load leaves no ghost of the previous image
-                binding.scheduleLogo.loadImage(logoUrl) {
+                logo.loadImage(logoUrl) {
                     placeholder(null)
                     error(null)
                 }
             } else {
                 Log.d(ScheduleFragment.TAG, "  → [${item.scheduleName}] showing TITLE TEXT (no logo)")
-                binding.scheduleLogo.isVisible = false
-                binding.scheduleName.isVisible = true
-                binding.scheduleName.text = item.scheduleName
+                logo.isVisible = false
+                name.isVisible = true
+                name.text = item.scheduleName
             }
 
             val imageUrl = item.scheduleBannerUrl ?: item.schedulePosterUrl
@@ -396,7 +494,7 @@ class ScheduleCardAdapter(
             if (!imageUrl.isNullOrBlank() && imageUrl.startsWith("http")) {
                 Log.d(ScheduleFragment.TAG, "  → [${item.scheduleName}] background image=$bannerSource: ${ScheduleFragment.shortUrl(imageUrl)}")
                 // error(null) ensures a failed/404 load leaves no ghost of the previous image
-                binding.schedulePosterBg.loadImage(imageUrl) {
+                posterBg.loadImage(imageUrl) {
                     placeholder(null)
                     error(null)
                 }
@@ -404,23 +502,13 @@ class ScheduleCardAdapter(
                 Log.w(ScheduleFragment.TAG, "  → [${item.scheduleName}] NO background image (banner+poster both empty) → card will be blank")
             }
 
-            binding.scheduleWatchBtn.setOnClickListener {
+            watchBtn.setOnClickListener {
                 onItemClick(item)
             }
 
-            binding.scheduleCard.setOnClickListener {
+            card.setOnClickListener {
                 onItemClick(item)
             }
-        }
-    }
-
-    private class ScheduleDiffCallback : DiffUtil.ItemCallback<WeeklyScheduleItem>() {
-        override fun areItemsTheSame(oldItem: WeeklyScheduleItem, newItem: WeeklyScheduleItem): Boolean {
-            return oldItem.scheduleId == newItem.scheduleId
-        }
-
-        override fun areContentsTheSame(oldItem: WeeklyScheduleItem, newItem: WeeklyScheduleItem): Boolean {
-            return oldItem == newItem
         }
     }
 }
