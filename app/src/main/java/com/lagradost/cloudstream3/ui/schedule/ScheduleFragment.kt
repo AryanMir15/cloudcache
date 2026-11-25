@@ -316,21 +316,23 @@ class ScheduleFragment : Fragment() {
 
         // Card style: full-width rows or a poster grid. The active option is
         // tinted with the accent color, the other stays transparent.
-        val styleGroup = com.google.android.material.button.MaterialButtonToggleGroup(requireContext()).apply {
-            setPadding(24, 8, 24, 8)
-        }
+        // NOTE: ids must be real, non-zero view ids (0 == NO_ID and the
+        // toggle group can never check such a child).
         val listButton = com.google.android.material.button.MaterialButton(requireContext()).apply {
             text = getString(R.string.schedule_view_style_list)
             isAllCaps = false
-            id = ScheduleViewStyle.LIST.ordinal
+            id = View.generateViewId()
         }
         val gridButton = com.google.android.material.button.MaterialButton(requireContext()).apply {
             text = getString(R.string.schedule_view_style_grid)
             isAllCaps = false
-            id = ScheduleViewStyle.GRID.ordinal
+            id = View.generateViewId()
         }
-        styleGroup.addView(listButton)
-        styleGroup.addView(gridButton)
+        val styleGroup = com.google.android.material.button.MaterialButtonToggleGroup(requireContext()).apply {
+            addView(listButton)
+            addView(gridButton)
+            setPadding(24, 8, 24, 8)
+        }
 
         fun applyStyleButtonColors() {
             val accent = requireContext().colorFromAttribute(R.attr.colorPrimary)
@@ -375,7 +377,7 @@ class ScheduleFragment : Fragment() {
             .setView(container)
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val selected = styleGroup.checkedButtonId
-                val style = if (selected == ScheduleViewStyle.GRID.ordinal) {
+                val style = if (selected == gridButton.id) {
                     ScheduleViewStyle.GRID
                 } else {
                     ScheduleViewStyle.LIST
