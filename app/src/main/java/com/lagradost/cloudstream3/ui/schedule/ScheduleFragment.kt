@@ -314,41 +314,59 @@ class ScheduleFragment : Fragment() {
             setPadding(24, 24, 24, 24)
         }
 
-        // Card style: full-width rows or a poster grid. The active option is
-        // tinted with the accent color, the other stays transparent.
-        // NOTE: ids must be real, non-zero view ids (0 == NO_ID and the
-        // toggle group can never check such a child).
-        val listButton = com.google.android.material.button.MaterialButton(requireContext()).apply {
-            text = getString(R.string.schedule_view_style_list)
-            isAllCaps = false
-            id = View.generateViewId()
-        }
-        val gridButton = com.google.android.material.button.MaterialButton(requireContext()).apply {
-            text = getString(R.string.schedule_view_style_grid)
-            isAllCaps = false
-            id = View.generateViewId()
-        }
-        val styleGroup = com.google.android.material.button.MaterialButtonToggleGroup(requireContext()).apply {
-            addView(listButton)
-            addView(gridButton)
-            setPadding(24, 8, 24, 8)
+        // Card style: full-width rows or a poster grid — selectable rows with a
+        // checkmark, same look as the genre filter modal.
+        var selectedStyle = currentStyle
+        val accent = requireContext().colorFromAttribute(R.attr.colorPrimary)
+
+        fun Int.dpPx(): Int = (this * resources.displayMetrics.density).toInt()
+
+        fun makeStyleRow(label: String): Pair<android.widget.LinearLayout, ImageView> {
+            val row = android.widget.LinearLayout(requireContext()).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(24, 16, 24, 16)
+                isClickable = true
+                isFocusable = true
+                background = androidx.core.content.ContextCompat.getDrawable(
+                    requireContext(), R.drawable.ripple_background
+                )
+            }
+            val text = android.widget.TextView(requireContext()).apply {
+                text = label
+                textSize = 15f
+                setTextColor(requireContext().colorFromAttribute(R.attr.textColor))
+            }
+            val tick = ImageView(requireContext()).apply {
+                setImageResource(R.drawable.ic_baseline_check_24)
+                imageTintList = android.content.res.ColorStateList.valueOf(accent)
+                visibility = View.GONE
+            }
+            row.addView(text, android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(tick, android.widget.LinearLayout.LayoutParams(24.dpPx(), 24.dpPx()))
+            return row to tick
         }
 
-        fun applyStyleButtonColors() {
-            val accent = requireContext().colorFromAttribute(R.attr.colorPrimary)
-            val textColor = requireContext().colorFromAttribute(R.attr.textColor)
-            fun style(btn: com.google.android.material.button.MaterialButton, active: Boolean) {
-                btn.backgroundTintList = android.content.res.ColorStateList.valueOf(
-                    if (active) accent else android.graphics.Color.TRANSPARENT
-                )
-                btn.setTextColor(if (active) android.graphics.Color.WHITE else textColor)
+        val (listRow, listTick) = makeStyleRow(getString(R.string.schedule_view_style_list))
+        val (gridRow, gridTick) = makeStyleRow(getString(R.string.schedule_view_style_grid))
+
+        fun repaintStyleRows() {
+            fun paint(row: android.widget.LinearLayout, tick: ImageView, active: Boolean) {
+                row.setBackgroundColor(if (active) accent else android.graphics.Color.TRANSPARENT)
+                tick.visibility = if (active) View.VISIBLE else View.GONE
             }
-            style(listButton, styleGroup.checkedButtonId == listButton.id)
-            style(gridButton, styleGroup.checkedButtonId == gridButton.id)
+            paint(listRow, listTick, selectedStyle == ScheduleViewStyle.LIST)
+            paint(gridRow, gridTick, selectedStyle == ScheduleViewStyle.GRID)
         }
-        styleGroup.addOnButtonCheckedListener { _, _, _ -> applyStyleButtonColors() }
-        styleGroup.check(currentStyle.ordinal)
-        applyStyleButtonColors()
+
+        listRow.setOnClickListener {
+            selectedStyle = ScheduleViewStyle.LIST
+            repaintStyleRows()
+        }
+        gridRow.setOnClickListener {
+            selectedStyle = ScheduleViewStyle.GRID
+            repaintStyleRows()
+        }
 
         val styleLabel = android.widget.TextView(requireContext()).apply {
             text = getString(R.string.schedule_view_style)
@@ -368,25 +386,21 @@ class ScheduleFragment : Fragment() {
             orientation = android.widget.LinearLayout.VERTICAL
             addView(checkBox)
             addView(styleLabel)
-            addView(styleGroup)
+            addView(listRow)
+            addView(gridRow)
             addView(refreshButton)
         }
+        repaintStyleRows()
 
         val dialog = androidx.appcompat.app.AlertDialog.Builder(requireContext(), R.style.AlertDialogCustom)
             .setTitle(R.string.filter)
             .setView(container)
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val selected = styleGroup.checkedButtonId
-                val style = if (selected == gridButton.id) {
-                    ScheduleViewStyle.GRID
-                } else {
-                    ScheduleViewStyle.LIST
-                }
+            .setPositiveButton(R.string.apply) { _, _ ->
                 prefs.edit().putString(
                     "schedule_view_style",
-                    if (style == ScheduleViewStyle.GRID) "grid" else "list"
+                    if (selectedStyle == ScheduleViewStyle.GRID) "grid" else "list"
                 ).apply()
-                applyViewStyle(style)
+                applyViewStyle(selectedStyle)
             }
             .setNegativeButton(R.string.cancel, null)
             .create()
