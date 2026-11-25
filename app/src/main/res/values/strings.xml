@@ -814,8 +814,9 @@
     <string name="anime4k_sharpen_desc">Final unsharp-mask strength applied on top of the shader chain.</string>
     <string name="anime4k_canvas_aware">Anime4K canvas aware</string>
     <string name="anime4k_canvas_aware_desc">Only upscale when the screen actually benefits, scaling to the display size instead. Same quality, less wasted GPU work.</string>
-    <string name="player_shader_controls">Show shader controls in player</string>
-    <string name="player_shader_controls_des">Adds a button in the player top-right corner to switch shaders and sharpen on the fly without leaving playback.</string>
+    <string name="player_shader_controls">Show upscaler button in player</string>
+    <string name="player_shader_quick">Upscale</string>
+    <string name="player_shader_controls_des">Adds an Upscale button in the player bottom bar (next to Sources, Tracks and Resize) to switch shaders and sharpen on the fly without leaving playback.</string>
     <string name="player_shader_presets">Quick presets</string>
     <string name="player_shader_preset_strong">Mode A + Strong</string>
     <string name="player_shader_applied">Shader set to %s</string>

@@ -220,8 +220,12 @@ class GeneratorPlayer : FullScreenPlayer() {
                 Log.i(TAG, "Set SUBTITLE_AUTO_SELECT_KEY to '$subtitleLanguageTagIETF'")
                 setKey(SUBTITLE_AUTO_SELECT_KEY, subtitleLanguageTagIETF)
                 preferredAutoSelectSubtitles = subtitleLanguageTagIETF
-                // Also persist the variant (nameSuffix) so next episode picks the same one
-                val variant = subtitle?.nameSuffix ?: ""
+                // Persist the variant identity so the next episode picks the
+                // same one. Use the full display name ("English NF", "English
+                // 1") — nameSuffix alone is "1" for numbered variants but
+                // empty for named ones like "English NF", which made those
+                // fall back to the first English variant.
+                val variant = subtitle?.name?.takeIf { it.isNotBlank() } ?: ""
                 setKey(SUBTITLE_VARIANT_KEY, variant)
                 preferredSubtitleVariant = variant
             }
@@ -244,6 +248,8 @@ class GeneratorPlayer : FullScreenPlayer() {
         if (tracks.allAudioTracks.any { it.language == preferredAudioTrackLanguage }) {
             player.setPreferredAudioTrack(preferredAudioTrackLanguage)
         }
+        // Carry over the selected resolution (e.g. 1080) to the new stream
+        (player as? CS3IPlayer)?.applyPreferredVideoTrackHeight()
         updatePlayerInfo()
     }
 
@@ -1570,6 +1576,8 @@ class GeneratorPlayer : FullScreenPlayer() {
                     val height = currentVideo?.height ?: NO_VALUE
                     if (width != NO_VALUE && height != NO_VALUE) {
                         player.setMaxVideoSize(width, height, currentVideo?.id)
+                        // Remember the resolution so the next episode keeps it
+                        (player as? CS3IPlayer)?.setPreferredVideoTrackHeight(height)
                     }
                     trackDialog.dismissSafe(activity)
                     this.selectTrackDialog = null
@@ -1877,19 +1885,26 @@ class GeneratorPlayer : FullScreenPlayer() {
         val langCode = preferredAutoSelectSubtitles ?: return null
         val variant = preferredSubtitleVariant
 
+        fun pickVariant(list: List<SubtitleData>): SubtitleData? {
+            if (variant.isNullOrBlank()) return list.firstOrNull()
+            // Full name match first ("English NF"), then legacy nameSuffix
+            // matches ("1", "2") stored by older builds.
+            return list.firstOrNull { it.name == variant }
+                ?: list.firstOrNull { it.nameSuffix == variant }
+                ?: list.firstOrNull()
+        }
+
         if (downloads) {
-            val downloaded = sortSubs(subtitles).filter { it.origin == SubtitleOrigin.DOWNLOADED_FILE && it.matchesLanguageCode(langCode) }
-            // Try matching the saved variant first, then fall back to first match
-            return (if (!variant.isNullOrBlank()) downloaded.firstOrNull { it.nameSuffix == variant } else null)
-                ?: downloaded.firstOrNull()
+            val downloaded = sortSubs(subtitles).filter {
+                it.origin == SubtitleOrigin.DOWNLOADED_FILE && it.matchesLanguageCode(langCode)
+            }
+            return pickVariant(downloaded)
         }
 
         if (!settings) return null
 
         val matching = sortSubs(subtitles).filter { it.matchesLanguageCode(langCode) }
-        // Try matching the saved variant first, then fall back to first match
-        return (if (!variant.isNullOrBlank()) matching.firstOrNull { it.nameSuffix == variant } else null)
-            ?: matching.firstOrNull()
+        return pickVariant(matching)
     }
     
     private fun autoSelectFromSettings(): Boolean {
@@ -2153,61 +2168,30 @@ class GeneratorPlayer : FullScreenPlayer() {
 
         val root = super.onCreateView(inflater, container, savedInstanceState) ?: return null
         binding = FragmentPlayerBinding.bind(root)
-        setupShaderButton()
+        // Bottom-bar upscaler button (next to sources/tracks/resize): opens
+        // the shader sheet. Visible only when the setting is enabled.
+        playerBinding?.playerShaderBtt?.apply {
+            setOnClickListener { showShaderSheet() }
+            isVisible = isShaderControlsEnabled()
+        }
         return root
     }
 
     override fun onDestroyView() {
         binding = null
-        shaderButton = null
         super.onDestroyView()
     }
 
-    private var shaderButton: ImageButton? = null
-
-    /**
-     * Crash-safe in-player shader quick-switch. The button is added as an
-     * overlay on the PlayerView (present in every player layout), never into
-     * the controller layout that the generated binding demands — the previous
-     * attempt crashed on player variants whose controller lacks the id.
-     */
-    private fun setupShaderButton() {
-        val pv = playerView ?: return
-        if (shaderButton != null) return
-        val ctx = context ?: return
-        val show = PreferenceManager.getDefaultSharedPreferences(ctx)
+    private fun isShaderControlsEnabled(): Boolean {
+        val ctx = context ?: return false
+        return PreferenceManager.getDefaultSharedPreferences(ctx)
             .getBoolean(ctx.getString(R.string.player_shader_controls_key), false)
-        if (!show) return
+    }
 
-        val density = resources.displayMetrics.density
-        val size = (40 * density).toInt()
-        val btn = ImageButton(ctx).apply {
-            setImageResource(R.drawable.ic_baseline_tune_24)
-            background = android.graphics.drawable.GradientDrawable().apply {
-                shape = android.graphics.drawable.GradientDrawable.OVAL
-                setColor(0x66000000.toInt())
-            }
-            imageTintList = android.content.res.ColorStateList.valueOf(0xFFFFFFFF.toInt())
-            contentDescription = ctx.getString(R.string.player_shader_controls)
-            isFocusable = true
-            setOnClickListener { showShaderSheet() }
-        }
-        val params = FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.END)
-        params.setMargins(0, (8 * density).toInt(), (8 * density).toInt(), 0)
-        pv.addView(btn, params)
-        shaderButton = btn
-
-        // Only show the button while the player controls are visible: it
-        // appears with the controls on tap and disappears with them.
-        val controller = pv.findViewById<androidx.media3.ui.PlayerControlView>(
-            androidx.media3.ui.R.id.exo_controller
-        )
-        btn.isVisible = controller != null && controller.visibility == View.VISIBLE
-        pv.setControllerVisibilityListener(
-            androidx.media3.ui.PlayerView.ControllerVisibilityListener { visibility: Int ->
-                btn.isVisible = visibility == View.VISIBLE
-            }
-        )
+    override fun onResume() {
+        super.onResume()
+        // Re-apply visibility in case the setting changed while paused
+        playerBinding?.playerShaderBtt?.isVisible = isShaderControlsEnabled()
     }
 
     /** In-player shader sheet: one-tap presets + the same mode/sharpen/canvas

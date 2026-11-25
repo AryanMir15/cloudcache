@@ -121,6 +121,7 @@ import kotlin.uuid.toJavaUuid
 
 const val TAG = "CS3ExoPlayer"
 const val PREFERRED_AUDIO_LANGUAGE_KEY = "preferred_audio_language"
+const val PREFERRED_VIDEO_HEIGHT_KEY = "preferred_video_height"
 
 /** toleranceBeforeUs – The maximum time that the actual position seeked to may precede the
  * requested seek position, in microseconds. Must be non-negative. */
@@ -398,6 +399,46 @@ class CS3IPlayer : IPlayer {
         exoPlayer?.trackSelectionParameters = exoPlayer?.trackSelectionParameters
             ?.buildUpon()
             ?.setMaxVideoSize(width, height)
+            ?.build()
+            ?: return
+    }
+
+    /** Saves the preferred video height and applies it to the current stream. */
+    fun setPreferredVideoTrackHeight(height: Int?) {
+        preferredVideoTrackHeight = height
+        applyPreferredVideoTrackHeight()
+    }
+
+    /**
+     * Re-applies the saved preferred video height to the current stream:
+     * exact track override when a track with that height exists, otherwise a
+     * max-size cap. Called when a new stream's tracks become available so the
+     * resolution choice carries over between episodes.
+     */
+    fun applyPreferredVideoTrackHeight() {
+        val height = preferredVideoTrackHeight ?: return
+        val videoGroups = exoPlayer?.currentTracks?.groups
+            ?.filter { it.type == TRACK_TYPE_VIDEO }
+            ?: return
+        if (videoGroups.isEmpty()) return
+
+        // Prefer an exact height match so "1080" really means 1080
+        val exact = videoGroups.firstNotNullOfOrNull { group ->
+            (0 until group.mediaTrackGroup.length).mapNotNull { i ->
+                if (group.isSupported) group.mediaTrackGroup.getFormat(i) to i else null
+            }.firstOrNull { (format, _) -> format.height == height }
+                ?.let { group.mediaTrackGroup to it.second }
+        }
+
+        exoPlayer?.trackSelectionParameters = exoPlayer?.trackSelectionParameters
+            ?.buildUpon()
+            ?.apply {
+                if (exact != null) {
+                    setOverrideForType(TrackSelectionOverride(exact.first, exact.second))
+                } else {
+                    setMaxVideoSize(Format.NO_VALUE, height)
+                }
+            }
             ?.build()
             ?: return
     }
@@ -752,6 +793,25 @@ class CS3IPlayer : IPlayer {
             }
             set(value) {
                 setKey("$currentAccount/$PREFERRED_AUDIO_LANGUAGE_KEY", value)
+                field = value
+            }
+
+        /**
+         * Preferred video track height (e.g. 1080) picked in the tracks dialog.
+         * Persisted like [preferredAudioTrackLanguage] and re-applied to the
+         * next episode's stream so the resolution carries over.
+         **/
+        var preferredVideoTrackHeight: Int? = null
+            get() {
+                return field ?: getKey<Int>(
+                    "$currentAccount/$PREFERRED_VIDEO_HEIGHT_KEY",
+                    field
+                )?.also {
+                    field = it
+                }
+            }
+            set(value) {
+                setKey("$currentAccount/$PREFERRED_VIDEO_HEIGHT_KEY", value)
                 field = value
             }
 
