@@ -9,6 +9,7 @@ import dev.whyoleg.cryptography.CryptographyProvider
 import dev.whyoleg.cryptography.DelicateCryptographyApi
 import dev.whyoleg.cryptography.algorithms.AES
 import dev.whyoleg.cryptography.algorithms.MD5
+import kotlinx.coroutines.runBlocking
 
 object AesHelper {
 
@@ -19,7 +20,7 @@ object AesHelper {
 
     @OptIn(DelicateCryptographyApi::class)
     @Prerelease
-    fun cryptoAESHandler(
+    suspend fun cryptoAESHandler(
         data: String,
         pass: ByteArray,
         encrypt: Boolean = true,
@@ -58,7 +59,7 @@ object AesHelper {
         // If it ends with NoPadding (e.g. "AES/CBC/NoPadding"), then it
         // doesn't have padding, otherwise we treat as if it does.
         val hasPadding = !padding.endsWith("NoPadding")
-        return cryptoAESHandler(data, pass, encrypt, hasPadding)
+        return runBlocking { cryptoAESHandler(data, pass, encrypt, hasPadding) }
     }
 
     // https://stackoverflow.com/a/41434590/8166854

@@ -57,6 +57,7 @@ kotlin {
             implementation(libs.annotation) // Annotations
             implementation(libs.jackson.module.kotlin) // JSON Parser
             implementation(libs.jsoup) // HTML Parser
+            implementation(libs.ksoup) // HTML Parser (KMP) — provided to plugins like upstream
             implementation(libs.kotlinx.atomicfu)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)

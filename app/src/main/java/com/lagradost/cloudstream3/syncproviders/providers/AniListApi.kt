@@ -944,7 +944,7 @@ class AniListApi : SyncAPI() {
 
     data class Recommendation(
         val id: Long,
-        @JsonProperty("mediaRecommendation") val mediaRecommendation: SeasonMedia?,
+        @JsonProperty("mediaRecommendation") val mediaRecommendation: RecommendedMedia?,
     )
 
     data class RecommendedMedia(
