@@ -9,6 +9,18 @@ import kotlin.Throws
 
 abstract class Plugin : BasePlugin() {
     /**
+     * Compose-compiled extensions (e.g. phisher's CsKit plugins) mark their
+     * plugin class @Stable/@Immutable, so the Compose compiler emits a
+     * `getstatic Plugin.$stable` in the subclass <clinit>. Upstream compiles
+     * the app with the Compose compiler, which generates this field; we don't,
+     * so declare it manually to keep the ABI identical.
+     */
+    companion object {
+        @JvmField
+        val `$stable`: Int = 0
+    }
+
+    /**
      * Called when your Plugin is loaded
      * @param context Context
      */

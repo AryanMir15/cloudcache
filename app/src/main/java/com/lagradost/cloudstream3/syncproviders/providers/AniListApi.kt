@@ -581,13 +581,25 @@ class AniListApi : SyncAPI() {
     data class Title(
         @JsonProperty("english") val english: String?,
         @JsonProperty("romaji") val romaji: String?
-    )
+    ) {
+        companion object {
+            // Compose-compiled extensions read $stable on these models; match
+            // the field the upstream Compose compiler would generate.
+            @JvmField
+            val `$stable`: Int = 0
+        }
+    }
 
     data class CoverImage(
         @JsonProperty("medium") val medium: String?,
         @JsonProperty("large") val large: String?,
         @JsonProperty("extraLarge") val extraLarge: String?
-    )
+    ) {
+        companion object {
+            @JvmField
+            val `$stable`: Int = 0
+        }
+    }
 
     data class Media(
         @JsonProperty("id") val id: Int,
@@ -935,7 +947,12 @@ class AniListApi : SyncAPI() {
         @JsonProperty("edges") val edges: List<RecommendationEdge> = emptyList(),
         @JsonProperty("nodes") val nodes: List<Recommendation> = emptyList(),
         //@JsonProperty("pageInfo") val pageInfo: PageInfo,
-    )
+    ) {
+        companion object {
+            @JvmField
+            val `$stable`: Int = 0
+        }
+    }
 
     data class RecommendationEdge(
         //@JsonProperty("rating") val rating: Int,
@@ -1038,7 +1055,12 @@ class AniListApi : SyncAPI() {
     data class SeasonNextAiringEpisode(
         @JsonProperty("episode") val episode: Int?,
         @JsonProperty("timeUntilAiring") val timeUntilAiring: Int?,
-    )
+    ) {
+        companion object {
+            @JvmField
+            val `$stable`: Int = 0
+        }
+    }
 
     data class SeasonEdges(
         @JsonProperty("edges") val edges: List<SeasonEdge>?,
@@ -1111,7 +1133,12 @@ class AniListApi : SyncAPI() {
         @JsonProperty("lastPage") val lastPage: Int?,
         @JsonProperty("perPage") val perPage: Int?,
         @JsonProperty("hasNextPage") val hasNextPage: Boolean?,
-    )
+    ) {
+        companion object {
+            @JvmField
+            val `$stable`: Int = 0
+        }
+    }
 
     data class LikeAnime(
         @JsonProperty("nodes") val nodes: List<LikeNode>?,
