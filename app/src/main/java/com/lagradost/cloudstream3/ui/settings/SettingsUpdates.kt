@@ -289,35 +289,6 @@ class SettingsUpdates : BasePreferenceFragmentCompat() {
             }
             return@setOnPreferenceClickListener true // Return true for the listener
         }
-
-        getPref(R.string.blocked_popup_repo_key)?.setOnPreferenceClickListener { pref ->
-            val input = EditText(pref.context).apply {
-                setText(PluginManager.getBlockedPopupRepos().joinToString(", "))
-                hint = "e.g. phisherrepo"
-                minLines = 2
-                isSingleLine = false
-                setPadding(32, 16, 32, 16)
-            }
-            AlertDialog.Builder(pref.context, R.style.AlertDialogCustom)
-                .setTitle(R.string.blocked_popup_repos)
-                .setMessage(R.string.blocked_popup_repos_des)
-                .setView(input)
-                .setPositiveButton(android.R.string.ok) { _, _ ->
-                    val tokens = input.text.toString()
-                        .split(',', '\n', ' ')
-                        .map { it.trim().lowercase() }
-                        .filter { it.isNotEmpty() }
-                        .distinct()
-                    PluginManager.setBlockedPopupRepos(tokens)
-                    showToast(
-                        if (tokens.isEmpty()) R.string.blocked_popup_repos_none
-                        else R.string.blocked_popup_repos_saved
-                    )
-                }
-                .setNegativeButton(R.string.cancel, null)
-                .show()
-            return@setOnPreferenceClickListener true
-        }
     }
 
     private fun getBackupDirsForDisplay(): List<String> {

@@ -37,7 +37,10 @@ import androidx.core.view.isGone
 import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
 import androidx.core.view.marginStart
+import androidx.fragment.app.DialogFragment
+import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
+import androidx.fragment.app.FragmentManager
 import androidx.lifecycle.ViewModelProvider
 import androidx.navigation.NavController
 import androidx.navigation.NavDestination
@@ -1258,7 +1261,32 @@ class MainActivity : AppCompatActivity(), ColorPickerDialogListener, BiometricCa
         setNavigationBarColorCompat(R.attr.primaryGrayBackground)
         updateLocale()
         super.onCreate(savedInstanceState)
-        
+
+        // Extensions run inside our process and can attach their own
+        // DialogFragments to our FragmentManager (e.g. phisher's remote-
+        // controlled donation prompt). Block plugin-owned donation/promo
+        // dialogs here so they can never render.
+        supportFragmentManager.registerFragmentLifecycleCallbacks(
+            object : FragmentManager.FragmentLifecycleCallbacks() {
+                override fun onFragmentViewCreated(
+                    fm: FragmentManager,
+                    fragment: Fragment,
+                    view: View,
+                    savedInstanceState: Bundle?
+                ) {
+                    super.onFragmentViewCreated(fm, fragment, view, savedInstanceState)
+                    val clsName = fragment.javaClass.name
+                    if (!clsName.startsWith("com.lagradost.cloudstream3.") &&
+                        clsName.contains("Donation", ignoreCase = true)
+                    ) {
+                        Log.i(TAG, "Blocking plugin donation dialog: $clsName")
+                        (fragment as? DialogFragment)?.dismissAllowingStateLoss()
+                    }
+                }
+            },
+            true
+        )
+
         try {
             if (isCastApiAvailable()) {
                 CastContext.getSharedInstance(this) { it.run() }
