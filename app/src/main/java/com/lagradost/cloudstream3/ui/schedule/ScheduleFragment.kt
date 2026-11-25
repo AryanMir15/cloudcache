@@ -25,11 +25,14 @@ import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.chip.Chip
 import com.google.android.material.navigationrail.NavigationRailView
 import com.lagradost.cloudstream3.R
+import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.databinding.FragmentScheduleBinding
 import com.lagradost.cloudstream3.databinding.ItemScheduleCardBinding
+import com.lagradost.cloudstream3.ui.search.SearchAdapter
 import com.lagradost.cloudstream3.utils.ImageLoader.loadImage
 import com.lagradost.cloudstream3.utils.UIHelper.colorFromAttribute
 import com.lagradost.cloudstream3.utils.UIHelper.fixSystemBarsPadding
+import com.lagradost.cloudstream3.utils.UIHelper.getSpanCount
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
@@ -47,6 +50,7 @@ class ScheduleFragment : Fragment() {
     private var selectedDay: DayOfWeek = LocalDate.now().dayOfWeek
     private var didAutoSelectDay = false
     private var cardAdapter: ScheduleCardAdapter? = null
+    private var currentStyle: ScheduleViewStyle = ScheduleViewStyle.LIST
 
     private lateinit var dayPillMap: Map<DayOfWeek, Chip>
     private var themeColor: Int = 0
@@ -215,8 +219,31 @@ class ScheduleFragment : Fragment() {
         binding.scheduleEmptyText.isVisible = dayItems.isEmpty() && viewModel.errorMessage.value == null
         binding.scheduleRecycler.isVisible = dayItems.isNotEmpty()
 
-        cardAdapter?.submitList(dayItems)
+        submitDayItems(dayItems)
         highlightDayPill(day)
+    }
+
+    /** Feeds the active adapter (banner list vs global poster grid). */
+    private fun submitDayItems(dayItems: List<WeeklyScheduleItem>) {
+        if (currentStyle == ScheduleViewStyle.GRID) {
+            gridAdapter?.submitList(dayItems.map { it.toSearchResponse() })
+        } else {
+            cardAdapter?.submitList(dayItems)
+        }
+    }
+
+    /** SearchResponse view of a schedule item for the global grid cards. */
+    private fun WeeklyScheduleItem.toSearchResponse(): com.lagradost.cloudstream3.SearchResponse {
+        @Suppress("DEPRECATION_ERROR")
+        return com.lagradost.cloudstream3.MovieSearchResponse(
+            scheduleName,
+            "",
+            "Schedule",
+            if (scheduleType == ScheduleType.TV) TvType.TvSeries else TvType.Anime,
+            schedulePosterUrl ?: scheduleBannerUrl,
+            null,
+            scheduleId
+        )
     }
 
     private fun onDaySelected(day: DayOfWeek) {
@@ -233,7 +260,7 @@ class ScheduleFragment : Fragment() {
         binding.scheduleEmptyText.isVisible = dayItems.isEmpty() && viewModel.errorMessage.value == null
         binding.scheduleRecycler.isVisible = dayItems.isNotEmpty()
 
-        cardAdapter?.submitList(dayItems)
+        submitDayItems(dayItems)
         binding.scheduleRecycler.scrollToPosition(0)
         highlightDayPill(day)
     }
@@ -286,13 +313,7 @@ class ScheduleFragment : Fragment() {
     }
 
     private fun navigateToResult(item: WeeklyScheduleItem) {
-        Log.d(TAG, "navigateToResult → search for [${item.scheduleName}] (id=${item.scheduleId})")
-        val name = item.scheduleName ?: return
-        com.lagradost.cloudstream3.MainActivity.nextSearchQuery = name
-        val bottomNav = activity?.findViewById<BottomNavigationView>(R.id.nav_view)
-        val navRail = activity?.findViewById<NavigationRailView>(R.id.nav_rail_view)
-        bottomNav?.selectedItemId = R.id.navigation_search
-        navRail?.selectedItemId = R.id.navigation_search
+        navigateToResultName(item.scheduleName)
     }
 
     private fun showFilterDialog() {
@@ -412,14 +433,39 @@ class ScheduleFragment : Fragment() {
 
     private fun applyViewStyle(style: ScheduleViewStyle) {
         Log.d(TAG, "applyViewStyle → $style")
-        cardAdapter?.style = style
-        binding.scheduleRecycler.layoutManager =
-            if (style == ScheduleViewStyle.GRID) {
-                GridLayoutManager(requireContext(), 2)
-            } else {
-                LinearLayoutManager(requireContext())
+        currentStyle = style
+        val recycler = binding.scheduleRecycler
+        (recycler as? com.lagradost.cloudstream3.ui.AutofitRecyclerView)?.spanCount =
+            if (style == ScheduleViewStyle.GRID) requireContext().getSpanCount() else 1
+        if (style == ScheduleViewStyle.GRID) {
+            if (recycler.adapter !is SearchAdapter) {
+                recycler.adapter = gridAdapter
             }
-        binding.scheduleRecycler.scrollToPosition(0)
+            viewModel.scheduleItems.value?.let { submitDayItems(it) }
+        } else {
+            recycler.adapter = cardAdapter
+            viewModel.scheduleItems.value?.let { submitDayItems(it) }
+        }
+        recycler.scrollToPosition(0)
+    }
+
+    /** Global-style poster grid (SearchAdapter) fed with the day's items. */
+    private val gridAdapter: SearchAdapter by lazy {
+        SearchAdapter(
+            binding.scheduleRecycler as com.lagradost.cloudstream3.ui.AutofitRecyclerView,
+            isHorizontal = false
+        ) { callback ->
+            navigateToResultName(callback.card.name)
+        }
+    }
+
+    private fun navigateToResultName(name: String?) {
+        if (name.isNullOrBlank()) return
+        com.lagradost.cloudstream3.MainActivity.nextSearchQuery = name
+        val bottomNav = activity?.findViewById<BottomNavigationView>(R.id.nav_view)
+        val navRail = activity?.findViewById<NavigationRailView>(R.id.nav_rail_view)
+        bottomNav?.selectedItemId = R.id.navigation_search
+        navRail?.selectedItemId = R.id.navigation_search
     }
 
     override fun onDestroyView() {
