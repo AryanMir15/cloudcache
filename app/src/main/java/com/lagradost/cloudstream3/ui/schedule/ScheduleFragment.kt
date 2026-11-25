@@ -3,7 +3,10 @@ package com.lagradost.cloudstream3.ui.schedule
 import android.graphics.Typeface
 import android.os.Bundle
 import android.util.Log
+import android.util.TypedValue
+import android.view.GestureDetector
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat
@@ -30,6 +33,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import kotlin.math.abs
 
 class ScheduleFragment : Fragment() {
 
@@ -110,6 +114,12 @@ class ScheduleFragment : Fragment() {
         binding.scheduleRecycler.apply {
             layoutManager = LinearLayoutManager(requireContext())
             adapter = cardAdapter
+            // Swipe left/right to hop between days (the day pills are tiny on
+            // phones, so a horizontal fling over the list changes the day).
+            setOnTouchListener { _, event ->
+                swipeDetector.onTouchEvent(event)
+                false // keep vertical scrolling on the RecyclerView
+            }
         }
 
         viewModel.scheduleItems.observe(viewLifecycleOwner) { items ->
@@ -227,13 +237,50 @@ class ScheduleFragment : Fragment() {
     }
 
     private fun highlightDayPill(selected: DayOfWeek) {
-        val today = LocalDate.now().dayOfWeek
+        val density = resources.displayMetrics.density
         dayPillMap.forEach { (day, chip) ->
             val isSelected = day == selected
 
             // Chip handles selected/unselected via chip_color / chip_color_text selectors
             chip.isChecked = isSelected
+
+            // The row is one line on phones: keep unselected days slim and
+            // subtle, and let the selected day pop with a fuller pill.
+            chip.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (isSelected) 14f else 11f)
+            chip.setTypeface(null, if (isSelected) Typeface.BOLD else Typeface.NORMAL)
+            chip.chipMinHeight = (if (isSelected) 38f else 28f) * density
+            chip.alpha = if (isSelected) 1f else 0.5f
         }
+    }
+
+    /** Selects [day] by checking its pill — reuses the existing listener path. */
+    private fun selectDay(day: DayOfWeek) {
+        dayPillMap[day]?.isChecked = true
+    }
+
+    private val swipeDetector by lazy {
+        GestureDetector(
+            requireContext(),
+            object : GestureDetector.SimpleOnGestureListener() {
+                override fun onFling(
+                    e1: MotionEvent?,
+                    e2: MotionEvent,
+                    velocityX: Float,
+                    velocityY: Float
+                ): Boolean {
+                    if (e1 == null) return false
+                    val dx = e2.x - e1.x
+                    val dy = e2.y - e1.y
+                    if (abs(dx) > abs(dy) && abs(dx) > 100f && abs(velocityX) > 300f) {
+                        Log.d(TAG, "SWIPE → ${if (velocityX < 0) "next" else "prev"} day (dx=$dx)")
+                        if (velocityX < 0) selectDay(selectedDay.plus(1))
+                        else selectDay(selectedDay.minus(1))
+                        return true
+                    }
+                    return false
+                }
+            }
+        )
     }
 
     private fun navigateToResult(item: WeeklyScheduleItem) {
