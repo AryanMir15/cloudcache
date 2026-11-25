@@ -84,6 +84,11 @@ object WeeklyScheduleManager {
     private const val SCHEDULE_CACHE_VERSION = 3 // Bump to clear old cached items
     private const val KEY_SCHEDULE_CACHE_VERSION = "schedule_cache_version"
 
+    /** When the last full refresh ran — used to auto-refresh missing posters
+     * at most once every [AUTO_POSTER_REFRESH_MIN_MS] (5 days). */
+    private const val KEY_LAST_REFRESH_TS = "schedule_last_refresh_ts"
+    private const val AUTO_POSTER_REFRESH_MIN_MS = 5L * 24 * 60 * 60 * 1000 // 5 days
+
     // --- Backdrop cache (permanent, AniList ID → TMDB backdrop URL) ---
     private const val BACKDROP_CACHE_PREFS = "anilist_tmdb_backdrop_cache"
     private const val BACKDROP_CACHE_VERSION = 5 // Bump to clear old w1280 cache
@@ -193,6 +198,7 @@ object WeeklyScheduleManager {
             getPrefs()?.edit()
                 ?.putString(KEY_SCHEDULE_JSON, jsonArray.toString())
                 ?.putLong(KEY_CACHE_TIMESTAMP, System.currentTimeMillis())
+                ?.putLong(KEY_LAST_REFRESH_TS, System.currentTimeMillis())
                 ?.putInt(KEY_SCHEDULE_CACHE_VERSION, SCHEDULE_CACHE_VERSION)
                 ?.apply()
         } catch (e: Exception) {
@@ -258,6 +264,30 @@ object WeeklyScheduleManager {
         val prefs = getPrefs() ?: return false
         val timestamp = prefs.getLong(KEY_CACHE_TIMESTAMP, 0)
         return System.currentTimeMillis() - timestamp <= CACHE_TTL_MS
+    }
+
+    /** Timestamp of the last full schedule refresh (0 if never). */
+    fun getLastRefreshTimestamp(): Long {
+        return getPrefs()?.getLong(KEY_LAST_REFRESH_TS, 0) ?: 0
+    }
+
+    /**
+     * True when the cached items are missing posters/backdrops, the TMDB key is
+     * configured (so enrichment can actually fill them in) and the last full
+     * refresh was more than [AUTO_POSTER_REFRESH_MIN_MS] (5 days) ago. Used to
+     * auto-refresh instead of showing a low-quality (poster-only) schedule.
+     */
+    fun shouldAutoRefreshForMissingImages(items: List<WeeklyScheduleItem>): Boolean {
+        if (items.isEmpty()) return false
+        val ctx = context ?: return false
+        val prefs = androidx.preference.PreferenceManager.getDefaultSharedPreferences(ctx)
+        val tmdbKey = prefs.getString("tmdb_api_key", null)
+        if (tmdbKey.isNullOrBlank()) return false
+        val missing = items.any { it.scheduleBannerUrl.isNullOrBlank() || it.schedulePosterUrl.isNullOrBlank() }
+        if (!missing) return false
+        val lastRefresh = getLastRefreshTimestamp()
+        if (lastRefresh <= 0) return true // never refreshed — go ahead
+        return System.currentTimeMillis() - lastRefresh > AUTO_POSTER_REFRESH_MIN_MS
     }
 
     /**

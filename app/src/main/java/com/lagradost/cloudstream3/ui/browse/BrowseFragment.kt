@@ -2112,11 +2112,6 @@ class BrowseFragment : BaseFragment<FragmentBrowseBinding>(
                 toggleAccordion(dialogBinding.tmdbSortRecycler, dialogBinding.tmdbSortExpandIcon)
             }
 
-            // Expand the sort section by default so all options are visible
-            // without an extra tap (it used to look like a single value row).
-            dialogBinding.tmdbSortRecycler.visibility = View.VISIBLE
-            dialogBinding.tmdbSortExpandIcon.rotation = 90f
-
             // Setup Minimum Votes - Radio mode
             val minVotesOptions = listOf("0", "1", "5", "10", "20", "30", "50", "100", "200", "300", "400", "500", "1000", "2000", "3000", "5000", "10000")
             var minVotesAdapter: AniListFilterUtils.AniListCheckboxAdapter? = null

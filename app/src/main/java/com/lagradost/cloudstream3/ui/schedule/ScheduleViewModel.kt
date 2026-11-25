@@ -50,8 +50,17 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
             val cacheValid = withContext(Dispatchers.IO) {
                 WeeklyScheduleManager.isCacheValid()
             }
+            // Auto-refresh when the cached schedule is missing posters/backdrops
+            // (low-quality) — but at most once every 5 days, and only when the
+            // TMDB key is configured so enrichment can actually fill them in.
+            val autoRefreshPosters = withContext(Dispatchers.IO) {
+                WeeklyScheduleManager.shouldAutoRefreshForMissingImages(cached)
+            }
+            if (autoRefreshPosters) {
+                android.util.Log.d("SCHEDULE_AUTO", "Auto-refresh: cached items missing images, refreshing")
+            }
 
-            if (cacheValid && cached.isNotEmpty()) {
+            if (cacheValid && cached.isNotEmpty() && !autoRefreshPosters) {
                 allItems = cached
                 applyFilter()
                 _isLoading.postValue(false)

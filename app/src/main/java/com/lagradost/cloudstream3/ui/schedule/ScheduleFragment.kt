@@ -98,11 +98,6 @@ class ScheduleFragment : Fragment() {
         binding.scheduleToolbar.inflateMenu(R.menu.schedule_menu)
         binding.scheduleToolbar.setOnMenuItemClickListener { menuItem ->
             when (menuItem.itemId) {
-                R.id.action_refresh_schedule -> {
-                    Log.d(TAG, "──────── MANUAL REFRESH triggered → clearing caches + fresh fetch ────────")
-                    viewModel.forceRefresh()
-                    true
-                }
                 R.id.action_filter_schedule -> {
                     showFilterDialog()
                     true
@@ -319,21 +314,39 @@ class ScheduleFragment : Fragment() {
             setPadding(24, 24, 24, 24)
         }
 
-        // Card style: full-width rows or a poster grid
+        // Card style: full-width rows or a poster grid. The active option is
+        // tinted with the accent color, the other stays transparent.
         val styleGroup = com.google.android.material.button.MaterialButtonToggleGroup(requireContext()).apply {
-            addView(com.google.android.material.button.MaterialButton(requireContext()).apply {
-                text = getString(R.string.schedule_view_style_list)
-                isAllCaps = false
-                id = ScheduleViewStyle.LIST.ordinal
-            })
-            addView(com.google.android.material.button.MaterialButton(requireContext()).apply {
-                text = getString(R.string.schedule_view_style_grid)
-                isAllCaps = false
-                id = ScheduleViewStyle.GRID.ordinal
-            })
-            check(currentStyle.ordinal)
             setPadding(24, 8, 24, 8)
         }
+        val listButton = com.google.android.material.button.MaterialButton(requireContext()).apply {
+            text = getString(R.string.schedule_view_style_list)
+            isAllCaps = false
+            id = ScheduleViewStyle.LIST.ordinal
+        }
+        val gridButton = com.google.android.material.button.MaterialButton(requireContext()).apply {
+            text = getString(R.string.schedule_view_style_grid)
+            isAllCaps = false
+            id = ScheduleViewStyle.GRID.ordinal
+        }
+        styleGroup.addView(listButton)
+        styleGroup.addView(gridButton)
+
+        fun applyStyleButtonColors() {
+            val accent = requireContext().colorFromAttribute(R.attr.colorPrimary)
+            val textColor = requireContext().colorFromAttribute(R.attr.textColor)
+            fun style(btn: com.google.android.material.button.MaterialButton, active: Boolean) {
+                btn.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    if (active) accent else android.graphics.Color.TRANSPARENT
+                )
+                btn.setTextColor(if (active) android.graphics.Color.WHITE else textColor)
+            }
+            style(listButton, styleGroup.checkedButtonId == listButton.id)
+            style(gridButton, styleGroup.checkedButtonId == gridButton.id)
+        }
+        styleGroup.addOnButtonCheckedListener { _, _, _ -> applyStyleButtonColors() }
+        styleGroup.check(currentStyle.ordinal)
+        applyStyleButtonColors()
 
         val styleLabel = android.widget.TextView(requireContext()).apply {
             text = getString(R.string.schedule_view_style)
@@ -342,14 +355,22 @@ class ScheduleFragment : Fragment() {
             textSize = 14f
         }
 
+        // Refresh moved into this modal (was the toolbar icon)
+        val refreshButton = com.google.android.material.button.MaterialButton(requireContext()).apply {
+            text = getString(R.string.refresh)
+            isAllCaps = false
+            setPadding(24, 8, 24, 8)
+        }
+
         val container = android.widget.LinearLayout(requireContext()).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             addView(checkBox)
             addView(styleLabel)
             addView(styleGroup)
+            addView(refreshButton)
         }
 
-        androidx.appcompat.app.AlertDialog.Builder(requireContext(), R.style.AlertDialogCustom)
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(requireContext(), R.style.AlertDialogCustom)
             .setTitle(R.string.filter)
             .setView(container)
             .setPositiveButton(android.R.string.ok) { _, _ ->
@@ -365,7 +386,14 @@ class ScheduleFragment : Fragment() {
                 ).apply()
                 applyViewStyle(style)
             }
-            .show()
+            .setNegativeButton(R.string.cancel, null)
+            .create()
+        refreshButton.setOnClickListener {
+            dialog.dismiss()
+            Log.d(TAG, "──────── MANUAL REFRESH triggered → clearing caches + fresh fetch ────────")
+            viewModel.forceRefresh()
+        }
+        dialog.show()
     }
 
     private fun applyViewStyle(style: ScheduleViewStyle) {
