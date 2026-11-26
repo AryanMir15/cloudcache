@@ -111,6 +111,8 @@ class ScheduleFragment : Fragment() {
         }
 
         binding.schedulePager.adapter = dayPagerAdapter
+        showLogos = PreferenceManager.getDefaultSharedPreferences(requireContext())
+            .getBoolean("schedule_show_logos", true)
         binding.schedulePager.registerOnPageChangeCallback(object : androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 selectedDay = DAY_ORDER[position]
@@ -406,6 +408,11 @@ class ScheduleFragment : Fragment() {
                     if (selectedStyle == ScheduleViewStyle.GRID) "grid" else "list"
                 ).apply()
                 applyViewStyle(selectedStyle)
+                // Ecchi filtering needs fresh genre data — refresh when the
+                // toggle is on but the current data has no ecchi flags yet.
+                if (ecchiBox.isChecked && !viewModel.hasEcchiFlags()) {
+                    viewModel.refreshData()
+                }
             }
             .setNegativeButton(R.string.cancel, null)
             .create()
@@ -450,6 +457,7 @@ class ScheduleFragment : Fragment() {
 
             fun feed(items: List<WeeklyScheduleItem>, style: ScheduleViewStyle) {
                 ensureAdapters()
+                cardAdapter?.showLogos = this@ScheduleFragment.showLogos
                 (recycler as com.lagradost.cloudstream3.ui.AutofitRecyclerView).spanCount =
                     if (style == ScheduleViewStyle.GRID) requireContext().getSpanCount() else 1
                 val adapter = if (style == ScheduleViewStyle.GRID) gridAdapter else cardAdapter

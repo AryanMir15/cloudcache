@@ -166,6 +166,39 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         applyFilter()
     }
 
+    /** True when the cached items carry no ecchi flags yet (pre-genre fetch). */
+    fun hasEcchiFlags(): Boolean = allItems.any { it.isEcchi }
+
+    /**
+     * Re-fetches the schedule WITHOUT wiping image caches (backdrops/logos
+     * stay), so data-dependent filters (Exclude Ecchi) get their flags.
+     */
+    fun refreshData() {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launchSafe {
+            _errorMessage.postValue(null)
+            _isLoading.postValue(true)
+            val ctx = getApplication<Application>()
+            val includeTv = PreferenceManager.getDefaultSharedPreferences(ctx)
+                .getBoolean("schedule_include_tv_shows", false)
+            val fresh = withContext(Dispatchers.IO) {
+                try {
+                    WeeklyScheduleManager.fetchFreshSchedule(includeTv) { enriched ->
+                        allItems = enriched
+                        applyFilter()
+                    }
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            _isLoading.postValue(false)
+            if (fresh != null && fresh.isNotEmpty()) {
+                allItems = fresh
+                applyFilter()
+            }
+        }
+    }
+
     fun setIncludeTvShows(include: Boolean) {
         val ctx = getApplication<Application>()
         PreferenceManager.getDefaultSharedPreferences(ctx).edit()
