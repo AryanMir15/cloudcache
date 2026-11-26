@@ -70,6 +70,7 @@ object WeeklyScheduleManager {
     private const val ANILIST_GRAPHQL_URL = "https://graphql.anilist.co/"
     private const val TMDB_BASE_URL = "https://api.themoviedb.org/3"
     private const val TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w300"
+    private const val TMDB_POSTER_BASE = "https://image.tmdb.org/t/p/w780"
     private const val TMDB_BACKDROP_BASE = "https://image.tmdb.org/t/p/original"
 
     private val enrichMutex = Mutex()
@@ -81,7 +82,7 @@ object WeeklyScheduleManager {
     private const val KEY_SCHEDULE_JSON = "schedule_json"
     private const val KEY_CACHE_TIMESTAMP = "cache_timestamp"
     private const val CACHE_TTL_MS = 6 * 60 * 60 * 1000L // 6 hours
-    private const val SCHEDULE_CACHE_VERSION = 3 // Bump to clear old cached items
+    private const val SCHEDULE_CACHE_VERSION = 4 // Bump to clear old cached items
     private const val KEY_SCHEDULE_CACHE_VERSION = "schedule_cache_version"
 
     /** When the last full refresh ran — used to auto-refresh missing posters
@@ -192,6 +193,7 @@ object WeeklyScheduleManager {
                     put("airingAt", item.airingAt)
                     put("type", item.scheduleType.name)
                     put("tmdbId", item.tmdbId ?: JSONObject.NULL)
+                    put("ecchi", item.isEcchi)
                 }
                 jsonArray.put(obj)
             }
@@ -247,7 +249,8 @@ object WeeklyScheduleManager {
                         episodeNumber = if (obj.isNull("episode")) null else obj.getInt("episode"),
                         airingAt = obj.getLong("airingAt"),
                         scheduleType = type,
-                        tmdbId = if (obj.isNull("tmdbId")) null else obj.optInt("tmdbId", 0).takeIf { it > 0 }
+                        tmdbId = if (obj.isNull("tmdbId")) null else obj.optInt("tmdbId", 0).takeIf { it > 0 },
+                        isEcchi = obj.optBoolean("ecchi", false)
                     )
                 )
             }
@@ -374,6 +377,8 @@ object WeeklyScheduleManager {
                                 }
                                 synonyms
                                 bannerImage
+                                genres
+                                isAdult
                                 externalLinks {
                                     site
                                     id
@@ -507,7 +512,11 @@ object WeeklyScheduleManager {
                             episodeNumber = episode,
                             airingAt = airingAt * 1000,
                             scheduleType = ScheduleType.ANIME,
-                            tmdbId = tmdbId
+                            tmdbId = tmdbId,
+                            isEcchi = media.optBoolean("isAdult", false) ||
+                                (media.optJSONArray("genres")?.let { genres ->
+                                    (0 until genres.length()).any { genres.optString(it).equals("Ecchi", true) }
+                                } ?: false)
                         ).apply { this.altTitles = altTitles }
                     )
                 }
@@ -824,7 +833,7 @@ object WeeklyScheduleManager {
 
                             if (airDate.isBefore(today) || airDate.isAfter(weekEnd)) return@withPermit null
 
-                            val posterUrl = details.posterPath?.let { "$TMDB_IMAGE_BASE$it" }
+                            val posterUrl = details.posterPath?.let { "$TMDB_POSTER_BASE$it" }
                             val bannerUrl = details.backdropPath?.let { "$TMDB_BACKDROP_BASE$it" }
 
                             WeeklyScheduleItem(

@@ -112,7 +112,8 @@ class ScheduleFragment : Fragment() {
 
         cardAdapter = ScheduleCardAdapter { item ->
             navigateToResult(item)
-        }
+        }.also { it.showLogos = PreferenceManager.getDefaultSharedPreferences(requireContext())
+            .getBoolean("schedule_show_logos", true) }
         binding.scheduleRecycler.apply {
             adapter = cardAdapter
             // Swipe left/right to hop between days (the day pills are tiny on
@@ -210,7 +211,10 @@ class ScheduleFragment : Fragment() {
                 .atZone(ZoneId.systemDefault())
                 .toLocalDate()
                 .dayOfWeek == day
-        }.sortedBy { it.airingAt }
+        }
+            // One entry per show per day, no matter how many episodes air
+            .distinctBy { it.scheduleId }
+            .sortedBy { it.airingAt }
     }
 
     private fun updateContent(day: DayOfWeek) {
@@ -335,6 +339,35 @@ class ScheduleFragment : Fragment() {
             setPadding(24, 24, 24, 24)
         }
 
+        fun makeCheckBox(
+            label: String,
+            key: String,
+            onToggle: (Boolean) -> Unit
+        ) = androidx.appcompat.widget.AppCompatCheckBox(requireContext()).apply {
+            text = label
+            isChecked = prefs.getBoolean(key, false)
+            setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean(key, isChecked).apply()
+                onToggle(isChecked)
+            }
+            setPadding(24, 4, 24, 4)
+        }
+
+        val ecchiBox = makeCheckBox(
+            getString(R.string.schedule_exclude_ecchi),
+            "schedule_exclude_ecchi"
+        ) { viewModel.setExcludeEcchi(it) }
+
+        val premieresBox = makeCheckBox(
+            getString(R.string.schedule_premieres_only),
+            "schedule_premieres_only"
+        ) { viewModel.setPremieresOnly(it) }
+
+        val logosBox = makeCheckBox(
+            getString(R.string.schedule_show_logos),
+            "schedule_show_logos"
+        ) { cardAdapter?.showLogos = it }
+
         // Card style: full-width rows or a poster grid — two small side-by-side
         // buttons, the active one tinted with the accent color.
         var selectedStyle = currentStyle
@@ -405,6 +438,9 @@ class ScheduleFragment : Fragment() {
         val container = android.widget.LinearLayout(requireContext()).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             addView(checkBox)
+            addView(ecchiBox)
+            addView(premieresBox)
+            addView(logosBox)
             addView(styleLabel)
             addView(styleRow)
             addView(refreshButton)
@@ -493,6 +529,15 @@ class ScheduleCardAdapter(
     private val onItemClick: (WeeklyScheduleItem) -> Unit
 ) : RecyclerView.Adapter<ScheduleCardAdapter.CardViewHolder>() {
 
+    /** When true, show the logo image instead of the title where available. */
+    var showLogos: Boolean = true
+        set(value) {
+            if (field != value) {
+                field = value
+                notifyDataSetChanged()
+            }
+        }
+
     var style: ScheduleViewStyle = ScheduleViewStyle.LIST
         set(value) {
             if (field != value) {
@@ -557,7 +602,7 @@ class ScheduleCardAdapter(
             }
 
             val logoUrl = item.scheduleLogoUrl
-            if (!logoUrl.isNullOrBlank() && logoUrl.startsWith("http")) {
+            if (showLogos && !logoUrl.isNullOrBlank() && logoUrl.startsWith("http")) {
                 Log.d(ScheduleFragment.TAG, "  → [${item.scheduleName}] showing LOGO (title text hidden): ${ScheduleFragment.shortUrl(logoUrl)}")
                 logo.isVisible = true
                 name.isVisible = false

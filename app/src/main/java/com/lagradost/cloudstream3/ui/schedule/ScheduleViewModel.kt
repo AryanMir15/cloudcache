@@ -175,12 +175,44 @@ class ScheduleViewModel(application: Application) : AndroidViewModel(application
         applyFilter()
     }
 
+    private val _excludeEcchi = MutableLiveData<Boolean>()
+    val excludeEcchi: LiveData<Boolean> = _excludeEcchi
+
+    fun setExcludeEcchi(exclude: Boolean) {
+        val ctx = getApplication<Application>()
+        PreferenceManager.getDefaultSharedPreferences(ctx).edit()
+            .putBoolean("schedule_exclude_ecchi", exclude)
+            .apply()
+        _excludeEcchi.postValue(exclude)
+        applyFilter()
+    }
+
+    private val _premieresOnly = MutableLiveData<Boolean>()
+    val premieresOnly: LiveData<Boolean> = _premieresOnly
+
+    fun setPremieresOnly(enabled: Boolean) {
+        val ctx = getApplication<Application>()
+        PreferenceManager.getDefaultSharedPreferences(ctx).edit()
+            .putBoolean("schedule_premieres_only", enabled)
+            .apply()
+        _premieresOnly.postValue(enabled)
+        applyFilter()
+    }
+
     private fun applyFilter() {
         val includeTv = _includeTvShows.value ?: false
-        val baseItems = if (includeTv) {
+        val excludeEcchi = _excludeEcchi.value ?: false
+        val premieresOnly = _premieresOnly.value ?: false
+        var baseItems = if (includeTv) {
             allItems
         } else {
             allItems.filter { it.scheduleType == ScheduleType.ANIME }
+        }
+        if (excludeEcchi) {
+            baseItems = baseItems.filterNot { it.isEcchi }
+        }
+        if (premieresOnly) {
+            baseItems = baseItems.filter { it.episodeNumber == 1 }
         }
 
         val filtered = when (currentFilter) {
