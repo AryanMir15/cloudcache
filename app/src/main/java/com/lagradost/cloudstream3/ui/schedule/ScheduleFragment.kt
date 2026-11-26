@@ -49,8 +49,8 @@ class ScheduleFragment : Fragment() {
 
     private var selectedDay: DayOfWeek = LocalDate.now().dayOfWeek
     private var didAutoSelectDay = false
-    private var cardAdapter: ScheduleCardAdapter? = null
     private var currentStyle: ScheduleViewStyle = ScheduleViewStyle.LIST
+    private var showLogos = true
 
     private lateinit var dayPillMap: Map<DayOfWeek, Chip>
     private var themeColor: Int = 0
@@ -110,19 +110,14 @@ class ScheduleFragment : Fragment() {
             }
         }
 
-        cardAdapter = ScheduleCardAdapter { item ->
-            navigateToResult(item)
-        }.also { it.showLogos = PreferenceManager.getDefaultSharedPreferences(requireContext())
-            .getBoolean("schedule_show_logos", true) }
-        binding.scheduleRecycler.apply {
-            adapter = cardAdapter
-            // Swipe left/right to hop between days (the day pills are tiny on
-            // phones, so a horizontal fling over the list changes the day).
-            setOnTouchListener { _, event ->
-                swipeDetector.onTouchEvent(event)
-                false // keep vertical scrolling on the RecyclerView
+        binding.schedulePager.adapter = dayPagerAdapter
+        binding.schedulePager.registerOnPageChangeCallback(object : androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                selectedDay = DAY_ORDER[position]
+                highlightDayPill(selectedDay)
+                feedCurrentPage()
             }
-        }
+        })
         // Honor the saved card style (list/grid) from the filter dialog
         val savedStyle = if (PreferenceManager.getDefaultSharedPreferences(requireContext())
                 .getString("schedule_view_style", "list") == "grid"
@@ -218,23 +213,19 @@ class ScheduleFragment : Fragment() {
     }
 
     private fun updateContent(day: DayOfWeek) {
-        val dayItems = dayItems(day)
-        Log.d(TAG, "updateContent(day=$day) → ${dayItems.size} items to render: ${dayItems.map { it.scheduleName }}")
-        binding.scheduleEmptyText.isVisible = dayItems.isEmpty() && viewModel.errorMessage.value == null
-        binding.scheduleRecycler.isVisible = dayItems.isNotEmpty()
-
-        submitDayItems(dayItems)
-        highlightDayPill(day)
+        Log.d(TAG, "updateContent(day=$day)")
+        binding.schedulePager.setCurrentItem(DAY_ORDER.indexOf(day).coerceAtLeast(0), false)
+        feedCurrentPage()
     }
 
-    /** Feeds the active adapter (banner list vs global poster grid). */
-    private fun submitDayItems(dayItems: List<WeeklyScheduleItem>) {
-        if (currentStyle == ScheduleViewStyle.GRID) {
-            gridAdapter?.submitList(dayItems.map { it.toSearchResponse() })
-        } else {
-            cardAdapter?.submitList(dayItems)
-        }
+    /** Feeds the visible page's recycler with its day's items. */
+    private fun feedCurrentPage() {
+        val recycler = binding.schedulePager.getChildAt(0)
+            as? com.lagradost.cloudstream3.ui.AutofitRecyclerView ?: return
+        (recycler.tag as? DayPagerAdapter.DayHolder)?.feed(dayItems(selectedDay), currentStyle)
     }
+
+    private fun selectedDayIndex(): Int = DAY_ORDER.indexOf(selectedDay).coerceAtLeast(0)
 
     /** SearchResponse view of a schedule item for the global grid cards. */
     private fun WeeklyScheduleItem.toSearchResponse(): com.lagradost.cloudstream3.SearchResponse {
@@ -251,21 +242,10 @@ class ScheduleFragment : Fragment() {
     }
 
     private fun onDaySelected(day: DayOfWeek) {
-        if (day == selectedDay) {
-            Log.d(TAG, "TAB CHANGE ignored → tapped already-selected day $day")
-            highlightDayPill(day)
-            return
-        }
         Log.d(TAG, "──────── TAB CHANGE: $selectedDay → $day ────────")
         selectedDay = day
-
-        val dayItems = dayItems(day)
-        Log.d(TAG, "TAB CHANGE → day=$day has ${dayItems.size} items: ${dayItems.map { it.scheduleName }}")
-        binding.scheduleEmptyText.isVisible = dayItems.isEmpty() && viewModel.errorMessage.value == null
-        binding.scheduleRecycler.isVisible = dayItems.isNotEmpty()
-
-        submitDayItems(dayItems)
-        binding.scheduleRecycler.scrollToPosition(0)
+        binding.schedulePager.setCurrentItem(selectedDayIndex(), true)
+        feedCurrentPage()
         highlightDayPill(day)
     }
 
@@ -284,36 +264,6 @@ class ScheduleFragment : Fragment() {
             chip.chipMinHeight = (if (isSelected) 42f else 32f) * density
             chip.alpha = if (isSelected) 1f else 0.55f
         }
-    }
-
-    /** Selects [day] by checking its pill — reuses the existing listener path. */
-    private fun selectDay(day: DayOfWeek) {
-        dayPillMap[day]?.isChecked = true
-    }
-
-    private val swipeDetector by lazy {
-        GestureDetector(
-            requireContext(),
-            object : GestureDetector.SimpleOnGestureListener() {
-                override fun onFling(
-                    e1: MotionEvent?,
-                    e2: MotionEvent,
-                    velocityX: Float,
-                    velocityY: Float
-                ): Boolean {
-                    if (e1 == null) return false
-                    val dx = e2.x - e1.x
-                    val dy = e2.y - e1.y
-                    if (abs(dx) > abs(dy) && abs(dx) > 100f && abs(velocityX) > 300f) {
-                        Log.d(TAG, "SWIPE → ${if (velocityX < 0) "next" else "prev"} day (dx=$dx)")
-                        if (velocityX < 0) selectDay(selectedDay.plus(1))
-                        else selectDay(selectedDay.minus(1))
-                        return true
-                    }
-                    return false
-                }
-            }
-        )
     }
 
     private fun navigateToResult(item: WeeklyScheduleItem) {
@@ -366,7 +316,7 @@ class ScheduleFragment : Fragment() {
         val logosBox = makeCheckBox(
             getString(R.string.schedule_show_logos),
             "schedule_show_logos"
-        ) { cardAdapter?.showLogos = it }
+        ) { value -> showLogos = value; dayPagerAdapter.notifyDataSetChanged() }
 
         // Card style: full-width rows or a poster grid — two small side-by-side
         // buttons, the active one tinted with the accent color.
@@ -470,29 +420,64 @@ class ScheduleFragment : Fragment() {
     private fun applyViewStyle(style: ScheduleViewStyle) {
         Log.d(TAG, "applyViewStyle → $style")
         currentStyle = style
-        val recycler = binding.scheduleRecycler
-        (recycler as? com.lagradost.cloudstream3.ui.AutofitRecyclerView)?.spanCount =
-            if (style == ScheduleViewStyle.GRID) requireContext().getSpanCount() else 1
-        if (style == ScheduleViewStyle.GRID) {
-            if (recycler.adapter !is SearchAdapter) {
-                recycler.adapter = gridAdapter
-            }
-            viewModel.scheduleItems.value?.let { submitDayItems(it) }
-        } else {
-            recycler.adapter = cardAdapter
-            viewModel.scheduleItems.value?.let { submitDayItems(it) }
-        }
-        recycler.scrollToPosition(0)
+        dayPagerAdapter.notifyDataSetChanged() // rebind pages with the new style
+        binding.schedulePager.setCurrentItem(selectedDayIndex(), false)
+        feedCurrentPage()
     }
 
-    /** Global-style poster grid (SearchAdapter) fed with the day's items. */
-    private val gridAdapter: SearchAdapter by lazy {
-        SearchAdapter(
-            binding.scheduleRecycler as com.lagradost.cloudstream3.ui.AutofitRecyclerView,
-            isHorizontal = false
-        ) { callback ->
-            navigateToResultName(callback.card.name)
+    private val dayPagerAdapter by lazy { DayPagerAdapter() }
+
+    /** One page per weekday; each page lazily owns its list + grid adapters. */
+    inner class DayPagerAdapter : RecyclerView.Adapter<DayPagerAdapter.DayHolder>() {
+        inner class DayHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val recycler: com.lagradost.cloudstream3.ui.AutofitRecyclerView =
+                view.findViewById(R.id.day_recycler)
+            var cardAdapter: ScheduleCardAdapter? = null
+            var gridAdapter: SearchAdapter? = null
+
+            fun ensureAdapters() {
+                if (cardAdapter == null) {
+                    cardAdapter = ScheduleCardAdapter { navigateToResult(it) }.also {
+                        it.showLogos = this@ScheduleFragment.showLogos
+                    }
+                }
+                if (gridAdapter == null) {
+                    gridAdapter = SearchAdapter(recycler, isHorizontal = false) { cb ->
+                        navigateToResultName(cb.card.name)
+                    }
+                }
+            }
+
+            fun feed(items: List<WeeklyScheduleItem>, style: ScheduleViewStyle) {
+                ensureAdapters()
+                (recycler as com.lagradost.cloudstream3.ui.AutofitRecyclerView).spanCount =
+                    if (style == ScheduleViewStyle.GRID) requireContext().getSpanCount() else 1
+                val adapter = if (style == ScheduleViewStyle.GRID) gridAdapter else cardAdapter
+                if (recycler.adapter !== adapter) recycler.adapter = adapter
+                when (adapter) {
+                    is ScheduleCardAdapter -> adapter.submitList(items)
+                    is SearchAdapter -> adapter.submitList(items.map { it.toSearchResponse() })
+                }
+            }
         }
+
+        override fun getItemCount(): Int = DAY_ORDER.size
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DayHolder {
+            val view = LayoutInflater.from(parent.context)
+                .inflate(R.layout.item_schedule_day_page, parent, false)
+            return DayHolder(view)
+        }
+
+        override fun onBindViewHolder(holder: DayHolder, position: Int) {
+            holder.recycler.tag = holder
+            holder.feed(dayItems(DAY_ORDER[position]), currentStyle)
+        }
+    }
+
+    /** Selects [day] by checking its pill — reuses the existing listener path. */
+    private fun selectDay(day: DayOfWeek) {
+        dayPillMap[day]?.isChecked = true
     }
 
     private fun navigateToResultName(name: String?) {
@@ -512,6 +497,11 @@ class ScheduleFragment : Fragment() {
 
     companion object {
         const val TAG = "SCHEDULE_LOGS"
+
+        val DAY_ORDER = listOf(
+            DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
+            DayOfWeek.THURSDAY, DayOfWeek.FRIDAY, DayOfWeek.SATURDAY, DayOfWeek.SUNDAY
+        )
 
         fun shortUrl(url: String?): String {
             if (url.isNullOrBlank()) return "∅"
